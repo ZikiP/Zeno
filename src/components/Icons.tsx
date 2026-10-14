@@ -123,3 +123,31 @@ export const IconExport = ({ size = 18 }: P) => (
     <path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
   </svg>
 );
+
+export const IconChevronLeft = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M15 5l-7 7 7 7" />
+  </svg>
+);
+
+export const IconChevronRight = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+/** 双页 —— 两个并排的方框 */
+export const IconDouble = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <rect x="2" y="5" width="8.5" height="14" rx="1.5" />
+    <rect x="13.5" y="5" width="8.5" height="14" rx="1.5" />
+  </svg>
+);
+
+/** 放大镜 */
+export const IconZoom = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="10.5" cy="10.5" r="6.5" />
+    <path d="M15.5 15.5L21 21M8 10.5h5M10.5 8v5" />
+  </svg>
+);
