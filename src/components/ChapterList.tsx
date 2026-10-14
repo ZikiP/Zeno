@@ -49,10 +49,27 @@ export default function ChapterList({
       <div className="chapters">
         {visible.map((ch) => {
           const hit = cached[ch.id];
+          /*
+           * 把前后章节 id 一起带进阅读器。
+           * 路由 state 传不过刷新（刷新就没了），所以同时写进 URL 查询参数 ——
+           * 阅读器读不到 state 时还能从 query 兜底。
+           */
+          const posInOrdered = ordered.indexOf(ch);
+          const prev = posInOrdered > 0 ? ordered[posInOrdered - 1] : undefined;
+          const next =
+            posInOrdered >= 0 && posInOrdered < ordered.length - 1
+              ? ordered[posInOrdered + 1]
+              : undefined;
+
+          const query = new URLSearchParams();
+          if (prev) query.set('p', prev.id);
+          if (next) query.set('n', next.id);
+          const qs = query.toString();
+
           return (
             <Link
               key={ch.id}
-              to={`/read/${pluginId}/${slug}/${ch.id}`}
+              to={`/read/${pluginId}/${slug}/${ch.id}${qs ? `?${qs}` : ''}`}
               className="chapter-row"
             >
               <span className="chapter-row__name">{ch.title}</span>
