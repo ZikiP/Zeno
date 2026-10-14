@@ -25,8 +25,14 @@ export const SITE = {
   proxy: '/api/proxy',
 } as const;
 
-/** 把上游地址包进代理 */
+/**
+ * 把上游地址包进代理。
+ *
+ * 浏览器环境走代理（站点无 CORS 头，直连必被拦）；
+ * Node 环境（探针脚本）直连 —— 那边没有 CORS 限制，也不需要代理。
+ */
 export function proxied(url: string): string {
+  if (typeof window === 'undefined') return url;
   return `${SITE.proxy}?url=${encodeURIComponent(url)}`;
 }
 
@@ -99,10 +105,13 @@ async function fetchHtml(url: string, timeoutMs = 20000): Promise<string> {
   try {
     const res = await fetch(proxied(url), {
       headers: {
+        // Node 端（探针）直连，需要伪装 UA；浏览器端设了也无效，且代理已带
+        'User-Agent': MOBILE_UA,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
       },
       signal: ctrl.signal,
+      redirect: 'follow',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} — ${url}`);
     return decodeEntities(await res.text());
