@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getChapter } from '@/site/engine';
 import { cacheChapterImages, getCachedChapter, getShelf, savePosition } from '@/store/db';
-import { useSite } from '@/store/SiteContext';
+import { usePlugin } from '@/store/PluginContext';
 import { IconBack, IconGrid, IconList, IconSettings } from '@/components/Icons';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
@@ -10,7 +10,7 @@ type Mode = 'scroll' | 'paged';
 
 export default function ReaderPage({ slug, chapterId }: { slug: string; chapterId: string }) {
   const nav = useNavigate();
-  const { site } = useSite();
+  const { plugin } = usePlugin();
 
   const [images, setImages] = useState<string[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -26,7 +26,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const saveTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    if (!site) return;
+    if (!plugin?.meta.id) return;
     let cancelled = false;
 
     (async () => {
@@ -35,7 +35,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
       setPage(0);
 
       try {
-        const cached = await getCachedChapter(site.id, slug, chapterId);
+        const cached = await getCachedChapter(plugin.meta.id, slug, chapterId);
         if (cancelled) return;
 
         if (cached) {
@@ -45,7 +45,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         }
 
         setFromCache(false);
-        const result = await getChapter(site, slug, chapterId);
+        const result = await getChapter(plugin, slug, chapterId);
         if (cancelled) return;
 
         if (result.images.length === 0) {
@@ -55,7 +55,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
 
         setImages(result.images);
         // 后台静默缓存，不阻塞阅读
-        void cacheChapterImages(site.id, slug, chapterId, result.images);
+        void cacheChapterImages(plugin.meta.id, slug, chapterId, result.images);
       } catch (e) {
         if (!cancelled) setErr((e as Error).message);
       }
@@ -64,7 +64,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     return () => {
       cancelled = true;
     };
-  }, [site, slug, chapterId]);
+  }, [plugin, slug, chapterId]);
 
   const switchMode = (m: Mode) => {
     setMode(m);
@@ -74,13 +74,13 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
 
   const record = useCallback(
     (pos: number) => {
-      if (!site) return;
+      if (!plugin?.meta.id) return;
       window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
-        void savePosition(site.id, slug, chapterId, pos);
+        void savePosition(plugin.meta.id, slug, chapterId, pos);
       }, 600);
     },
-    [site, slug, chapterId],
+    [plugin, slug, chapterId],
   );
 
   const onScroll = useCallback(() => {
@@ -117,9 +117,9 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   /* 恢复上次阅读位置 */
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !site || mode !== 'scroll' || !images) return;
+    if (!el || !plugin || mode !== 'scroll' || !images) return;
     (async () => {
-      const entry = (await getShelf(site.id)).find((s) => s.slug === slug);
+      const entry = (await getShelf(plugin.meta.id)).find((s) => s.slug === slug);
       const pct = entry?.positions?.[chapterId];
       if (pct && pct > 2 && pct < 98) {
         requestAnimationFrame(() => {
@@ -127,7 +127,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         });
       }
     })();
-  }, [images, mode, site, slug, chapterId]);
+  }, [images, mode, plugin, slug, chapterId]);
 
   const current = images?.[page];
 

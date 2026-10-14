@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getChapter, getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import {
   addToShelf,
   cacheChapterImages,
-  deleteCachedBySiteAndSlug,
+  deleteCachedByPluginAndSlug,
   formatBytes,
   getCachedChapter,
   isInShelf,
   listCachedChapters,
   removeFromShelf,
 } from '@/store/db';
-import { useSite } from '@/store/SiteContext';
+import { usePlugin } from '@/store/PluginContext';
 import { IconBack, IconCheck, IconDownload, IconSettings, IconShelf } from '@/components/Icons';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
@@ -20,7 +20,7 @@ type CachedMap = Record<string, { bytes: number }>;
 export default function ComicPage() {
   const { slug = '' } = useParams();
   const nav = useNavigate();
-  const { site } = useSite();
+  const { plugin } = usePlugin();
 
   const [comic, setComic] = useState<Comic | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -31,13 +31,13 @@ export default function ComicPage() {
   const [showSettings, setShowSettings] = useState(false);
 
   const load = useCallback(async () => {
-    if (!site) return;
+    if (!plugin?.meta.id) return;
     setErr(null);
     try {
       const [{ comic: c, chapters: ch }, inShelf, cacheList] = await Promise.all([
-        getComic(site, slug),
-        isInShelf(site.id, slug),
-        listCachedChapters(site.id, slug),
+        getComic(plugin, slug),
+        isInShelf(plugin.meta.id, slug),
+        listCachedChapters(plugin.meta.id, slug),
       ]);
       setComic(c);
       setChapters(ch);
@@ -48,26 +48,26 @@ export default function ComicPage() {
     } catch (e) {
       setErr((e as Error).message);
     }
-  }, [site, slug]);
+  }, [plugin, slug]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const toggleShelf = async () => {
-    if (!site || !comic) return;
+    if (!plugin || !comic) return;
     if (onShelf) {
-      await removeFromShelf(site.id, slug);
+      await removeFromShelf(plugin.meta.id, slug);
       setOnShelf(false);
     } else {
-      await addToShelf(site.id, { slug, title: comic.title, cover: comic.cover });
+      await addToShelf(plugin.meta.id, { slug, title: comic.title, cover: comic.cover });
       setOnShelf(true);
     }
   };
 
   /** 离线下载整部：逐章抓取并缓存 */
   const cacheAll = async () => {
-    if (!site) return;
+    if (!plugin?.meta.id) return;
     const targets = chapters.filter((c) => !cached[c.id]);
     if (targets.length === 0) {
       alert('所有章节都已缓存');
@@ -81,9 +81,9 @@ export default function ComicPage() {
     for (let i = 0; i < targets.length; i++) {
       const ch = targets[i];
       try {
-        const existing = await getCachedChapter(site.id, slug, ch.id);
-        const images = existing?.images ?? (await getChapter(site, slug, ch.id)).images;
-        const bytes = await cacheChapterImages(site.id, slug, ch.id, images, (p) =>
+        const existing = await getCachedChapter(plugin.meta.id, slug, ch.id);
+        const images = existing?.images ?? (await getChapter(plugin, slug, ch.id)).images;
+        const bytes = await cacheChapterImages(plugin.meta.id, slug, ch.id, images, (p) =>
           setCaching({ done: i + p.done / p.total, total }),
         );
         setCached((m) => ({ ...m, [ch.id]: { bytes } }));
@@ -98,14 +98,14 @@ export default function ComicPage() {
 
   const cachedBytes = Object.values(cached).reduce((s, v) => s + v.bytes, 0);
 
-  if (!site) {
+  if (!plugin) {
     return (
       <>
         <header className="topbar">
           <div className="topbar__title">未配置站点</div>
         </header>
         <div className="empty">
-          <div>还没有可用的内容源</div>
+          <div>还还没有已安装的插件</div>
           <Link to="/settings" className="btn btn--sm">
             去添加站点
           </Link>
@@ -142,8 +142,8 @@ export default function ComicPage() {
                   {comic.finished !== undefined && (
                     <span className="tag">{comic.finished ? '已完结' : '连载中'}</span>
                   )}
-                  {comic.tags?.map((t) => (
-                    <span className="tag" key={t}>
+                  {comic.tags?.map((t, i) => (
+                    <span className="tag" key={`${t}-${i}`}>
                       {t}
                     </span>
                   ))}
@@ -192,7 +192,11 @@ export default function ComicPage() {
                 {chapters.map((ch) => {
                   const isCached = cached[ch.id];
                   return (
-                    <Link key={ch.id} to={`/read/${ch.id}`} className="chapter-row">
+                    <Link
+                      key={ch.id}
+                      to={`/read/${plugin.meta.id}/${slug}/${ch.id}`}
+                      className="chapter-row"
+                    >
                       <span className="chapter-row__name">{ch.title}</span>
                       {isCached && (
                         <span className="chapter-row__badge badge-cache">
@@ -212,8 +216,8 @@ export default function ComicPage() {
         <Sheet title="阅读设置" onClose={() => setShowSettings(false)}>
           <div className="opt-row">
             <div>
-              <div className="opt-row__label">当前站点</div>
-              <div className="opt-row__hint">{site.name}</div>
+              <div className="opt-row__label">当前插件</div>
+              <div className="opt-row__hint">{plugin.meta.name}</div>
             </div>
             <Link to="/settings" className="btn btn--ghost btn--sm">
               切换
@@ -228,8 +232,8 @@ export default function ComicPage() {
               className="btn btn--ghost btn--sm"
               onClick={async () => {
                 if (confirm(`移除《${comic.title}》并清除其离线缓存？`)) {
-                  await deleteCachedBySiteAndSlug(site.id, slug);
-                  await removeFromShelf(site.id, slug);
+                  await deleteCachedByPluginAndSlug(plugin.meta.id, slug);
+                  await removeFromShelf(plugin.meta.id, slug);
                   nav('/shelf');
                 }
               }}

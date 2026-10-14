@@ -13,33 +13,114 @@
 ## 这是什么
 
 一个阅读器框架：书架、搜索、离线缓存、双模式阅读（竖滚 / 翻页），
-覆盖手机、平板、Web，界面无广告无追踪。
+覆盖手机、平板、Web，支持浅色 / 深色 / 跟随系统。
 
-**Zeno 不内置任何站点。** 站点地址与解析规则由使用者在应用内填写，
-只保存在本地浏览器，仓库里不出现任何具体内容源。
+**Zeno 不内置任何内容源。** 内容以「插件」形式提供 —— 一份可导入导出的 JSON，
+说明去哪里、页面长什么样、怎么解析。你可以从别人那里导入，
+也可以把自己改好的导出分享。
 
-## 为什么这样设计
+## 为什么做成插件
 
-站点改版是这类工具的常态。把站点信息做成配置而非代码，有三个好处：
-
-1. **站点改版不用等发版** —— 改设置里的正则即可
-2. **仓库不指向任何内容源** —— 作者与内容来源无关
-3. **隐私** —— 你的浏览记录只在你自己的设备上
+| 好处 | 说明 |
+|---|---|
+| 站点改版不用等发版 | 改插件 JSON 即可，不动代码 |
+| 仓库与内容源无关 | 项目不附带、不推荐任何内容源 |
+| 可分享 | 一个人写好规则，别人一键导入 |
+| 隐私 | 插件只存在你自己的浏览器里 |
 
 ## 运行
 
 ```bash
 npm install
 
-# 终端 1：CORS 代理（必须先起，并指定允许的站点域名）
+# 终端 1：CORS 代理（必须先起，并指定允许的域名）
 ALLOWED_HOSTS=example.com,cdn.example.com node server/proxy.mjs
 
 # 终端 2：开发
 npm run dev
 ```
 
-打开后进入「设置 → 添加站点」，填写站点信息与解析规则，
-点「测试解析」确认能抓到内容，保存并启用。
+进「设置 → 内容源插件 → 导入」，选一个 `.json` 插件文件。
+导入后会自动设为当前插件，可以点「测试解析」验证规则是否匹配目标站点。
+
+## 插件格式
+
+插件是 `zeno-plugin@1` 格式的 JSON：
+
+```json
+{
+  "format": "zeno-plugin@1",
+  "meta": {
+    "id": "example",
+    "name": "示例站点",
+    "description": "一句话说明",
+    "author": "你的名字",
+    "version": "1.0.0",
+    "icon": "📚"
+  },
+  "entry": "https://example.com",
+  "chapterHost": "https://example.com",
+  "urls": {
+    "search": "/search?q={q}",
+    "classify": "/classify?region={region}&state={state}",
+    "detail": "/comic/{slug}",
+    "chapter": "/comic/chapter/{slug}/{id}.html"
+  },
+  "parse": {
+    "card": "<div class=\"comic-card",
+    "slugFrom": "href=\"/comic/([^\"?]+)\"",
+    "title": { "attr": "title" },
+    "cover": "https?://[^\"'\\s]*?/cover/[^\"'\\s?]+\\.jpg",
+    "chapterItem": "class=\"chapter-item\"",
+    "chapterIdFrom": "/(\\d+)_(\\d+)\\.html",
+    "imageAttr": "data-src"
+  },
+  "imageHosts": ["cdn.example.com"],
+  "headers": {}
+}
+```
+
+### 字段说明
+
+| 字段 | 说明 |
+|---|---|
+| `entry` | 入口域名 |
+| `chapterHost` | 章节页域名，留空则同入口 |
+| `urls.*` | URL 模板。`{q}` 搜索词、`{slug}` 漫画标识、`{id}` 章节 id |
+| `parse.card` | **字符串切分点，必须填标签开头** |
+| `parse.slugFrom` | 提取漫画标识，需一个捕获组 |
+| `parse.title` | `{attr:"title"}` 按属性，或 `{tag:"h3"}` 按标签 |
+| `parse.cover` | 提取封面地址的正则 |
+| `parse.chapterItem` | 章节条目在 `<a>` 上的 class |
+| `parse.chapterIdFrom` | 提取章节 id，需**两个**捕获组：分区、序号 |
+| `parse.imageAttr` | 图片真实地址所在的属性名 |
+| `imageHosts` | 图片 CDN 域名，用于代理白名单提示与离线缓存 |
+
+### 写插件时的四个坑
+
+1. **`card` 不能填 CSS 选择器。** 它是字符串切分点。填 `.comic-card` 会把
+   `<style>` 里同名的 CSS 规则一起切进来。必须填 `<div class="comic-card`。
+
+2. **图片地址不一定在 `src`。** 用前端框架的站点常把真实地址放在
+   `data-src` / `data-original`，而 `src` 里是绑定符号或占位图。
+   打开开发者工具看真实地址在哪个属性。
+
+3. **`chapterIdFrom` 要两个捕获组。** 章节 URL 有两种形态：
+   - 路径式 `/chapter/{slug}/0_562.html` → `/(\d+)_(\d+)\.html`
+   - 参数式 `/page_direct?section_slot=0&chapter_slot=562` → `section_slot=(\d+)&chapter_slot=(\d+)`
+
+4. **AMP 站点会编码 `/`。** 抓到的 HTML 里路径可能是 `&#x2F;`，
+   本项目已自动解码，不用额外处理。
+
+## 验证插件
+
+写好插件后可以在命令行验证，不用开界面：
+
+```bash
+node --import tsx scripts/verify-plugin.ts 你的插件.json
+```
+
+会依次验证格式、列表、搜索、详情、章节、图片，并输出每一步的实测数量。
 
 ## 生产部署
 
@@ -55,43 +136,17 @@ npm run dev
 | `MAX_CONCURRENT` | 6 | 上游并发上限，过高会被 CDN 限流导致图片裂开 |
 
 白名单支持子域名：填 `example.com` 会放行 `cdn.example.com`。
+插件编辑器会自动算出需要放行的域名并显示。
 
-## 如何配置一个站点
+## 主题
 
-在「设置 → 添加站点」里填四类信息：
-
-**URL 模板** —— `{变量}` 会被替换
-
-| 字段 | 模板示例 |
+| 模式 | 行为 |
 |---|---|
-| 搜索 | `/search?q={q}` |
-| 分类 | `/classify?region={region}&state={state}` |
-| 详情 | `/comic/{slug}` |
-| 章节 | `/comic/chapter/{slug}/{id}.html` |
+| 浅色 | `<html data-theme="light">` |
+| 深色 | `<html data-theme="dark">` |
+| 跟随系统 | 不写属性，由 `prefers-color-scheme` 决定，**实时响应系统切换** |
 
-**解析规则** —— 正则与选择器
-
-| 字段 | 说明 | 示例 |
-|---|---|---|
-| 卡片起始片段 | 切分每部漫画的标记，**必须是标签开头** | `<div class="comic-card` |
-| slug 提取正则 | 需含一个捕获组 | `href="/comic/([^"]+)"` |
-| 标题来源 | 属性名或标签名 | `title` / `h3` |
-| 封面提取正则 | 从卡片内提取图片地址 | `https?://[^"'\s]*?/cover/[^"'\s?]+\.jpg` |
-| 章节条目标识 | 用于定位章节链接 | `class="chapter-item"` |
-| 图片真实地址属性 | **见下方注意事项** | `data-src` |
-
-### 三个容易踩的坑
-
-1. **卡片起始片段不能用 CSS 选择器**，它是「字符串切分点」。
-   如果填 `.comic-card`，会连页面 `<style>` 里的 CSS 规则一起切进去。
-   必须填 `<div class="comic-card` 这样的标签开头。
-
-2. **图片属性不一定是 `src`**。很多用前端框架的站点，
-   `src` 里是绑定符号或运行时占位值，真实地址在 `data-src`、
-   `data-original` 之类的属性上。打开开发者工具看真实地址在哪个属性里。
-
-3. **AMP 站点会编码 `/`**。抓到的 HTML 里图片路径可能是 `&#x2F;`，
-   本项目已自动解码，不用额外处理。
+新增主题只需在 `src/styles.css` 里加一组 CSS 变量，组件不用改。
 
 ## 技术栈
 
@@ -107,23 +162,27 @@ npm run dev
 
 ```
 src/
-  site/types.ts       站点配置类型定义
+  site/types.ts       插件格式定义与校验
   site/engine.ts      通用抓取与解析引擎（不含任何站点信息）
-  store/db.ts         IndexedDB：站点配置、书架、阅读进度、离线缓存
-  store/SiteContext   当前站点上下文
+  store/db.ts         IndexedDB：插件、书架、阅读进度、离线缓存
+  store/PluginContext 当前插件上下文
+  hooks/useTheme.ts   主题切换
   pages/              书架 / 发现 / 详情 / 阅读器 / 设置
 server/proxy.mjs      CORS 代理（域名白名单 + 并发限流 + 重试）
-scripts/gen-icons.ts  从 SVG 生成 PWA 图标
+scripts/
+  gen-icons.ts        从 SVG 生成 PWA 图标
+  verify-plugin.ts    插件命令行验证
 ```
 
 ## 隐私与合规
 
 请在使用前阅读 [免责声明](DISCLAIMER.md)。要点：
 
-- 仓库不含任何内容、图片或站点配置
+- 仓库不含任何内容、图片或默认插件
 - 通过本工具访问内容产生的责任由使用者自行承担
 - 请遵守目标站点的服务条款与当地法律法规
 - 若某站点条款禁止自动化访问，请勿使用本工具访问它
+- 导入他人插件即表示你自行判断并接受其内容与用途
 
 ## 开发
 
