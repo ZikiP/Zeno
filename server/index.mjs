@@ -26,18 +26,24 @@
  *   ALLOWED_HOSTS   抓取代理的白名单，逗号分隔。不设置则拒绝一切
  *   MAX_CONCURRENT  上游并发上限，默认 6
  *   SYNC_TOKEN      可选。设置后同步 API 需要 Bearer token
+ *   ALLOW_PRIVATE_HOSTS
+ *                   可选。设 1 时放行解析到内网/回环的目标，仅供本地开发与测试。
+ *                   默认关闭 —— 生产环境不该开。
+ *   ZENO_BROWSER    可选。fetch.mode="browser" 用的浏览器可执行文件路径；
+ *                   不设则自动探测 ms-playwright 缓存 / Edge / Chrome。
  */
 import { createServer } from 'node:http';
-import { Readable } from 'node:stream';
 import { resolve } from 'node:path';
 
 import { openDb, pull, saveClientState, stats, listClients, allowedHostsFromPlugins } from './db.mjs';
 import { pushAll, removePlugin } from './merge.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
+import { handleProxy } from './proxy.mjs';
 
 const PORT = Number(process.env.PORT || 8788);
 const DIST_DIR = resolve(process.env.DIST_DIR || './dist');
 const SYNC_TOKEN = process.env.SYNC_TOKEN || '';
+const ALLOW_PRIVATE_HOSTS = process.env.ALLOW_PRIVATE_HOSTS === '1';
 
 /* ── 抓取代理配置 ─────────────────────────────────── */
 
@@ -208,95 +214,8 @@ const server = createServer(async (req, res) => {
 
     /* ── 抓取代理 ── */
     if (path === '/api/proxy') {
-      const target = url.searchParams.get('url');
-      if (!target) return json(res, 400, { error: 'missing url' });
-
-      let parsed;
-      try {
-        parsed = new URL(target);
-      } catch {
-        return json(res, 400, { error: 'bad url' });
-      }
-
-      const host = parsed.hostname.toLowerCase();
-      // 白名单：精确相等或子域名。防止被当成开放代理
-      const ok = [...allowed].some((a) => host === a || host.endsWith(`.${a}`));
-      if (!ok) {
-        json(res, 403, {
-          error: 'host not allowed',
-          host,
-          hint: '装上对应内容的插件后会自动放行；也可以设 ALLOWED_HOSTS 手动补充',
-          allowed: [...allowed],
-        });
-        return;
-      }
-
-      await acquire();
-      let released = false;
-      try {
-        let upstream;
-        let lastErr;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            upstream = await fetch(parsed.toString(), {
-              headers: {
-                'User-Agent': MOBILE_UA,
-                Accept: req.headers.accept ?? '*/*',
-                'Accept-Language': 'zh-TW,zh;q=0.9',
-              },
-              redirect: 'follow',
-            });
-            if (upstream.ok || upstream.status < 500) break;
-            lastErr = new Error(`HTTP ${upstream.status}`);
-          } catch (e) {
-            lastErr = e;
-          }
-          await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
-        }
-        if (!upstream) throw lastErr ?? new Error('upstream unavailable');
-
-        const headers = {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
-          'Access-Control-Allow-Headers': '*',
-          'Cache-Control': 'public, max-age=600',
-        };
-        const ct = upstream.headers.get('content-type');
-        if (ct) headers['Content-Type'] = ct;
-
-        res.writeHead(upstream.status, headers);
-        if (!upstream.body || req.method === 'HEAD') {
-          res.end();
-          return;
-        }
-
-        /*
-         * 流式转发必须挂 error 监听。
-         * CDN 中途断连（UND_ERR_SOCKET）时 pipe 会抛 error，
-         * Node 默认对 Readable 的 error 做 throw，没监听就直接终止进程。
-         * 实测踩过：代理跑着跑着整个消失，所有请求变 502。
-         */
-        const src = Readable.fromWeb(upstream.body);
-        src.on('error', (err) => {
-          console.warn(`[zeno] upstream aborted: ${err.message}`);
-          if (!res.headersSent) res.writeHead(502).end('upstream aborted');
-          else res.end();
-          if (!released) {
-            released = true;
-            release();
-          }
-        });
-        res.on('close', () => {
-          if (!res.writableEnded) src.destroy();
-        });
-        res.on('error', () => src.destroy());
-        src.pipe(res);
-      } catch (e) {
-        res.writeHead(502).end(`upstream failed: ${e.message}`);
-      } finally {
-        released = true;
-        release();
-      }
+      const ctx = { allowed, acquire, release, json, mobileUa: MOBILE_UA, allowPrivateHosts: ALLOW_PRIVATE_HOSTS };
+      await handleProxy(req, res, url, ctx);
       return;
     }
 

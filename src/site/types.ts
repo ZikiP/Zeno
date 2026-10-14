@@ -107,6 +107,25 @@ export interface Plugin {
    */
   maxChapterPages?: number;
 
+  /**
+   * 取源方式。
+   *
+   * - `fetch`（默认，省略即此）：服务端直接 HTTP 取 HTML。快，但拿不到需要
+   *   执行 JS 才出内容的页面 —— 前端渲染的站点、以及带 JS 质询网关的站点都会失败。
+   * - `browser`：服务端用一个真的浏览器引擎渲染后再取 HTML。慢（1–3s/页）、
+   *   占内存（热了 300–500MB），但能拿到 JS 渲染后的结果。
+   *
+   * 只作用于 HTML 文档（列表 / 详情 / 章节页）。**图片永远走 fetch** ——
+   * `<img>` 用不上渲染结果，给每张图开一次浏览器也不合理。
+   */
+  fetch?: {
+    mode?: 'fetch' | 'browser';
+    /** browser 模式：渲染后等这个 CSS 选择器出现再取 HTML，缺省等 load */
+    waitFor?: string;
+    /** 单次取源上限，默认 20000ms */
+    timeoutMs?: number;
+  };
+
   /** 请求头。多数站点对非浏览器 UA 会返回降级内容或拒绝。 */
   headers?: Record<string, string>;
 }
@@ -150,10 +169,10 @@ export function validatePlugin(p: unknown): string[] {
   if (!pl.meta?.name) errs.push('缺少 meta.name');
 
   try {
-    const u = new URL(String(pl.entry ?? ''));
-    if (u.protocol !== 'https:' && u.hostname !== 'localhost') {
-      errs.push('entry 建议使用 https');
-    }
+    new URL(String(pl.entry ?? ''));
+    // 这里原本把「非 https」也 push 进错误列表，但调用方把非空数组一律当
+    // 阻断处理 —— 于是"建议使用 https"变成了硬拒绝，本地假源站（http://127.0.0.1）
+    // 的插件根本导不进来。建议归建议，校验归校验。
   } catch {
     errs.push('entry 不是合法 URL');
   }
@@ -175,6 +194,25 @@ export function validatePlugin(p: unknown): string[] {
     }
   }
   if (!pl.parse?.imageAttr) errs.push('缺少 parse.imageAttr（图片属性名）');
+
+  if (pl.fetch) {
+    if (typeof pl.fetch !== 'object') {
+      errs.push('fetch 应为对象');
+    } else {
+      if (pl.fetch.mode !== undefined && !['fetch', 'browser'].includes(pl.fetch.mode)) {
+        errs.push(`fetch.mode 只能是 "fetch" 或 "browser"，实际为 "${String(pl.fetch.mode)}"`);
+      }
+      if (pl.fetch.waitFor !== undefined && typeof pl.fetch.waitFor !== 'string') {
+        errs.push('fetch.waitFor 应为 CSS 选择器字符串');
+      }
+      if (pl.fetch.timeoutMs !== undefined) {
+        const t = pl.fetch.timeoutMs;
+        if (typeof t !== 'number' || t < 1000 || t > 120_000) {
+          errs.push('fetch.timeoutMs 应为 1000–120000 之间的毫秒数');
+        }
+      }
+    }
+  }
 
   return errs;
 }

@@ -15,18 +15,18 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE_PORT = Number(process.env.TEST_PORT_BASE || 8899);
 
-const ALL_SUITES = ['test-sync.mjs', 'test-multidevice.mjs', 'test-whitelist.mjs'];
+const ALL_SUITES = ['test-sync.mjs', 'test-multidevice.mjs', 'test-whitelist.mjs', 'test-ssrf.mjs'];
 const suites = process.argv.slice(2).length
   ? process.argv.slice(2).map((s) => (s.endsWith('.mjs') ? s : `test-${s}.mjs`))
   : ALL_SUITES;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function startServer(port, dbPath) {
+async function startServer(port, dbPath, extraEnv = {}) {
   const child = spawn(process.execPath, ['server/index.mjs'], {
     cwd: ROOT,
     stdio: 'ignore',
-    env: { ...process.env, PORT: String(port), DB_PATH: dbPath, ALLOWED_HOSTS: '' },
+    env: { ...process.env, PORT: String(port), DB_PATH: dbPath, ALLOWED_HOSTS: '', ...extraEnv },
   });
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 60; i++) {
@@ -63,30 +63,38 @@ async function stopServer(child, dbPath) {
 }
 
 let failed = 0;
+/** 自己管理服务端生命周期的套件（需要特殊 env，跑器再套一层反而干扰） */
+const SELF_HOSTED = new Set(['test-ssrf.mjs']);
+
 for (const [i, suite] of suites.entries()) {
   const port = BASE_PORT + i;
   const dbPath = resolve(tmpdir(), `zeno-test-${port}-${Date.now()}.db`);
   console.log(`\n${'='.repeat(56)}\n${suite}  (port ${port}, 独立临时库)\n${'='.repeat(56)}`);
 
   let srv;
-  try {
-    srv = await startServer(port, dbPath);
-  } catch (e) {
-    console.error(`  [X] 起不来：${e.message}`);
-    failed++;
-    continue;
+  if (!SELF_HOSTED.has(suite)) {
+    try {
+      // 白名单套件的假源站跑在 127.0.0.1，会被 SSRF 防护拦下 —— 那是它在
+      // 生产环境该有的行为，测试里必须显式放行，否则测不到"转发真的发生"。
+      const extra = suite === 'test-whitelist.mjs' ? { ALLOW_PRIVATE_HOSTS: '1' } : {};
+      srv = await startServer(port, dbPath, extra);
+    } catch (e) {
+      console.error(`  [X] 起不来：${e.message}`);
+      failed++;
+      continue;
+    }
   }
 
   const code = await new Promise((res) => {
     const p = spawn(process.execPath, [`scripts/${suite}`], {
       cwd: ROOT,
       stdio: 'inherit',
-      env: { ...process.env, BASE: srv.base },
+      env: { ...process.env, ...(srv ? { BASE: srv.base } : {}) },
     });
     p.on('exit', (c) => res(c ?? 1));
   });
 
-  await stopServer(srv.child, dbPath);
+  if (srv) await stopServer(srv.child, dbPath);
   if (code !== 0) {
     console.log(`  [X] ${suite} 退出码 ${code}`);
     failed++;

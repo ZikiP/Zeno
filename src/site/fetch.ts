@@ -17,10 +17,24 @@ const DEFAULT_UA =
  *
  * 浏览器环境走代理（目标站点通常无 CORS 头，直连必被拦）；
  * Node 环境直连（探针脚本在那边跑，没有跨域限制）。
+ *
+ * mode='browser' 让服务端用浏览器引擎渲染后再回 HTML。只有取文档时才传；
+ * 图片走 coverUrl / 章节图片列表，永远是默认的 fetch。
+ *
+ * waitFor 必须一起传 —— 服务端渲染时要等这个选择器出现，否则只能靠
+ * waitForLoadState('load') 赌注入时机，内容稍慢一点就抓回空壳。
+ * （实测过：同一份插件，一次拿到 10 张卡片，一次 0 张，就是这个原因。）
  */
-export function proxied(url: string): string {
+export function proxied(
+  url: string,
+  mode: 'fetch' | 'browser' = 'fetch',
+  waitFor?: string,
+): string {
   if (typeof window === 'undefined') return url;
-  return `${PROXY_PATH}?url=${encodeURIComponent(url)}`;
+  if (mode !== 'browser') return `${PROXY_PATH}?url=${encodeURIComponent(url)}`;
+  let out = `${PROXY_PATH}?url=${encodeURIComponent(url)}&mode=browser`;
+  if (waitFor) out += `&waitFor=${encodeURIComponent(waitFor)}`;
+  return out;
 }
 
 /** 封面地址：拼 CDN 的尺寸参数后过代理 */
@@ -63,33 +77,41 @@ export function escapeRe(s: string): string {
  *
  * 重试是必需的：实测同一 URL 连测 4 次都 200，但并发放几个请求时
  * 会偶发 `fetch failed`（站点掐短时间多连接）。3 次尝试足够覆盖。
+ *
+ * browser 模式只试一次 —— 一次渲染就要 1–3 秒，而它失败的原因（页面确实没
+ * 渲染出内容 / 被质询挡住）重试也不会变，三次串起来只是把一次卡死放大三倍。
  */
 export async function fetchText(
   plugin: Plugin,
   url: string,
-  timeoutMs = 20_000,
+  timeoutMs = plugin.fetch?.timeoutMs ?? 20_000,
 ): Promise<string> {
   let lastErr: unknown;
+  const mode = plugin.fetch?.mode ?? 'fetch';
+  const attempts = mode === 'browser' ? 1 : 3;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(proxied(url), {
-        headers: {
-          // Node 端（探针）直连，需要伪装 UA；浏览器端设了也无效，代理已带
-          'User-Agent': plugin.headers?.['User-Agent'] ?? DEFAULT_UA,
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': plugin.headers?.['Accept-Language'] ?? 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
+      const res = await fetch(
+        proxied(url, mode, mode === 'browser' ? plugin.fetch?.waitFor : undefined),
+        {
+          headers: {
+            // Node 端（探针）直连，需要伪装 UA；浏览器端设了也无效，代理已带
+            'User-Agent': plugin.headers?.['User-Agent'] ?? DEFAULT_UA,
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': plugin.headers?.['Accept-Language'] ?? 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
+          },
+          signal: ctrl.signal,
+          redirect: 'follow',
         },
-        signal: ctrl.signal,
-        redirect: 'follow',
-      });
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return decodeEntities(await res.text());
     } catch (e) {
       lastErr = e;
-      if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
     } finally {
       clearTimeout(timer);
     }
