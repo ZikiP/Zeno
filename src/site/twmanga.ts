@@ -99,25 +99,41 @@ function decodeEntities(s: string): string {
 const MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
+/**
+ * 取上游页面 HTML。
+ *
+ * 重试说明：Node 直连时偶发 `fetch failed`（站点对短时间多连接会掐），
+ * 4 次连测同一 URL 都是 200，所以是瞬时问题 —— 加退避重试即可。
+ * 浏览器端经代理，代理内部已有重试，这里再重试一层作为兜底。
+ */
 async function fetchHtml(url: string, timeoutMs = 20000): Promise<string> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(proxied(url), {
-      headers: {
-        // Node 端（探针）直连，需要伪装 UA；浏览器端设了也无效，且代理已带
-        'User-Agent': MOBILE_UA,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
-      },
-      signal: ctrl.signal,
-      redirect: 'follow',
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} — ${url}`);
-    return decodeEntities(await res.text());
-  } finally {
-    clearTimeout(timer);
+  let lastErr: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(proxied(url), {
+        headers: {
+          // Node 端（探针）直连，需要伪装 UA；浏览器端设了也无效，且代理已带
+          'User-Agent': MOBILE_UA,
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
+        },
+        signal: ctrl.signal,
+        redirect: 'follow',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return decodeEntities(await res.text());
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  throw new Error(`${(lastErr as Error)?.message ?? 'unknown'} — ${url}`);
 }
 
 /** 去掉 HTML 标签并压缩空白，用于把富文本简介变成纯文本 */
