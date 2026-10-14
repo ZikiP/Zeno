@@ -4,7 +4,7 @@
 
 **干净的网页阅读器。跨端 PWA，内容源由你自行配置。**
 
-[MIT](LICENSE) · [免责声明](DISCLAIMER.md)
+[MIT](LICENSE) · [免责声明](DISCLAIMER.md) · [编码规范](CODE-STYLE.md)
 
 </div>
 
