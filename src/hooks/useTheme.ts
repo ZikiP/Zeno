@@ -7,6 +7,7 @@
  * 这样「跟随」能实时响应系统切换，不要 JS 监听。
  */
 import { useCallback, useEffect, useState } from 'react';
+import { onDataChange } from '@/store/dataEvents';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -50,6 +51,20 @@ export function useTheme() {
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, [mode]);
+
+  /*
+   * 同步会把别处的主题设置拉回来写进 localStorage。
+   * 不重新读的话，手机上刚同步完还得刷新页面才生效。
+   *
+   * 这个 hook 会被多个组件调用（App 层、设置页、设置面板），
+   * 各自都会订阅 —— 幂等，多订阅几次没有副作用。
+   */
+  useEffect(() => {
+    return onDataChange(() => {
+      const next = readMode();
+      setMode((cur) => (cur === next ? cur : next));
+    });
+  }, []);
 
   const setTheme = useCallback((m: ThemeMode) => {
     localStorage.setItem(KEY, m);

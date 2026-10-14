@@ -8,6 +8,7 @@
 } from 'react';
 import { useLocation } from 'react-router-dom';
 import { getActivePlugin } from '@/store/plugins';
+import { onDataChange } from '@/store/dataEvents';
 import type { Plugin } from '@/site/types';
 
 interface PluginCtxValue {
@@ -60,6 +61,9 @@ export function PluginProvider({ children }: { children: ReactNode }) {
     return () => ch.close();
   }, [reload]);
 
+  /* 同步可能带来新插件，或改变「当前插件」。不 reload 的话刚同步完发现页还是空的 */
+  useEffect(() => onDataChange(() => void reload()), [reload]);
+
   return (
     <PluginCtx.Provider value={{ plugin, loading, reload }}>{children}</PluginCtx.Provider>
   );
@@ -67,8 +71,14 @@ export function PluginProvider({ children }: { children: ReactNode }) {
 
 export const usePlugin = () => useContext(PluginCtx);
 
-/** 通知其它标签页：插件变了 */
+/**
+ * 通知其它标签页：插件变了
+ *
+ * 和 dataEvents 同样的问题 —— BroadcastChannel 不向发送方投递，
+ * 但这里发送方通常自己会 setState，所以影响小。不过为一致性两条通道都发。
+ */
 export function notifyPluginChanged() {
+  window.dispatchEvent(new CustomEvent(CHANNEL));
   if (typeof BroadcastChannel === 'undefined') return;
   const ch = new BroadcastChannel(CHANNEL);
   ch.postMessage('changed');

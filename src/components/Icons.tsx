@@ -167,3 +167,13 @@ export const IconBookmark = ({ size = 18, filled }: P & { filled?: boolean }) =>
     <path d="M6 3h12a1 1 0 011 1v17l-7-4-7 4V4a1 1 0 011-1z" />
   </svg>
 );
+
+/** 双向同步箭头 */
+export const IconSync = ({ size = 18 }: P) => (
+  <svg {...base(size)}>
+    <path d="M20 7h-5V2" />
+    <path d="M20 7l-4-4a7 7 0 00-11.5 4.6" />
+    <path d="M4 17h5v5" />
+    <path d="M4 17l4 4a7 7 0 0011.5-4.6" />
+  </svg>
+);

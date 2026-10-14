@@ -30,13 +30,32 @@
 
 ## 运行
 
+### 自托管（多端同步）
+
+一台机器 + Tailscale，手机平板电脑共用一份数据：
+
+```bash
+npm ci && npm run build
+ALLOWED_HOSTS=你的站点域名 node server/index.mjs
+tailscale serve --bg 8788
+```
+
+一个进程同时提供静态文件、同步 API、抓取代理，数据落在 SQLite（Node 内置，无需编译）。
+
+**必须用 `tailscale serve` 拿 HTTPS** —— 直接用 `http://机器名:端口` 也能通，
+但浏览器不认那是安全上下文，Service Worker 不工作，PWA 离线会静默失效。
+
+同步什么、冲突怎么解、Tailscale 常见坑 → **[docs/DEPLOY.md](docs/DEPLOY.md)**
+
+### 仅本地开发
+
 ```bash
 npm install
 
-# 终端 1：CORS 代理（必须先起，并指定允许的域名）
-ALLOWED_HOSTS=example.com,cdn.example.com node server/proxy.mjs
+# 终端 1：抓取代理（解决目标站点 CORS）
+ALLOWED_HOSTS=example.com,cdn.example.com node server/index.mjs
 
-# 终端 2：开发
+# 终端 2：开发（vite 会把 /api 转发给终端 1）
 npm run dev
 ```
 
@@ -196,25 +215,50 @@ node --import tsx scripts/verify-plugin.ts 你的插件.json
 
 ```
 src/
-  site/types.ts       插件格式定义与校验
-  site/engine.ts      通用抓取与解析引擎（不含任何站点信息）
-  store/db.ts         IndexedDB：插件、书架、阅读进度、离线缓存
-  store/PluginContext 当前插件上下文
-  hooks/useTheme.ts   主题切换
-  reader/prefs.ts     阅读偏好（方向/亮度/背景色等）
-  pages/              书架 / 发现 / 全局搜索 / 详情 / 阅读器 / 设置
+  site/
+    types.ts         插件格式定义与校验
+    fetch.ts         请求层（代理包装、实体解码、重试）
+    parse.ts         解析层（卡片、章节、搜索可信度）
+    engine.ts        公开 API，只做编排
+  store/
+    db.ts            IndexedDB 连接与类型
+    plugins.ts       插件
+    shelf.ts         书架与进度
+    chapters.ts      离线缓存 + 章节表缓存
+    bookmarks.ts     书签与笔记
+    dataEvents.ts    数据变更广播
+    useDataVersion.ts 订阅变更（同步后 UI 自动刷新）
+  sync/
+    client.ts        同步管理器（网络、状态、定时）
+    transfer.ts      本地 ⇄ 服务端数据搬运
+    SyncUI.tsx       状态条与设置面板
+  reader/prefs.ts    阅读偏好
+  hooks/useTheme.ts  主题切换
+  pages/             书架 / 发现 / 搜索 / 详情 / 阅读器 / 设置
   components/
-    ChapterList.tsx   章节列表（分批加载 + 携带前后章信息）
-    ChapterDrawer.tsx 阅读器内的章节目录
+    reader/          阅读器专属组件
+    ChapterList.tsx  章节列表（分批加载）
+    ChapterDrawer.tsx 阅读器内章节目录
     BookmarkPanel.tsx 书签与笔记
-    RetryableImage.tsx 带重试的图片组件
-    UI.tsx            通用组件
-    Icons.tsx         内联 SVG 图标
-server/proxy.mjs      CORS 代理（域名白名单 + 并发限流 + 重试）
+    RetryableImage.tsx 带重试的图片
+    UI.tsx / Icons.tsx 通用组件与图标
+server/
+  index.mjs          主服务（静态 + 同步 API + 代理）
+  db.mjs             SQLite schema 与变更日志
+  merge.mjs          合并策略
+  static.mjs         静态文件与 SPA 回退
+docs/DEPLOY.md       自托管与 Tailscale 部署
 scripts/
-  gen-icons.ts        从 SVG 生成 PWA 图标
-  verify-plugin.ts    插件命令行验证
+  gen-icons.ts       生成 PWA 图标
+  verify-plugin.ts   插件命令行验证
+  test-sync.mjs      同步 API 往返测试
+  test-multidevice.mjs 多端同步验证
 ```
+
+## 编码规范
+
+见 [CODE-STYLE.md](CODE-STYLE.md)。核心：**组件 ≤ 250 行，工具/hook ≤ 300 行**，
+判断标准是「一个文件有几件事」而不是行数。
 
 ## 隐私与合规
 

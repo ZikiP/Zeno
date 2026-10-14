@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState, type ReactNode } from 'react';
-import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import ShelfPage from '@/pages/ShelfPage';
 import ExplorePage from '@/pages/ExplorePage';
 import GlobalSearchPage from '@/pages/GlobalSearchPage';
@@ -7,7 +7,10 @@ import ComicPage from '@/pages/ComicPage';
 import ReaderPage from '@/pages/reader/ReaderPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import { PluginProvider, usePlugin } from '@/store/PluginContext';
+import { useTheme } from '@/hooks/useTheme';
 import { OfflineBar } from '@/components/UI';
+import SyncBar from '@/sync/SyncUI';
+import { sync } from '@/sync/client';
 
 function useOnline() {
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
@@ -32,11 +35,28 @@ function RequirePlugin({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * 主题应用器
+ *
+ * 放在 App 层而不是设置页：主题是全局状态，
+ * 同步把别处的主题拉回来时，**任何页面**都该立刻生效，
+ * 不管用户当前停在哪个路由。
+ *
+ * 注意这里渲染一个空 div 而不是 null —— React 对返回 null 的组件
+ * 虽然仍会执行 hook，但显式渲染一个元素能避免任何优化路径的歧义。
+ */
+function ThemeApplier() {
+  const { mode } = useTheme();
+  void mode;
+  return <span hidden data-theme-applier />;
+}
+
 function Shell() {
   const online = useOnline();
   return (
     <div className="app">
       <OfflineBar online={online} />
+      <SyncBar />
       <Routes>
         <Route path="/" element={<Navigate to="/shelf" replace />} />
         <Route path="/shelf" element={<ShelfPage />} />
@@ -90,11 +110,20 @@ function ReaderRoute() {
 }
 
 export default function App() {
+  /*
+   * 启动自动同步。
+   * 未配置服务端地址时 sync.start() 内部会直接返回，不做任何请求，
+   * 所以纯本地用户不受影响。
+   */
+  useEffect(() => {
+    sync.start();
+    return () => sync.stop();
+  }, []);
+
   return (
     <PluginProvider>
+      <ThemeApplier />
       <Shell />
     </PluginProvider>
   );
 }
-
-export { useLocation };
