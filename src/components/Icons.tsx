@@ -32,10 +32,11 @@ export const IconShelf = ({ size = 22 }: P) => (
   </svg>
 );
 
+/** 罗盘 —— 「发现」。别画成放大镜，会和 IconSearch 撞掉 */
 export const IconExplore = ({ size = 22 }: P) => (
   <svg {...base(size)}>
-    <circle cx="11" cy="11" r="7" />
-    <path d="m16.5 16.5 4 4" />
+    <circle cx="12" cy="12" r="9" />
+    <path d="m15.6 8.4-2.1 5.1-5.1 2.1 2.1-5.1z" />
   </svg>
 );
 
@@ -57,10 +58,11 @@ export const IconClose = ({ size = 20 }: P) => (
   </svg>
 );
 
+/** 齿轮 —— 「设置」。原来是 circle+8 道放射线，和 IconSun 只差一个半径，看不出区别 */
 export const IconSettings = ({ size = 20 }: P) => (
   <svg {...base(size)}>
-    <circle cx="12" cy="12" r="3" />
-    <path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M5.6 18.4L7 17m10-10l1.4-1.4" />
+    <circle cx="12" cy="12" r="3.1" />
+    <path d="M9.4 3.2a2 2 0 0 1 3.2 0l.5.8a2 2 0 0 0 1.2.7l1 .2a2 2 0 0 1 1.6 1.6l.2 1a2 2 0 0 0 .7 1.2l.8.5a2 2 0 0 1 0 3.2l-.8.5a2 2 0 0 0-.7 1.2l-.2 1a2 2 0 0 1-1.6 1.6l-1 .2a2 2 0 0 0-1.2.7l-.5.8a2 2 0 0 1-3.2 0l-.5-.8a2 2 0 0 0-1.2-.7l-1-.2a2 2 0 0 1-1.6-1.6l-.2-1a2 2 0 0 0-.7-1.2l-.8-.5a2 2 0 0 1 0-3.2l.8-.5a2 2 0 0 0 .7-1.2l.2-1A2 2 0 0 1 6.7 5.1l1-.2a2 2 0 0 0 1.2-.7z" />
   </svg>
 );
 
