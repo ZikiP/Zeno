@@ -1,8 +1,9 @@
 import {
   IconBack,
   IconBookmark,
-  IconGrid,
+  IconDouble,
   IconList,
+  IconRows,
   IconSettings,
 } from '@/components/Icons';
 
@@ -63,7 +64,7 @@ export default function ReaderBar(p: ReaderBarProps) {
         aria-label="切换模式"
         title={p.mode === 'scroll' ? '切到左右翻页' : '切到竖向滚动'}
       >
-        {p.mode === 'scroll' ? <IconGrid /> : <IconList />}
+        {p.mode === 'scroll' ? <IconDouble /> : <IconRows />}
       </button>
     </div>
   );

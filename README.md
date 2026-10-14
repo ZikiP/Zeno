@@ -303,6 +303,7 @@ node --import tsx scripts/verify-plugin.ts 你的插件.json
 | 构建 | Vite 5 | 冷启动快，PWA 插件成熟 |
 | PWA | vite-plugin-pwa (Workbox) | 手机可「添加到主屏幕」，不需要应用商店与签名证书 |
 | 存储 | idb (IndexedDB) | 容量足够存整章图片 |
+| 图标 | lucide-react | ISC 许可、零依赖、可 tree-shake。自绘的 22 个里有几组彼此认不出来，换库比逐个修更省事（22 个图标实测 +3.4 kB gzip） |
 | 代理 | 原生 `node:http` | 零依赖，一百来行 |
 
 ## 项目结构
