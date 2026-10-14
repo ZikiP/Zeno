@@ -23,6 +23,13 @@
     依赖和 dist 已经是新的、只想重注册常驻任务时用这个 ——
     npm ci 会整个删掉重建 node_modules，没必要每次部署都来一遍。
 
+.PARAMETER RunAsUser
+    计划任务改用当前登录账号运行（S4U，不需要存密码），而不是 NT AUTHORITY\SYSTEM。
+
+    需要插件用 fetch.mode="browser" 时必须开这个：实测 Edge 在 SYSTEM / 会话 0
+    下启动即 exitCode=1002 退出，浏览器渲染根本起不来。
+    S4U 仍然是"不管用户是否登录都要运行"，注销后服务继续跑。
+
 .PARAMETER Uninstall
     卸载并清理（数据保留）
 
@@ -38,6 +45,7 @@ param(
     [string]$Mode = 'auto',
     [switch]$SkipTailscale,
     [switch]$SkipInstall,
+    [switch]$RunAsUser,
     [switch]$Uninstall
 )
 
@@ -181,8 +189,18 @@ $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -MultipleInstances IgnoreNew
 
-# SYSTEM 账号：不需要登录，开机就在，行为等价于 systemd
-$principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+# 主体账号。SYSTEM 不需要登录、开机就在，行为等价于 systemd；
+# 但它跑不起浏览器 —— 实测 Edge 在 SYSTEM / 会话 0 下 exitCode=1002 直接退出，
+# 所以要用 fetch.mode="browser" 就得换成当前账号（S4U：仍是"不管是否登录都运行"，
+# 且不把密码存进任务）。
+if ($RunAsUser) {
+    $acct = "$env:USERDOMAIN\$env:USERNAME"
+    $principal = New-ScheduledTaskPrincipal -UserId $acct -LogonType S4U -RunLevel Highest
+    Ok ("任务主体改用当前账号 $acct（S4U，不存密码）—— browser 渲染模式需要它")
+} else {
+    $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    Ok '任务主体为 SYSTEM（开机即在）；注意插件里的 fetch.mode="browser" 在该账号下起不来，需要 -RunAsUser'
+}
 
 Register-ScheduledTask `
     -TaskName $ServiceName `
