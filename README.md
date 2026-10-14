@@ -126,6 +126,7 @@ npm run dev
     "imageAttr": "data-src"
   },
   "imageHosts": ["cdn.example.com"],
+  "fetch": { "mode": "browser", "waitFor": ".comic-card" },
   "headers": {}
 }
 ```
@@ -145,6 +146,9 @@ npm run dev
 | `parse.chapterIdFrom` | 提取章节 id，需**两个**捕获组：分区、序号 |
 | `parse.imageAttr` | 图片真实地址所在的属性名 |
 | `imageHosts` | 图片 CDN 域名，用于代理白名单提示与离线缓存 |
+| `fetch.mode` | `fetch`（默认）或 `browser`。见下「取源方式」 |
+| `fetch.waitFor` | browser 模式：渲染后等这个 CSS 选择器出现再取 HTML |
+| `fetch.timeoutMs` | 单次取源上限，默认 20000 |
 
 ### 写插件时的四个坑
 
@@ -161,6 +165,43 @@ npm run dev
 
 4. **AMP 站点会编码 `/`。** 抓到的 HTML 里路径可能是 `&#x2F;`，
    本项目已自动解码，不用额外处理。
+
+## 取源方式：`fetch` 与 `browser`
+
+默认 `fetch` —— 服务端直接 HTTP 取 HTML，快（约 200ms），但**拿不到需要执行
+JS 才出内容的页面**：前端渲染的站点会拿到空壳。
+
+`"fetch": { "mode": "browser" }` 让服务端用一个真的浏览器引擎渲染后再交回
+解析层。代价要清楚：
+
+| | `fetch` | `browser` |
+|---|---|---|
+| 单页耗时 | ~200ms | 1–3s |
+| 失败重试 | 3 次 | **1 次**（重试也改变不了"确实没渲染出来"） |
+| 缓存 | `max-age=600` | `no-store`（渲染结果有时效且不幂等） |
+| 内存 | 忽略 | 热了 300–500MB，空闲 60s 自动关 |
+
+**只作用于 HTML 文档**（列表 / 详情 / 章节页）。图片永远走 `fetch` —— `<img>`
+用不上渲染结果，给每张图开一次浏览器也不成立。
+
+需要服务端有 chromium 系浏览器：`ZENO_BROWSER` 指定路径，否则自动探测
+ms-playwright 缓存 → Edge → Chrome。部署脚本会检查并告知，**没有也不影响
+普通插件**。
+
+> **⚠️ 已知限制：以 SYSTEM 常驻时 `browser` 模式起不来。**
+> `deploy.ps1` 的计划任务跑在 `NT AUTHORITY\SYSTEM`（会话 0），实测 Edge 进程
+> 启动后立刻以 `exitCode=1002` 退出，Playwright 报
+> `Target page, context or browser has been closed`。已排除沙箱原因
+> （Playwright 自带 `--no-sandbox`，profile 也落在 `C:\Windows\TEMP`）。
+> 以普通用户身份跑同一个服务端则完全正常（实测同一插件拿到 10 张卡片）。
+>
+> 也就是说 **常驻（SYSTEM）和浏览器渲染目前不能兼得**。要用 `browser` 模式，
+> 现在请 `.\deploy.ps1 -Mode none` 以登录用户身份前台运行，或把计划任务的
+> 主体换成你的账号。
+
+**这个模式不含任何反自动化伪装** —— 不改 `navigator.webdriver`、不伪造指纹、
+不破解质询令牌。它的定位是"渲染 JS 生成的页面"，不是"冒充人类绕过机器人的
+拦截"。站点如果拒绝自动化客户端，它就应当被拒绝。
 
 ## 验证插件
 
@@ -184,6 +225,24 @@ node --import tsx scripts/verify-plugin.ts 你的插件.json
 | `PORT` | 8788 | 监听端口 |
 | `ALLOWED_HOSTS` | 空 | 允许的上游域名，逗号分隔。**不设置则拒绝一切请求** |
 | `MAX_CONCURRENT` | 6 | 上游并发上限，过高会被 CDN 限流导致图片裂开 |
+| `ALLOW_PRIVATE_HOSTS` | 关 | 设 `1` 才放行解析到内网/回环的目标。**仅供本地开发与测试** |
+| `ZENO_BROWSER` | 自动探测 | `fetch.mode="browser"` 用的浏览器可执行文件路径 |
+| `BROWSER_IDLE_MS` | 60000 | 渲染浏览器空闲多久后关闭 |
+
+### 抓取代理的地址策略（SSRF）
+
+域名白名单只挡"允许哪些域名"，挡不住"这个域名解析到哪"。所以代理还有第二道闸：
+目标解析出的每个 IP 都必须是公网可路由地址，**回环、RFC1918、链路本地
+（含 `169.254.169.254` 云元数据）、CGNAT `100.64.0.0/10`（Tailscale 段，含服务自己）、
+组播、保留段一律拒绝**，`localhost` / `*.internal` / 单标签主机名也直接拒。
+
+上游返回 3xx 时**逐跳自己跟、逐跳重新校验** —— 交给 `fetch` 的 `redirect: 'follow'`
+等于开后门（白名单域名回一个 `302 → http://127.0.0.1` 就绕过了两道闸）。
+
+> **残留风险**：校验是"先解析、再请求"，两次解析之间 DNS 记录可以变（rebinding）。
+> 彻底闭环要在建连时再校验一次，Node 的全局 `fetch` 不暴露那个钩子。
+> 本工具的威胁模型是"别人分享给你的插件文件"，按这个尺度请求时校验是合适的强度；
+> 要接对抗性威胁模型就得换成带自定义 `lookup` 的 connector。
 
 白名单支持子域名：填 `example.com` 会放行 `cdn.example.com`。
 插件编辑器会自动算出需要放行的域名并显示。
@@ -274,7 +333,10 @@ src/
     RetryableImage.tsx 带重试的图片
     UI.tsx / Icons.tsx 通用组件与图标
 server/
-  index.mjs          主服务（静态 + 同步 API + 代理）
+  index.mjs          主服务（静态 + 同步 API + 代理分流）
+  proxy.mjs          抓取代理：白名单 → 地址策略 → fetch 或浏览器渲染
+  render.mjs         浏览器渲染池（fetch.mode="browser" 的后端）
+  ssrf.mjs           目标地址策略：拒绝内网 / 回环 / 元数据 / CGNAT
   db.mjs             SQLite schema 与变更日志
   merge.mjs          合并策略
   static.mjs         静态文件与 SPA 回退

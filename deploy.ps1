@@ -80,6 +80,25 @@ Ok "Node $nodeVer"
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Die '没装 npm' }
 Ok ("npm " + (npm -v))
 
+# 渲染浏览器：调用服务端自己的 findBrowser()，避免部署脚本和运行时两套探测逻辑漂移。
+# 找不到不算失败 —— 只有 fetch.mode="browser" 的插件需要它，普通插件照常工作。
+Step '检查渲染浏览器（可选）'
+$env:RENDER_MOD = Join-Path $InstallDir 'server\render.mjs'
+$browserCheck = & node --input-type=module -e @'
+import { pathToFileURL } from 'node:url';
+const m = await import(pathToFileURL(process.env.RENDER_MOD).href);
+const b = m.findBrowser();
+console.log(b ? 'FOUND|' + b.from + '|' + b.exe : 'NONE');
+'@ 2>$null
+if ("$browserCheck" -like 'FOUND|*') {
+    $parts = "$browserCheck" -split '\|'
+    Ok ("渲染浏览器：" + $parts[2] + "（来源 " + $parts[1] + "）")
+} else {
+    Warn '没找到 chromium 系浏览器（Chrome / Edge / ms-playwright）。'
+    Warn '  不影响普通插件；但插件里写 fetch.mode="browser" 的会报 503。'
+    Warn '  装一个 Chrome 或 Edge，或设 ZENO_BROWSER 指向可执行文件。'
+}
+
 # ── 依赖与构建 ────────────────────────────────────
 Set-Location $InstallDir
 if ($SkipInstall) {

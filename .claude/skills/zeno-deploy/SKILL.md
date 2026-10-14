@@ -19,6 +19,39 @@ description: 在 Windows / Linux / macOS 上部署 Zeno（干净的网页阅读�
 看到有人填 `ALLOWED_HOSTS` 就要拦下来 —— 那是旧版设计，现在不需要了，
 填了反而会造成「插件改了域名但白名单没跟着变」。
 
+## 抓取代理有两道闸，别为了"能抓"去拆掉第二道
+
+1. **域名白名单** —— 从已装插件自动推导。
+2. **地址策略（`server/ssrf.mjs`）** —— 目标解析出的 IP 必须是公网可路由地址。
+
+第二道是防 SSRF 的：白名单只挡"哪些域名"，挡不住"域名解析到哪"。装一个
+`entry` 填 `http://127.0.0.1` 或 `http://169.254.169.254/` 的插件，就能让
+服务端替你去够内网和云元数据接口。所以回环、RFC1918、链路本地、
+`100.64.0.0/10`（Tailscale 段，含服务自己）、组播、保留段全部拒绝。
+
+上游回 3xx 时代理**逐跳自己跟、逐跳重新校验**。看到 `redirect: 'follow'`
+出现在这里就是漏洞 —— 白名单域名回一个 `302 → http://127.0.0.1` 能绕过两道闸。
+
+`ALLOW_PRIVATE_HOSTS=1` 只为本地测试存在（白名单套件的假源站跑在 127.0.0.1）。
+**生产环境开它等于关掉这道闸。**
+
+残留风险要如实说：校验是"先解析再请求"，两次解析之间 DNS 可以换记录
+（rebinding）。彻底闭环需要在建连时再校验一次，而 Node 全局 `fetch` 不暴露
+那个钩子。当前威胁模型是"别人分享的插件文件"，按这个尺度是合适的强度。
+
+## fetch.mode："browser"
+
+默认 `fetch` 是 Node 直接 HTTP 取 HTML，拿不到 JS 渲染的内容。插件写
+`"fetch": { "mode": "browser", "waitFor": "<选择器>" }` 会让服务端用真的浏览器
+引擎渲染后取 DOM。
+
+- 只作用于 HTML 文档；**图片永远走 fetch**
+- 慢（1–3s/页）、失败只试一次、响应 `no-store`
+- 需要服务端有 chromium 系浏览器：`ZENO_BROWSER` → ms-playwright 缓存 → Edge → Chrome
+- **不含任何反自动化伪装**（不改 `navigator.webdriver`、不伪造指纹、不破解质询
+  令牌）。它的定位是渲染 JS 页面，不是冒充人类绕过机器人拦截。站点若拒绝
+  自动化客户端，就应该被拒绝 —— 部署脚本找不到浏览器也只警告，不硬失败
+
 ## 部署
 
 ### 自动（推荐）
@@ -255,6 +288,10 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 | 打开是 404 | dist 没构建 | `npm run build` |
 | 深链接白屏 | SPA 回退没配 | 确认用的是内置 `server/index.mjs`，不是裸静态服务器 |
 | 抓不到图（403） | 白名单没生效 | `/api/health` 看 `allowedHosts`；确认插件已装 |
+| 403 且 `error:"blocked address"` | 目标解析到内网/回环/元数据/CGNAT 段 | 正常拦截，别去关它；本地测试才设 `ALLOW_PRIVATE_HOSTS=1` |
+| 503 且提示没有可用浏览器 | 插件用了 `fetch.mode:"browser"` 但服务端没 chromium 系浏览器 | 装 Chrome/Edge，或设 `ZENO_BROWSER`；部署脚本的环境检查会报这个 |
+| 502 + `browserType.launch: ... browser has been closed`，Edge `exitCode=1002` | 服务以 **SYSTEM**（会话 0）常驻，浏览器起不来 | 沙箱不是原因（Playwright 已带 `--no-sandbox`）。要么 `deploy.ps1 -Mode none` 以登录用户前台跑，要么把计划任务主体换成用户账号。常驻与 browser 渲染目前不可兼得 |
+| 列表/详情解析出 0 条但页面在浏览器里正常 | 站点内容靠 JS 注入，`fetch` 模式拿到的是空壳 | 插件加 `"fetch": { "mode": "browser", "waitFor": "<卡片选择器>" }` |
 | 手机装不了 PWA | 用的 http（**`127.0.0.1` 除外**） | 局域网 IP / 机器名必须 https |
 | 页面渲染正常但什么都不加载 | 系统代理掐断 ts.net，Workbox 用 precache 兜住了导航 | 见下「代理劫持」；用 `fetch('/api/health',{cache:'no-store'})` 一测就露 |
 | `ERR_CONNECTION_ABORTED` | 代理劫持（**不是**证书没签下来） | 在代理软件的绕过列表里加 `*.ts.net`，改注册表会被覆盖 |

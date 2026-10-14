@@ -65,6 +65,23 @@ ok "Node $NODE_VER"
 command -v npm >/dev/null || die "没装 npm"
 ok "npm $(npm -v)"
 
+# 渲染浏览器：调用服务端自己的 findBrowser()，避免两套探测逻辑漂移。
+# 找不到不算失败 —— 只有 fetch.mode="browser" 的插件需要它。
+step "检查渲染浏览器（可选）"
+BROWSER_CHECK="$(RENDER_MOD="$INSTALL_DIR/server/render.mjs" node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+const m = await import(pathToFileURL(process.env.RENDER_MOD).href);
+const b = m.findBrowser();
+console.log(b ? `FOUND|${b.from}|${b.exe}` : "NONE");
+' 2>/dev/null)"
+if [[ "$BROWSER_CHECK" == FOUND\|* ]]; then
+  ok "渲染浏览器：${BROWSER_CHECK##*|}（来源 $(echo "$BROWSER_CHECK" | cut -d'|' -f2)）"
+else
+  warn "没找到 chromium 系浏览器（Chrome / Chromium）。"
+  warn "  不影响普通插件；但插件里写 fetch.mode=\"browser\" 的会报 503。"
+  warn "  装一个 chromium，或设 ZENO_BROWSER 指向可执行文件。"
+fi
+
 if command -v systemctl >/dev/null; then
   HAS_SYSTEMD=1
   ok "systemd 可用（会装成常驻服务）"
