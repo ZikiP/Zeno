@@ -24,3 +24,8 @@ data/
 !package.json
 !package-lock.json
 !tsconfig.json
+
+# 部署实测记录
+DEPLOY-NOTES.md
+data-backup-*/
+
