@@ -33,7 +33,8 @@ description: 在 Windows / Linux / macOS 上部署 Zeno（干净的网页阅读�
 脚本做的事：环境检查 → `npm ci` → `npm run build` → 注册开机自启 →
 健康检查 → 配 Tailscale HTTPS。
 
-脚本已经处理了代理问题：配 Serve 前会清掉 `http_proxy`/`https_proxy`。
+Windows 上脚本会**读注册表里的真实代理状态**并检查绕过列表，缺 `*.ts.net`
+就明确报出来。它不会去清 `$env:http_proxy` —— 那是空操作，见下文。
 
 ### 手动（脚本跑不通时）
 
@@ -113,10 +114,21 @@ Stop-ScheduledTask   -TaskName Zeno
 
 ### 为什么必须用它
 
-**不能直接用 `http://机器名:端口`。** 那样虽然能通（WireGuard 本身加密），
-但浏览器不认那是「安全上下文」，Service Worker 不注册，**PWA 离线能力静默失效**。
+**不能直接用 `http://局域网IP:端口` 或 `http://机器名:端口`。** 那样虽然能通
+（WireGuard 本身加密），但浏览器不认那是「安全上下文」，Service Worker 不注册，
+**PWA 离线能力静默失效**。
 
 用户会看到「装成 App 了但断网就打不开」，且极难排查。
+
+**但回环地址是例外。** `http://127.0.0.1:端口` 和 `http://localhost:端口`
+本身就是安全上下文，Service Worker 正常注册。实测：
+
+```
+http://127.0.0.1:8788  →  isSecureContext: true, swRegistered: true
+```
+
+所以**在本机看效果、做开发，直接开 `127.0.0.1` 就行，不需要先配 HTTPS**。
+Serve 是为了手机/平板这些真正要走网络的客户端。
 
 ### 步骤
 
@@ -126,57 +138,102 @@ tailscale serve --bg 8788
 
 拿到 `https://<机器名>.<tailnet>.ts.net`。
 
-### ⚠️ 最大的坑：代理会搞挂证书签发
+### ⚠️ 最大的坑：系统代理会掐断 ts.net 的 TLS
 
-如果系统跑着代理（Clash / FlClash / V2Ray / 公司代理），且环境变量里有
-`http_proxy` / `https_proxy`，**Tailscale 签证书的请求会被代理接管**，
-证书签不下来，症状是：
+**先说结论：Windows 上代理状态不在环境变量里，在注册表里。**
+清 `$env:http_proxy` 是空操作 —— 那个变量通常根本没被设过。
+
+Clash / FlClash / V2Ray 开「系统代理」时写的是
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`：
 
 ```
-TCP 通，TLS 握手被服务端拒绝
-curl: (35) schannel: InitializeSecurityContext failed: SEC_E_INTERNAL_ERROR
-浏览器: ERR_SSL_PROTOCOL_ERROR
-tailscale netcheck 输出: tshttpproxy: using proxy ...
+ProxyEnable   = 1
+ProxyServer   = 127.0.0.1:7890      # 端口随客户端和版本变，别硬编码
+ProxyOverride = <绕过列表>           # 这里没有 *.ts.net 就会坏
 ```
 
-**解法：配 Serve 之前先清掉代理环境变量。**
+浏览器和 `tailscale-ipn.exe` 读的是这个，**不是 env**。
+
+**故障点不在证书签发，在客户端那一跳。** Serve 和证书都是好的 ——
+实测绕开代理直连 `https://<name>.ts.net/api/health` 稳定 200、`ssl_verify=0`。
+是浏览器把 `*.ts.net` 的请求塞进了代理，代理建完 CONNECT 隧道后 TLS 握手被中断：
+
+```
+> CONNECT <name>.ts.net:443 HTTP/1.1
+< HTTP/1.1 200 Connection established     ← TCP 和隧道都"成功"
+* Recv failure: Connection was aborted    ← 握手死在这
+浏览器: ERR_CONNECTION_ABORTED / ERR_SSL_PROTOCOL_ERROR
+curl:   (35) schannel: failed to receive handshake
+```
+
+根因：`ts.net` 只有 MagicDNS 能解析，代理拿不到正确地址。
+
+### 解法：把 `*.ts.net` 加进代理的绕过列表
+
+**改代理软件自己的「绕过 / 直连」设置，不要直接改注册表。**
+Clash 系客户端在开关系统代理时**整个重写 `ProxyOverride`**，手改会被静默覆盖，
+表现为"昨天还能访问今天又不行了"。
+
+加 `*.ts.net` 一条就够（实测：代理保持开启，加完立刻 200，Chrome 无需重启）。
+不需要 `100.*` —— 那是整个 `/8`，比 tailnet 的 `100.64.0.0/10` 宽得多，
+而且 tailnet 走的是 `/32` 主机路由，本来就比代理的默认路由精确。
+
+**也别指望 Clash 规则**：`DOMAIN-SUFFIX,ts.net,DIRECT` 不可靠，
+因为流量仍然进了代理，代理解析不了 `ts.net`；fake-ip 模式下它给的是
+不可路由的假地址。要修的是"别进代理"，不是"进代理后怎么路由"。
+
+**服务端和每台客户端都要各配一遍** —— 手机上开着代理的话同样要绕过 `*.ts.net`。
+
+改完注册表想让正在跑的浏览器立刻生效，得广播设置变更通知
+（直接写注册表不会触发，代理软件自己会做这件事）：
+
+```powershell
+$sig='[DllImport("wininet.dll",SetLastError=true)] public static extern bool InternetSetOption(IntPtr h,int o,IntPtr b,int l);'
+$w=Add-Type -MemberDefinition $sig -Name W -Namespace Net -PassThru
+[void]$w::InternetSetOption([IntPtr]::Zero,39,[IntPtr]::Zero,0)   # SETTINGS_CHANGED
+[void]$w::InternetSetOption([IntPtr]::Zero,37,[IntPtr]::Zero,0)   # REFRESH
+```
+
+Linux / macOS 上代理才走 env，那时这个写法是对的：
 
 ```bash
-# Linux / macOS
 env -u http_proxy -u https_proxy tailscale serve --bg 8788
-
-# PowerShell
-$env:http_proxy=''; $env:https_proxy=''
-tailscale serve --bg 8788
 ```
-
-> 实测：Windows 上开着 FlClash 时，`tailscale netcheck` 输出
-> `tshttpproxy: using proxy "http://127.0.0.1:60887"`，
-> TCP 443 通但 TLS 握手被拒（`SEC_E_INTERNAL_ERROR` / `ERR_SSL_PROTOCOL_ERROR`）。
-> 关掉代理重新配 Serve，1 秒内恢复，200 OK。
-
-长期解法是在代理软件里排除：
-
-```
-DOMAIN-SUFFIX,ts.net,DIRECT
-DOMAIN-SUFFIX,tailscale.com,DIRECT
-PROCESS-NAME,tailscaled.exe,DIRECT
-PROCESS-NAME,tailscale-ipn.exe,DIRECT
-```
-
-**只排除服务端的还不够** —— 客户端（手机）也得能直连，
-否则手机照样走代理，证书校验失败。
 
 顺带一个佐证：国内跑 Tailscale 时 `netcheck` 若显示
 `Nearest DERP: San Francisco` 而香港延迟更高，说明流量被代理绕了一圈。
+
 
 ### 诊断命令
 
 ```bash
 tailscale serve status        # 规则配了没
-tailscale netcheck            # 有没有被代理（看 tshttpproxy 那行）
-curl -v https://<name>.<tailnet>.ts.net/api/health
+tailscale serve ip forward    # （一般不需要）
 ```
+
+判断是不是代理的锅，**用这一组**，别信 `netcheck`：
+
+```bash
+# Windows 上 netcheck 不打印 tshttpproxy，用它定位代理状态没有用。
+# 直接读注册表，再对比走代理 / 不走代理两个结果：
+powershell -c "(Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings') |
+  Select ProxyEnable,ProxyServer,ProxyOverride | Format-List"
+
+curl -s --noproxy '*' -o NUL -w 'direct  %{http_code}\n' https://<name>.ts.net/api/health
+curl -s            -o NUL -w 'proxied %{http_code}\n' \
+     -x http://127.0.0.1:7890 https://<name>.ts.net/api/health
+```
+
+直连 200 而 proxied 失败（curl 35）→ 就是绕过列表缺 `*.ts.net`。
+这个组合还能顺手证明「证书和 Serve 本身是好的」，排除一大类误判。
+
+**浏览器里最省事的判据**（能识破 precache 假阳性）：
+
+```js
+fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
+```
+
+页面看着完好但这里 reject → 网络层是断的，别去看 UI。
 
 ## 排查手册
 
@@ -188,8 +245,9 @@ curl -v https://<name>.<tailnet>.ts.net/api/health
 | 打开是 404 | dist 没构建 | `npm run build` |
 | 深链接白屏 | SPA 回退没配 | 确认用的是内置 `server/index.mjs`，不是裸静态服务器 |
 | 抓不到图（403） | 白名单没生效 | `/api/health` 看 `allowedHosts`；确认插件已装 |
-| 手机装不了 PWA | 用的 http | 必须 https |
-| 证书签发失败 | 代理劫持 | 清 `http_proxy`/`https_proxy` 再配 Serve |
+| 手机装不了 PWA | 用的 http（**`127.0.0.1` 除外**） | 局域网 IP / 机器名必须 https |
+| 页面渲染正常但什么都不加载 | 系统代理掐断 ts.net，Workbox 用 precache 兜住了导航 | 见下「代理劫持」；用 `fetch('/api/health',{cache:'no-store'})` 一测就露 |
+| `ERR_CONNECTION_ABORTED` | 代理劫持（**不是**证书没签下来） | 在代理软件的绕过列表里加 `*.ts.net`，改注册表会被覆盖 |
 | `*.ts.net` 解析失败（安卓） | 私人 DNS 冲突 | 设置 → 网络 → 私人 DNS 设为「自动」或「关闭」 |
 | Chrome 里解析不了 | Chrome 安全 DNS 绕过 MagicDNS | `chrome://settings/security` 关掉「使用安全 DNS」 |
 | 数据丢了 | 删了 `data/` | 数据全在 `data/zeno.db`，备份就是拷这个文件 |

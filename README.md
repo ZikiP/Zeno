@@ -69,8 +69,10 @@ tailscale serve --bg 8788
 ./deploy.sh --uninstall        # 卸载
 ```
 
-**⚠️ 系统有代理软件（Clash / FlClash 等）时**，脚本会自动清掉
-`http_proxy`/`https_proxy` 再配 Serve —— 否则 Tailscale 证书签不下来。
+**⚠️ 系统开着代理软件（Clash / FlClash 等）时**，浏览器会把 `*.ts.net`
+塞进代理，TLS 握手被中断 —— 页面看着正常，请求全挂。脚本会读注册表检出这个情况
+并提示你怎么办。**要改的是代理软件自己的「绕过」设置，加 `*.ts.net`**；
+清环境变量在 Windows 上是空操作（代理状态在注册表，不在 env）。
 
 抓取白名单**从已安装的插件自动推导** —— 装好插件服务端立刻放行对应站点。
 
