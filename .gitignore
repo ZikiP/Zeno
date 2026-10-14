@@ -13,6 +13,9 @@ dist-ssr/
 # 探测输出
 scripts/*.txt
 
+# 启动包装（部署脚本生成，含本机 node 绝对路径）
+start-zeno.ps1
+
 # 运行时数据（SQLite 及其 WAL 文件）
 data/
 *.db
@@ -25,7 +28,7 @@ data/
 !package-lock.json
 !tsconfig.json
 
-# 部署实测记录
+# 部署实测记录（含本机 IP / 域名，不入仓库）
 DEPLOY-NOTES.md
 data-backup-*/
 

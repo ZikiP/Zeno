@@ -291,6 +291,19 @@ scripts/
 见 [CODE-STYLE.md](CODE-STYLE.md)。核心：**组件 ≤ 250 行，工具/hook ≤ 300 行**，
 判断标准是「一个文件有几件事」而不是行数。
 
+## 部署 Skill
+
+[`.claude/skills/zeno-deploy/`](.claude/skills/zeno-deploy/) 是本仓库自带的部署 skill。
+
+在 Claude Code 里提到"部署 Zeno"就会自动加载，包含：
+
+- 一键部署流程与两种常驻方案（systemd / 计划任务）
+- **代理会搞挂 Tailscale 证书签发**这个坑及解法
+- Windows 特有注意事项（PS 5.1 不支持 `??`、计划任务不落 stdout）
+- 9 项常见故障排查表
+
+也可以直接当文档读。
+
 ## 隐私与合规
 
 请在使用前阅读 [免责声明](DISCLAIMER.md)。要点：
