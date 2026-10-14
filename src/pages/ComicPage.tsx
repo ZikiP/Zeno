@@ -11,6 +11,7 @@ import {
 import { addToShelf, isInShelf, removeFromShelf } from '@/store/shelf';
 import { formatBytes } from '@/store/utils';
 import { usePlugin } from '@/store/PluginContext';
+import { onDataChange } from '@/store/dataEvents';
 import ChapterList from '@/components/ChapterList';
 import { IconBack, IconCheck, IconDownload, IconSettings, IconShelf } from '@/components/Icons';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
@@ -62,6 +63,26 @@ export default function ComicPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /*
+   * 同步把别处的「加入书架 / 离线下载」变更拉回来时，刷新本地状态。
+   * 只重读本地那几项，不重跑 load() —— 那个会重新抓网络，
+   * 数据没变就白请求一次。
+   */
+  useEffect(() => {
+    return onDataChange(async () => {
+      if (!plugin?.meta.id) return;
+      try {
+        setOnShelf(await isInShelf(plugin.meta.id, slug));
+        const cacheList = await listCachedChapters(plugin.meta.id, slug);
+        const map: CachedMap = {};
+        for (const item of cacheList) map[item.chapterId] = { bytes: item.bytes };
+        setCached(map);
+      } catch {
+        /* 读失败就保持现状，别打断阅读 */
+      }
+    });
+  }, [plugin?.meta.id, slug]);
 
   const toggleShelf = async () => {
     if (!plugin || !comic) return;

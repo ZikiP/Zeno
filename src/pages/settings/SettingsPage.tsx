@@ -3,9 +3,9 @@ import { usePluginManager } from './usePluginManager';
 import PluginEditor from './PluginEditor';
 import LegalSheet from './LegalSheet';
 import PluginList from './PluginList';
-import { useTheme } from '@/hooks/useTheme';
-import { THEMES } from '@/hooks/useTheme';
-import { IconSun, IconMoon, IconSystem } from '@/components/Icons';
+import { SyncSheet } from '@/sync/SyncUI';
+import { useTheme, THEMES } from '@/hooks/useTheme';
+import { IconSun, IconMoon, IconSystem, IconSync } from '@/components/Icons';
 import { Sheet } from '@/components/UI';
 
 /**
@@ -25,6 +25,7 @@ export default function SettingsPage() {
 
   const [showLegal, setShowLegal] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
   const { resolved } = useTheme();
 
   return (
@@ -80,13 +81,18 @@ export default function SettingsPage() {
             <h2>关于</h2>
           </div>
           <div className="chapters">
+            <button className="chapter-row" onClick={() => setSyncOpen(true)}>
+              <IconSync size={18} />
+              <span className="chapter-row__name">多端同步</span>
+              <span style={{ color: 'var(--text-faint)' }}>›</span>
+            </button>
             <button className="chapter-row" onClick={() => setShowLegal(true)}>
               <span className="chapter-row__name">使用须知与免责声明</span>
               <span style={{ color: 'var(--text-faint)' }}>›</span>
             </button>
             <div className="chapter-row">
               <span className="chapter-row__name">版本</span>
-              <span style={{ color: 'var(--text-faint)', fontSize: 13 }}>0.5.0</span>
+              <span style={{ color: 'var(--text-faint)', fontSize: 13 }}>0.6.0</span>
             </div>
           </div>
         </div>
@@ -115,6 +121,8 @@ export default function SettingsPage() {
       )}
 
       {showLegal && <LegalSheet onClose={() => setShowLegal(false)} />}
+
+      {syncOpen && <SyncSheet onClose={() => setSyncOpen(false)} />}
 
       {themeOpen && (
         <Sheet title="外观" onClose={() => setThemeOpen(false)}>

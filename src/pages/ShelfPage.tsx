@@ -1,8 +1,9 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getShelf } from '@/store/shelf';
 import type { ShelfEntry } from '@/store/types';
 import { usePlugin } from '@/store/PluginContext';
+import { useReloadOnChange } from '@/store/useDataVersion';
 import { coverUrl } from '@/site/engine';
 import { IconEmpty, IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';
 import { ErrorBox, Loading } from '@/components/UI';
@@ -21,9 +22,8 @@ export default function ShelfPage() {
     }
   }, [plugin?.meta.id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // 同步写完本地库后自动重读，不用手动刷新页面
+  useReloadOnChange(load);
 
   return (
     <>

@@ -3,17 +3,21 @@ dist/
 dist-ssr/
 *.local
 .DS_Store
+
 # 构建缓存
 *.tsbuildinfo
 
 # 运行日志
 *.log
-preview.txt
-dev.log
-proxy.log
 
 # 探测输出
 scripts/*.txt
+
+# 运行时数据（SQLite 及其 WAL 文件）
+data/
+*.db
+*.db-wal
+*.db-shm
 
 # 本地插件文件（含具体站点信息，不入仓库）
 *.json
