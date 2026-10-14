@@ -45,7 +45,7 @@ export default function BookmarkPanel({
         ) : items.length === 0 ? (
           <div className="empty" style={{ padding: '40px 20px' }}>
             <div style={{ fontSize: 13 }}>还没有书签</div>
-            <div style={{ fontSize: 11.5 }}>阅读时长按图片或 B 键加书签</div>
+            <div style={{ fontSize: 11.5 }}>按 B 键，或点工具栏的书签图标收藏当前页</div>
           </div>
         ) : (
           <div className="drawer__list">

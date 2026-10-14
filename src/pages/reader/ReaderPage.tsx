@@ -136,6 +136,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     {
       goForward: paging.goForward,
       goBack: paging.goBack,
+      rtl: isRTL,
       toggleBar: bar.toggle,
       toggleDirection: () => prefs.patch({ direction: isRTL ? 'ltr' : 'rtl' }),
       toggleBookmark: () => void toggleMark(),
@@ -203,7 +204,9 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           perPage={paging.perPage}
           markedPages={bookmarks.markedPages}
           filter={filter}
+          rtl={isRTL}
           onTapZone={(side) => paging.tap(side, isRTL)}
+          onSwipe={(dir) => (dir === 'forward' ? paging.goForward() : paging.goBack())}
           onZoom={(src, i) => setZoom({ src, i })}
           edgeHint={
             <EdgeHint

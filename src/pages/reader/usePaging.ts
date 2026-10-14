@@ -84,6 +84,11 @@ export function usePaging(
    *
    * 页码不能按 clientWidth 算 —— 那只在等宽布局下成立。
    * 一话里图片尺寸混着来时（比如 1200×3436 和 1300×2521）会完全乱跳。
+   *
+   * 滚动模式下 page 就是图片序号，必须落在 0..total-1：
+   * 之前写成 Math.min(total, floor(ratio*total)+1)，顶部时算出 1（显示成"2"，
+   * off-by-one），滚到底算出 total（越界）—— 标题变成 "total+1 / total"，
+   * 而 useBookmarks 用 images[page] 取缩略图会拿到 undefined。
    */
   const onScroll = useCallback(
     (el: HTMLElement, total: number, record: (ratio: number) => void) => {
@@ -94,7 +99,7 @@ export function usePaging(
       record(ratio);
 
       if (total > 0) {
-        const next = Math.min(total, Math.floor(ratio * total) + 1);
+        const next = Math.min(total - 1, Math.floor(ratio * total));
         setPage((prev) => (prev === next ? prev : next));
       }
     },
