@@ -6,7 +6,13 @@
  *   2. 浏览器（手机）刷新后应能看到这些数据
  *   3. 浏览器产生的改动应推回服务端
  */
-const BASE = process.env.BASE || 'http://127.0.0.1:8788';
+// 故意不给「默认打 8788」的退路：那正是生产端口，而本脚本不清理数据。
+const BASE = process.env.BASE;
+if (!BASE) {
+  console.error('\n缺少 BASE。请用 `npm test` —— 它会为每个套件起独立端口和独立临时库。');
+  console.error('直接跑本脚本会把测试数据写进你正在用的 data/zeno.db。\n');
+  process.exit(2);
+}
 
 let fails = 0;
 const check = (ok, msg) => {

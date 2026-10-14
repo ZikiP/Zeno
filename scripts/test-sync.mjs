@@ -8,7 +8,13 @@
  *   4. 已读完的进度不被小值覆盖
  *   5. 静态文件与 SPA 回退
  */
-const BASE = process.env.BASE || 'http://127.0.0.1:8788';
+// 故意不给「默认打 8788」的退路：那正是生产端口，而本脚本不清理数据。
+const BASE = process.env.BASE;
+if (!BASE) {
+  console.error('\n缺少 BASE。请用 `npm test` —— 它会为每个套件起独立端口和独立临时库。');
+  console.error('直接跑本脚本会把测试数据写进你正在用的 data/zeno.db。\n');
+  process.exit(2);
+}
 
 let fails = 0;
 const check = (ok, msg) => {
@@ -136,8 +142,12 @@ check(asset.status === 200, '未知 JS 路径也回退（避免路由 404）');
 console.log('\n=== 7. 代理白名单 ===');
 const bad = await fetch(BASE + '/api/proxy?url=' + encodeURIComponent('https://evil.example.com/'));
 check(bad.status === 403, `非白名单被拒（HTTP ${bad.status}）`);
-const good = await fetch(BASE + '/api/proxy?url=' + encodeURIComponent('https://www.twmanga.com/search?q=t'));
-check(good.ok, `白名单内可转发（HTTP ${good.status}）`);
+// 本用例推的插件只声明了 meta，没有任何域名 → 白名单为空 → 一切上游请求都该被拒。
+// 「白名单内可转发」要发真实外网请求，那是 test-whitelist.mjs 的职责，不放这儿。
+const wellKnown = await fetch(
+  BASE + '/api/proxy?url=' + encodeURIComponent('https://www.example.com/'),
+);
+check(wellKnown.status === 403, `空白名单下合法域名也被拒（HTTP ${wellKnown.status}）`);
 
 console.log('\n=== 8. 客户端上报 ===');
 const clients = await api('/api/sync/clients');

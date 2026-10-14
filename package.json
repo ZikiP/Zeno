@@ -19,8 +19,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "icons": "tsx scripts/gen-icons.ts",
-    "test": "node scripts/test-sync.mjs && node scripts/test-multidevice.mjs",
-    "test:whitelist": "node scripts/test-whitelist.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "test:whitelist": "node scripts/run-tests.mjs whitelist"
   },
   "dependencies": {
     "idb": "^8.0.0",
