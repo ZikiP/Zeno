@@ -1,10 +1,11 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
 import { listPlugins, setActivePlugin } from '@/store/plugins';
 import type { InstalledPlugin } from '@/store/db';
 import { usePlugin, notifyPluginChanged } from '@/store/PluginContext';
-import { IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';
+import { IconSearch } from '@/components/Icons';
+import BottomNav from '@/components/BottomNav';
 import { ErrorBox, Loading } from '@/components/UI';
 
 interface Hit {
@@ -278,24 +279,7 @@ export default function GlobalSearchPage() {
         )}
       </main>
 
-      <nav className="bottom-nav">
-        <Link to="/shelf">
-          <IconShelf />
-          书架
-        </Link>
-        <Link to="/explore">
-          <IconExplore />
-          发现
-        </Link>
-        <Link to="/search" className="active">
-          <IconSearch size={20} />
-          搜索
-        </Link>
-        <Link to="/settings">
-          <IconSettings />
-          设置
-        </Link>
-      </nav>
+      <BottomNav />
     </>
   );
 }

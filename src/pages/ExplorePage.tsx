@@ -2,7 +2,8 @@
 import { Link } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
 import { usePlugin } from '@/store/PluginContext';
-import { IconEmpty, IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';
+import { IconEmpty, IconSearch } from '@/components/Icons';
+import BottomNav from '@/components/BottomNav';
 import { ErrorBox, Loading } from '@/components/UI';
 
 /**
@@ -204,24 +205,7 @@ export default function ExplorePage() {
         )}
       </main>
 
-      <nav className="bottom-nav">
-        <Link to="/shelf">
-          <IconShelf />
-          书架
-        </Link>
-        <Link to="/explore" className="active">
-          <IconExplore />
-          发现
-        </Link>
-        <Link to="/search">
-          <IconSearch size={20} />
-          搜索
-        </Link>
-        <Link to="/settings">
-          <IconSettings />
-          设置
-        </Link>
-      </nav>
+      <BottomNav />
     </>
   );
 }

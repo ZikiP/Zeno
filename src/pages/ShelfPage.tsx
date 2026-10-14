@@ -5,7 +5,8 @@ import type { ShelfEntry } from '@/store/types';
 import { usePlugin } from '@/store/PluginContext';
 import { useReloadOnChange } from '@/store/useDataVersion';
 import { coverUrl } from '@/site/engine';
-import { IconEmpty, IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';
+import { IconEmpty, IconExplore, IconSettings } from '@/components/Icons';
+import BottomNav from '@/components/BottomNav';
 import { ErrorBox, Loading } from '@/components/UI';
 
 export default function ShelfPage() {
@@ -81,24 +82,7 @@ export default function ShelfPage() {
         )}
       </main>
 
-      <nav className="bottom-nav">
-        <Link to="/shelf" className="active">
-          <IconShelf />
-          书架
-        </Link>
-        <Link to="/explore">
-          <IconExplore />
-          发现
-        </Link>
-        <Link to="/search">
-          <IconSearch size={20} />
-          搜索
-        </Link>
-        <Link to="/settings">
-          <IconSettings />
-          设置
-        </Link>
-      </nav>
+      <BottomNav />
     </>
   );
 }
