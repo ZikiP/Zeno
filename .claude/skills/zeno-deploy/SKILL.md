@@ -86,7 +86,7 @@ journalctl -u zeno -f
 
 ```powershell
 .\deploy.ps1
-Get-Content "$env:TEMP\zeno.log" -Tail 20 -Wait
+Get-Content "<安装目录>\zeno.log" -Tail 20 -Wait
 Restart-ScheduledTask -TaskName Zeno
 Stop-ScheduledTask   -TaskName Zeno
 ```
@@ -97,8 +97,17 @@ Stop-ScheduledTask   -TaskName Zeno
 **计划任务默认不落 stdout**，所以必须包一层 wrapper 把输出重定向到文件：
 
 ```powershell
-& 'C:\path\to\node.exe' 'C:\path\Zeno\server\index.mjs' *>> "$env:TEMP\zeno.log"
+& 'C:\path\to\node.exe' 'C:\path\Zeno\server\index.mjs' *>> 'C:\path\Zeno\zeno.log'
 ```
+
+**日志别放 `%TEMP%`**：任务以 `NT AUTHORITY\SYSTEM` 运行，写不进普通用户的
+`%TEMP%`，而且重定向失败会被 `$ErrorActionPreference='Continue'` 吞掉，
+结果就是「服务挂了却一行日志都没有」。放安装目录，SYSTEM 有权限，路径也固定。
+
+同理，包装脚本**必须先 `Set-Location` 到安装目录**（或直接给 `DIST_DIR` /
+`DB_PATH` 绝对路径）。Task Scheduler 启动的 PowerShell 默认 cwd 是
+`C:\Windows\System32`，而 `server/index.mjs` 里这两个路径都是 `resolve('./...')`
+—— 不钉死的话，服务会在 System32 下建库，并且根路径一直返回 `dist not found`。
 
 不这么做的话，崩溃后连日志都看不到。
 
@@ -239,7 +248,8 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
-| `MCP error` / 进程秒退 | 看日志 | `journalctl -u zeno -n 50` 或 `%TEMP%\zeno.log` |
+| `MCP error` / 进程秒退 | 看日志 | `journalctl -u zeno -n 50` 或 `<安装目录>\zeno.log` |
+| 健康检查绿但页面是 `dist not found` | 服务 cwd 不是安装目录 | 包装脚本里 `Set-Location`，或看 `/api/health` 的 `dbPath` 落在哪 |
 | 端口占用 | 上次没退干净 | `ss -ltnp \| grep 8788`；Windows 用 `Get-NetTCPConnection -LocalPort 8788` |
 | 改了端口不生效 | 环境变量没传到服务 | Linux 改 systemd 的 `Environment=`；Windows 改 wrapper |
 | 打开是 404 | dist 没构建 | `npm run build` |

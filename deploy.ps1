@@ -44,7 +44,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $ServiceName = 'Zeno'
 $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$LogFile = Join-Path $env:TEMP 'zeno.log'
+# 日志必须放在安装目录：任务以 SYSTEM 身份运行，写不进普通用户的 %TEMP%，
+# 放那里会静默失败（*>> 报错但 $ErrorActionPreference='Continue' 吞掉），
+# 结果就是"服务挂了却一行日志都没有"。
+$LogFile = Join-Path $InstallDir 'zeno.log'
 
 function Step($msg) { Write-Host "> $msg" -ForegroundColor Cyan }
 function Ok($msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
@@ -120,9 +123,15 @@ if ($listener) {
 # ── 启动包装 ──────────────────────────────────────
 # 计划任务默认不落 stdout，不包一层就没法看日志
 $wrapper = Join-Path $InstallDir 'start-zeno.ps1'
+# Task Scheduler 启动的 PowerShell 默认 cwd 是 C:\Windows\System32。
+# server/index.mjs 的 DIST_DIR 与 DB_PATH 都是 resolve('./...')，相对 cwd ——
+# 不钉死绝对路径的话，服务会在 System32 下建库并回 "dist not found"。
 $wrapperContent = @"
 `$ErrorActionPreference = 'Continue'
+Set-Location -LiteralPath '$InstallDir'
 `$env:PORT = $Port
+`$env:DIST_DIR = '$InstallDir\dist'
+`$env:DB_PATH = '$InstallDir\data\zeno.db'
 & '$nodePath' '$InstallDir\server\index.mjs' *>> '$LogFile'
 "@
 Set-Content -Path $wrapper -Value $wrapperContent -Encoding UTF8
@@ -188,6 +197,17 @@ for ($i = 0; $i -lt 6; $i++) {
         $r = Invoke-RestMethod "http://127.0.0.1:$Port/api/health" -TimeoutSec 3
         $healthy = $true
         Ok ("服务响应正常（插件 " + $r.plugins + " 个，白名单 " + $r.allowedHosts.Count + " 个）")
+        # 光看 /api/health 会漏判：它不依赖 dist。曾经有一次部署健康检查全绿，
+        # 但因为 cwd 是 System32，站点根路径其实返回的是 "dist not found"。
+        try {
+            $page = Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 5
+            if ($page.Content -notmatch 'id="root"') { throw '响应里没有 #root' }
+            Ok '首页 HTML 正常（dist 可读，工作目录正确）'
+        } catch {
+            Warn ("首页取不到：" + $_.Exception.Message)
+            Warn ("服务的工作目录可能不对。它报告的数据库路径是 " + $r.dbPath)
+            Warn ("应当落在 $InstallDir\data 下；落在 System32 说明 cwd 没设对。")
+        }
         break
     } catch {
         Start-Sleep -Seconds 1
@@ -204,72 +224,8 @@ if (-not $healthy) {
 
 # ── Tailscale ─────────────────────────────────────
 if (-not $SkipTailscale) {
-    $tsCmd = Get-Command tailscale -ErrorAction SilentlyContinue
-    if (-not $tsCmd) {
-        Warn '没装 Tailscale，跳过 HTTPS 配置'
-    } else {
-        Step '配置 Tailscale HTTPS'
-
-        try {
-            & tailscale serve --bg $Port 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-
-            # 别用 ConvertFrom-Json 读 `tailscale status --json`：
-            # 1.102 的 CapMap 里有重复键（"https" 出现两次），PS 5.1 直接抛
-            # 「无效的应为 ’}’」，整段 HTTPS 地址和代理检测就都不输出了。
-            # serve status 是纯文本，正则取第一个 ts.net 即可。
-            $serveOut = (& tailscale serve status 2>&1) -join ' '
-            $tsName = ''
-            if ($serveOut -match 'https://([A-Za-z0-9._-]+\.ts\.net)') {
-                $tsName = $Matches[1]
-            }
-            if ($tsName) {
-                Ok ("HTTPS 地址：https://" + $tsName + "/")
-
-                # 绕开系统代理直连，单独确认 serve 与证书本身没问题。
-                # 必须用 curl.exe —— powershell 里 curl 是 Invoke-WebRequest 的别名。
-                $probe = & curl.exe -s --noproxy '*' -o NUL -w '%{http_code}' `
-                    --max-time 15 ("https://" + $tsName + "/api/health") 2>$null
-                if ($probe -eq '200') {
-                    Ok 'HTTPS 直连验证通过（证书有效）'
-                } else {
-                    Warn ("HTTPS 直连验证未通过（HTTP " + $probe + "）。检查 tailnet 是否开启了证书签发。")
-                }
-
-                # 系统代理才是真坑：浏览器把 *.ts.net 塞进代理，TLS 握手被中断。
-                # 而 Workbox 会用 precache 兜住导航，于是页面看着正常、请求全挂。
-                # 代理状态在注册表里，清 $env:http_proxy 是空操作 —— 那个变量通常根本不存在。
-                $ie = Get-ItemProperty `
-                    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' `
-                    -ErrorAction SilentlyContinue
-                if ($ie -and $ie.ProxyEnable -eq 1) {
-                    $hasBypass = $false
-                    foreach ($b in (@($ie.ProxyOverride -split ';'))) {
-                        if ($b -like '*ts.net*') { $hasBypass = $true }
-                    }
-                    Write-Host ''
-                    Write-Host ("  检测到系统代理：" + $ie.ProxyServer) -ForegroundColor Yellow
-                    if ($hasBypass) {
-                        Ok '代理的绕过列表已包含 *.ts.net'
-                    } else {
-                        Warn '绕过列表里没有 *.ts.net —— 浏览器会 ERR_CONNECTION_ABORTED，但页面看着像正常。'
-                        Warn '解法：在代理软件自己的「绕过 / 直连」设置里加 *.ts.net，不要直接改注册表。'
-                        Warn '  Clash 系客户端开关代理时会整个重写 ProxyOverride，手改会被静默覆盖。'
-                        Warn '也别指望 DOMAIN-SUFFIX,ts.net,DIRECT 这类规则：流量仍进代理，'
-                        Warn '  而 ts.net 只有 MagicDNS 能解析，代理解析不出来。'
-                    }
-                }
-
-                Write-Host ''
-                Write-Host '  手机/平板怎么用：' -ForegroundColor Gray
-                Write-Host '    1. 装 Tailscale 并登录同一账号' -ForegroundColor Gray
-                Write-Host ("    2. 浏览器打开 https://" + $tsName + "/") -ForegroundColor Gray
-                Write-Host '    3. 菜单「添加到主屏幕」即可当 App 用' -ForegroundColor Gray
-                Write-Host '    4. 手机上也开着代理软件的话，同样要绕过 *.ts.net' -ForegroundColor Gray
-            }
-        } catch {
-            Warn ("Tailscale 配置失败：" + $_.Exception.Message)
-        }
-    }
+    . (Join-Path $InstallDir 'scripts\deploy-tailscale.ps1')
+    Invoke-ZenoTailscale -Port $Port
 }
 
 # ── 汇总 ─────────────────────────────────────────
