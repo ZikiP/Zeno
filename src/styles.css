@@ -471,6 +471,19 @@ input {
   height: 32px;
   padding: 0 12px;
   font-size: 12px;
+  position: relative;
+}
+/* 触控热区补到 44px，但视觉尺寸不变。
+   .btn--sm 有 13 处用在列表行和分区头里，直接把 height 拉到 44 会撑坏排版；
+   这里只纵向扩、不横向扩，避免同一行的两个按钮互相抢点击。 */
+.btn--sm::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -742,6 +755,9 @@ input {
   justify-content: center;
   gap: 10px;
   padding: 64px 24px;
+  /* justify-content 只在容器比内容高时才起作用；.empty 原本是内容高度，
+     所以空状态一直贴在顶栏下面、下面一大片空白。给它一个最小高度让它真的居中。 */
+  min-height: 55vh;
   text-align: center;
   color: var(--text-faint);
   font-size: 14px;
@@ -1417,6 +1433,16 @@ input {
   color: var(--text-faint);
   background: var(--bg-elev);
   border-bottom: 1px solid var(--border);
+  position: relative;
+}
+/* 整条都可点（打开同步面板），但只有 29px 高，手机上很难点中。
+   同样只扩热区不改外观。 */
+.sync-bar::after {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto 0;
+  transform: translateY(-50%);
+  height: 44px;
 }
 
 .sync-bar__dot {

@@ -85,5 +85,5 @@ export function useTheme() {
 export const THEMES: { key: ThemeMode; label: string; hint: string }[] = [
   { key: 'light', label: '浅色', hint: '白天与明亮环境' },
   { key: 'dark', label: '深色', hint: '夜间阅读，护眼省电' },
-  { key: 'system', label: '跟随系统', hint: '随设备的深浅色设置自动切换' },
+  { key: 'system', label: '跟随系统', hint: '随设备自动切换深浅色' },
 ];
