@@ -30,18 +30,18 @@
 
 ## 运行
 
-### 自托管（多端同步）
+### 自托管（推荐）
 
 一台机器 + Tailscale，手机平板电脑共用一份数据：
 
 ```bash
+git clone https://github.com/ZikiP/Zeno.git
+cd Zeno
 npm install
 npm run serve
 ```
 
-`npm run serve` = 构建 + 启动。**就这一条命令，不用配任何环境变量。**
-
-抓取白名单**从已安装的插件自动推导** —— 在应用里装好插件，服务端立刻放行对应站点。
+`serve` = 构建 + 启动。**不用配任何环境变量。**
 
 远程访问：
 
@@ -51,6 +51,28 @@ tailscale serve --bg 8788
 
 **必须用 `tailscale serve` 拿 HTTPS** —— 直接用 `http://机器名:端口` 也能通，
 但浏览器不认那是安全上下文，Service Worker 不工作，PWA 离线会静默失效。
+
+### 一键部署（生产机）
+
+带脚本，装完就是开机自启的常驻服务：
+
+| 平台 | 命令 | 说明 |
+|---|---|---|
+| Linux / macOS | `./deploy.sh` | systemd 服务 |
+| Windows | `.\deploy.ps1` | 计划任务（SYSTEM 账号 + 崩溃自动重启） |
+
+脚本会做：环境检查 → 装依赖 → 构建 → 注册开机自启 → 健康检查 → 配 Tailscale HTTPS。
+
+```bash
+./deploy.sh --port 9000        # 换端口
+./deploy.sh --skip-tailscale   # 不配 HTTPS
+./deploy.sh --uninstall        # 卸载
+```
+
+**⚠️ 系统有代理软件（Clash / FlClash 等）时**，脚本会自动清掉
+`http_proxy`/`https_proxy` 再配 Serve —— 否则 Tailscale 证书签不下来。
+
+抓取白名单**从已安装的插件自动推导** —— 装好插件服务端立刻放行对应站点。
 
 同步什么、冲突怎么解、Tailscale 常见坑 → **[docs/DEPLOY.md](docs/DEPLOY.md)**
 
@@ -254,6 +276,8 @@ server/
   db.mjs             SQLite schema 与变更日志
   merge.mjs          合并策略
   static.mjs         静态文件与 SPA 回退
+deploy.sh            Linux / macOS 一键部署（systemd）
+deploy.ps1           Windows 一键部署（计划任务）
 docs/DEPLOY.md       自托管与 Tailscale 部署
 scripts/
   gen-icons.ts       生成 PWA 图标
