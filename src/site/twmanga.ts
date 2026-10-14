@@ -17,19 +17,30 @@ export const SITE = {
   entry: 'https://www.twmanga.com',
   /** 章节页实际域名（跳板 302 的落点） */
   chapter: 'https://www.twbzmg.com',
-  /** 图片 CDN 前缀（用于 PWA 运行时缓存规则匹配） */
-  imageHosts: ['bzcdn.net'],
-  coverHosts: ['baozimh.com', 'xgcartoon.com', 'ttkan.co'],
+  /**
+   * 站点不返回 Access-Control-Allow-Origin，浏览器直连必被 CORS 拦。
+   * 所有上游请求统一经本项目的代理转发（server/proxy.mjs）。
+   * 开发时走 vite dev proxy，生产时把代理服务挂在同域 /api 下 —— 两边路径一致，无需改代码。
+   */
+  proxy: '/api/proxy',
 } as const;
 
-/** 图片 CDN 主机名在浏览器里不可枚举，这里仅用于判定，不参与请求 */
-const IMAGE_URL_RE =
-  /https:\/\/[a-z0-9.-]*(bzcdn\.net|baozimh\.com|xgcartoon\.com|ttkan\.co)\/[^\s"'<>]+/gi;
+/** 把上游地址包进代理 */
+export function proxied(url: string): string {
+  return `${SITE.proxy}?url=${encodeURIComponent(url)}`;
+}
+
+/** 封面：先拼 CDN 的尺寸参数，再整体包进代理 */
+export function coverUrl(rawCover: string, w: number, h: number): string {
+  if (!rawCover) return '';
+  return proxied(`${rawCover}?w=${w}&h=${h}&q=85`);
+}
 
 export interface Comic {
   /** 拼音 slug，全站唯一标识，如 dingjiqiyunqiaoqiaoxiulianqiannian-yuewenmanhua */
   slug: string;
   title: string;
+  /** 裸封面 URL（未过代理），渲染时用 coverUrl() 转换 */
   cover: string;
   /** 作者/来源标签 */
   author?: string;
@@ -82,18 +93,16 @@ function decodeEntities(s: string): string {
 const MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-async function fetchHtml(url: string, timeoutMs = 15000): Promise<string> {
+async function fetchHtml(url: string, timeoutMs = 20000): Promise<string> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(proxied(url), {
       headers: {
-        'User-Agent': MOBILE_UA,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
       },
       signal: ctrl.signal,
-      redirect: 'follow',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} — ${url}`);
     return decodeEntities(await res.text());
@@ -149,7 +158,9 @@ function parseCards(html: string): Comic[] {
     out.push({
       slug,
       title: title ? title.trim() : slug,
-      cover: coverM?.[0] ?? '',
+      // 封面统一在解析时就包成代理 URL —— 因为还要拼 ?w=&h= 参数，
+    // 裸 URL 没法直接进 proxied()，所以这里存裸 URL，由 coverUrl() 负责拼。
+    cover: coverM?.[0] ?? '',
       latestChapter: latestM ? stripTags(latestM[1]).trim() : undefined,
     });
   }
@@ -301,7 +312,8 @@ export async function getChapter(
     page++;
   }
 
-  return { page: 1, totalPages, images };
+  // 图片统一在解析阶段就包进代理，UI 和离线缓存都直接用这个 URL
+  return { page: 1, totalPages, images: images.map(proxied) };
 }
 
 /** 一次性取多张图的尺寸，用于剔除 140px 的分隔页 */
