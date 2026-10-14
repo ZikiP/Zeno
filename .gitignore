@@ -3,7 +3,13 @@ dist/
 dist-ssr/
 *.local
 .DS_Store
-.vscode/*
-!.vscode/extensions.json
 *.tsbuildinfo
+
+# 运行日志（不入库）
+*.log
+preview.txt
+dev.log
+
+# 探针输出
+scripts/*.txt
 scripts/*.txt

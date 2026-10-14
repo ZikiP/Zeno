@@ -69,6 +69,13 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5178,
+    // 开发时的 CORS 代理 —— 生产部署时由 server/proxy.mjs 接管同一路径
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8788',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     host: '0.0.0.0',
