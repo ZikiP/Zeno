@@ -1,4 +1,4 @@
-import type { Plugin } from './types';
+import type { FetchMode, PageKind, Plugin } from './types';
 
 /**
  * 请求层
@@ -73,40 +73,61 @@ export function escapeRe(s: string): string {
 }
 
 /**
+ * 解析某类页面该用哪种取源方式。
+ *
+ * fetch.mode 可以是一个字符串（所有页面同一种），也可以是
+ * { list, detail, chapter } 对象（分别指定，缺省的那项回落到 fetch）。
+ * 支持分开写是因为实测发现质询常常只挂在主站域名上，章节页在另一个域、
+ * 根本不需要渲染 —— 全局 browser 会让最高频的操作白付几秒并挤占并发槽。
+ */
+export function modeFor(plugin: Plugin, kind: PageKind): FetchMode {
+  const m = plugin.fetch?.mode;
+  if (!m) return 'fetch';
+  if (typeof m === 'string') return m;
+  return m[kind] ?? 'fetch';
+}
+
+/** waitFor 同样支持字符串或按页面类型分别给 */
+export function waitForFor(plugin: Plugin, kind: PageKind): string | undefined {
+  const w = plugin.fetch?.waitFor;
+  if (!w) return undefined;
+  if (typeof w === 'string') return w;
+  return w[kind];
+}
+
+/**
  * 取上游页面的 HTML，带退避重试。
  *
  * 重试是必需的：实测同一 URL 连测 4 次都 200，但并发放几个请求时
  * 会偶发 `fetch failed`（站点掐短时间多连接）。3 次尝试足够覆盖。
  *
- * browser 模式只试一次 —— 一次渲染就要 1–3 秒，而它失败的原因（页面确实没
+ * browser 模式只试一次 —— 一次渲染就要几秒，而它失败的原因（页面确实没
  * 渲染出内容 / 被质询挡住）重试也不会变，三次串起来只是把一次卡死放大三倍。
  */
 export async function fetchText(
   plugin: Plugin,
   url: string,
+  kind: PageKind = 'list',
   timeoutMs = plugin.fetch?.timeoutMs ?? 20_000,
 ): Promise<string> {
   let lastErr: unknown;
-  const mode = plugin.fetch?.mode ?? 'fetch';
+  const mode = modeFor(plugin, kind);
   const attempts = mode === 'browser' ? 1 : 3;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(
-        proxied(url, mode, mode === 'browser' ? plugin.fetch?.waitFor : undefined),
-        {
-          headers: {
-            // Node 端（探针）直连，需要伪装 UA；浏览器端设了也无效，代理已带
-            'User-Agent': plugin.headers?.['User-Agent'] ?? DEFAULT_UA,
-            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': plugin.headers?.['Accept-Language'] ?? 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
-          },
-          signal: ctrl.signal,
-          redirect: 'follow',
+      const res = await fetch(proxied(url, mode, mode === 'browser' ? waitForFor(plugin, kind) : undefined), {
+        headers: {
+          // Node 端（探针）直连，需要伪装 UA；浏览器端设了也无效，代理已带
+          'User-Agent': plugin.headers?.['User-Agent'] ?? DEFAULT_UA,
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': plugin.headers?.['Accept-Language'] ?? 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
         },
-      );
+        signal: ctrl.signal,
+        redirect: 'follow',
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return decodeEntities(await res.text());
     } catch (e) {

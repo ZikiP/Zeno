@@ -164,8 +164,11 @@ export async function renderHtml(url, opts = {}) {
       // 没有声明等待条件时，给 SPA 一个落地的机会；不是精确方案，但比立即抓强
       await page.waitForLoadState('load', { timeout: timeoutMs }).catch(() => {});
     }
-    // 再让出一小段时间给"选择器已出现但内容仍在补"的站点
-    await page.waitForTimeout(800).catch(() => {});
+    // 只有没给等待条件时才额外让 800ms。给了 waitFor 就已经等到内容了，
+    // 再固定加 800ms 是纯开销 —— 它会加在每一次渲染上。
+    if (!settled && !opts.waitFor) {
+      await page.waitForTimeout(800).catch(() => {});
+    }
     const html = await page.content();
 
     /*

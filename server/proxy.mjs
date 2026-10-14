@@ -57,11 +57,20 @@ export async function handleProxy(req, res, url, ctx) {
 
   const mode = url.searchParams.get('mode') === 'browser' ? 'browser' : 'fetch';
 
-  await acquire();
-  let released = false;
+  /*
+   * 并发闸只给 fetch 模式用。
+   * browser 模式自己已经有 MAX_PAGES 限流，而且一次渲染要好几秒 ——
+   * 让它占住 MAX_CONCURRENT 六个槽之一，阅读器同时发的几十张图片就会
+   * 全部排在渲染后面（实测单张图从 1~2s 被拖到 10s+）。
+   */
+  let held = false;
+  if (mode === 'fetch') {
+    await acquire();
+    held = true;
+  }
   const done = () => {
-    if (!released) {
-      released = true;
+    if (held) {
+      held = false;
       release();
     }
   };

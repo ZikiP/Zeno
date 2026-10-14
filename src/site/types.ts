@@ -11,6 +11,12 @@
 /** 标题提取方式：按属性名，或按标签名 */
 export type TitleSource = { attr: string } | { tag: string };
 
+/** 取源方式：直接 HTTP，还是用浏览器引擎渲染 */
+export type FetchMode = 'fetch' | 'browser';
+
+/** 需要取 HTML 的页面类型。图片不属于任何一类 —— 它永远走 fetch */
+export type PageKind = 'list' | 'detail' | 'chapter';
+
 /** 插件格式版本，用于将来做兼容 */
 export const PLUGIN_FORMAT = 'zeno-plugin@1';
 
@@ -108,20 +114,29 @@ export interface Plugin {
   maxChapterPages?: number;
 
   /**
-   * 取源方式。
+   * 取源方式，可按页面类型分别设置。
    *
-   * - `fetch`（默认，省略即此）：服务端直接 HTTP 取 HTML。快，但拿不到需要
+   * - `'fetch'`（默认，省略即此）：服务端直接 HTTP 取 HTML。快，但拿不到需要
    *   执行 JS 才出内容的页面 —— 前端渲染的站点、以及带 JS 质询网关的站点都会失败。
-   * - `browser`：服务端用一个真的浏览器引擎渲染后再取 HTML。慢（1–3s/页）、
-   *   占内存（热了 300–500MB），但能拿到 JS 渲染后的结果。
+   * - `'browser'`：服务端用一个真的浏览器引擎渲染后再取 HTML。慢、占内存，
+   *   但能拿到 JS 渲染后的结果。
+   *
+   * **写成字符串 = 对所有页面类型用同一种方式，通常不是你要的。**
+   * 实测包子漫画：质询只在 baozimh.com，章节页所在的 twmanga.com 根本没有，
+   * 全局 browser 于是让每一页阅读都白付约 2s，还挤占抓取并发槽。
+   * 分开写就是列表/详情用 browser、章节用 fetch。
    *
    * 只作用于 HTML 文档（列表 / 详情 / 章节页）。**图片永远走 fetch** ——
    * `<img>` 用不上渲染结果，给每张图开一次浏览器也不合理。
    */
   fetch?: {
-    mode?: 'fetch' | 'browser';
-    /** browser 模式：渲染后等这个 CSS 选择器出现再取 HTML，缺省等 load */
-    waitFor?: string;
+    mode?: FetchMode | Partial<Record<PageKind, FetchMode>>;
+    /**
+     * browser 模式：渲染后等这个 CSS 选择器出现再取 HTML，缺省等 load。
+     * 也可以按页面类型分别给（{ list, detail, chapter }）—— 列表页和详情页
+     * 要等的东西本来就不是同一个，共用一个必然有一边等错。
+     */
+    waitFor?: string | Partial<Record<PageKind, string>>;
     /** 单次取源上限，默认 20000ms */
     timeoutMs?: number;
   };
@@ -199,11 +214,23 @@ export function validatePlugin(p: unknown): string[] {
     if (typeof pl.fetch !== 'object') {
       errs.push('fetch 应为对象');
     } else {
-      if (pl.fetch.mode !== undefined && !['fetch', 'browser'].includes(pl.fetch.mode)) {
-        errs.push(`fetch.mode 只能是 "fetch" 或 "browser"，实际为 "${String(pl.fetch.mode)}"`);
+      const m = pl.fetch.mode;
+      const isMode = (v: unknown) => v === 'fetch' || v === 'browser';
+      if (m !== undefined && typeof m === 'string') {
+        if (!isMode(m)) errs.push(`fetch.mode 只能是 "fetch" 或 "browser"，实际为 "${String(m)}"`);
+      } else if (m !== undefined && typeof m === 'object' && m !== null) {
+        for (const [k, v] of Object.entries(m)) {
+          if (!['list', 'detail', 'chapter'].includes(k)) {
+            errs.push(`fetch.mode 的键只能是 list / detail / chapter，出现 "${k}"`);
+          }
+          if (!isMode(v)) errs.push(`fetch.mode.${k} 只能是 "fetch" 或 "browser"`);
+        }
+      } else if (m !== undefined) {
+        errs.push('fetch.mode 应为字符串或 { list, detail, chapter } 对象');
       }
-      if (pl.fetch.waitFor !== undefined && typeof pl.fetch.waitFor !== 'string') {
-        errs.push('fetch.waitFor 应为 CSS 选择器字符串');
+      const w = pl.fetch.waitFor;
+      if (w !== undefined && typeof w !== 'string' && (typeof w !== 'object' || w === null)) {
+        errs.push('fetch.waitFor 应为 CSS 选择器字符串，或 { list, detail, chapter } 对象');
       }
       if (pl.fetch.timeoutMs !== undefined) {
         const t = pl.fetch.timeoutMs;

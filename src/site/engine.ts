@@ -58,7 +58,7 @@ export async function listComics(
         plugin.entry,
       ).toString();
 
-  const html = await fetchText(plugin, url);
+  const html = await fetchText(plugin, url, 'list');
   const comics = parseCards(html, plugin.parse);
 
   // 分类页永远是精确结果
@@ -75,6 +75,7 @@ export async function getComic(
   const html = await fetchText(
     plugin,
     new URL(fillTemplate(plugin.urls.detail, { slug }), plugin.entry).toString(),
+    'detail',
   );
 
   const rawChapters = parseChapters(html, plugin.parse);
@@ -154,6 +155,7 @@ export async function getChapter(
       html = await fetchText(
         plugin,
         new URL(fillTemplate(plugin.urls.chapter, { slug, id: pageId }), base).toString(),
+        'chapter',
       );
     } catch {
       break; // 到头了
