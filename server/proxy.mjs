@@ -1,12 +1,16 @@
 /**
- * 极简反向代理 —— 解决站点的 CORS 问题
+ * 极简反向代理 —— 解决目标站点的 CORS 问题
  *
- * 站点（twmanga / twbzmg / bzcdn）不返回 Access-Control-Allow-Origin，
- * 浏览器直连必然被拦。本服务原样转发请求并补上 CORS 头。
+ * 多数站点不返回 Access-Control-Allow-Origin，浏览器直连必然被拦。
+ * 本服务原样转发请求并补上 CORS 头。
+ *
+ * 站点白名单从环境变量读取，**不内置任何具体站点**：
+ *   ALLOWED_HOSTS=example.com,cdn.example.com node server/proxy.mjs
+ * 不设置则拒绝一切请求，避免变成开放代理。
  *
  * 用法：
- *   node server/proxy.mjs            # 监听 8788
- *   PORT=9000 node server/proxy.mjs
+ *   node server/proxy.mjs
+ *   PORT=9000 ALLOWED_HOSTS=a.com,b.com node server/proxy.mjs
  *
  * 部署时：把 dist/ 交给任意静态服务器，把本服务挂在同一域名下的 /api 路径即可。
  */
@@ -15,23 +19,21 @@ import { Readable } from 'node:stream';
 
 const PORT = Number(process.env.PORT || 8788);
 
-/** 允许访问的上游域名白名单 —— 避免被当成开放代理 */
-const ALLOWED = [
-  'www.twmanga.com',
-  'twmanga.com',
-  'www.twbzmg.com',
-  'twbzmg.com',
-  'static-tw.baozimh.com',
-  'static-a.xgcartoon.com',
-  'static.ttkan.co',
-  'www.baozimh.com',
-  's2.bzcdn.net',
-  's1.bzcdn.net',
-  's2-ogsm1-uspho.bzcdn.net',
-];
+/** 允许访问的上游域名白名单 —— 由使用者通过环境变量提供 */
+const ALLOWED = (process.env.ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+const MAX_CONCURRENT_DEFAULT = 6;
 
 const MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
+if (ALLOWED.length === 0) {
+  console.warn('[proxy] 警告：未设置 ALLOWED_HOSTS，所有请求都会被拒绝。');
+  console.warn('[proxy] 用法：ALLOWED_HOSTS=example.com,cdn.example.com node server/proxy.mjs');
+}
 
 /**
  * 上游并发限制。
@@ -78,7 +80,10 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (!ALLOWED.includes(parsed.hostname)) {
+    // 白名单匹配：精确相等，或为白名单项的子域名
+    const host = parsed.hostname.toLowerCase();
+    const ok = ALLOWED.some((a) => host === a || host.endsWith(`.${a}`));
+    if (!ok) {
       res.writeHead(403).end('host not allowed');
       return;
     }

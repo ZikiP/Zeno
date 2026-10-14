@@ -26,10 +26,12 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
+        // 所有上游请求都经过 /api/proxy，按路径匹配即可，
+        // 不需要在这里写死任何站点域名 —— 站点由使用者自行配置。
         runtimeCaching: [
           {
             // 漫画图片：缓存优先，断网可读
-            urlPattern: /^https:\/\/[^/]*bzcdn\.net\/.*\.(jpg|jpeg|png|webp)$/i,
+            urlPattern: /\/api\/proxy\?.*\.(jpg|jpeg|png|webp)/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'comic-images',
@@ -38,18 +40,8 @@ export default defineConfig({
             },
           },
           {
-            // 封面图
-            urlPattern: /^https:\/\/[^/]*(baozimh|xgcartoon|ttkan)[^/]*\/cover\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'comic-covers',
-              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 30 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-          {
-            // 站点页面：网络优先，拿到最新的章节信息
-            urlPattern: /^https:\/\/[^/]*(twmanga|twbzmg|baozimh)\.[^/]+\/.*/i,
+            // 站点页面（HTML）：网络优先，保证章节信息新鲜
+            urlPattern: /\/api\/proxy\?/i,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'site-pages',
