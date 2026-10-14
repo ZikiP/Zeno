@@ -31,8 +31,8 @@ import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import { resolve } from 'node:path';
 
-import { openDb, pull, saveClientState, stats, listClients } from './db.mjs';
-import { pushAll } from './merge.mjs';
+import { openDb, pull, saveClientState, stats, listClients, allowedHostsFromPlugins } from './db.mjs';
+import { pushAll, removePlugin } from './merge.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
 
 const PORT = Number(process.env.PORT || 8788);
@@ -41,10 +41,26 @@ const SYNC_TOKEN = process.env.SYNC_TOKEN || '';
 
 /* ── 抓取代理配置 ─────────────────────────────────── */
 
-const ALLOWED = (process.env.ALLOWED_HOSTS ?? '')
+/**
+ * 白名单 = 已安装插件推导出的域名 ∪ 环境变量补充。
+ *
+ * 主要来源是插件：用户在应用里装好插件，白名单自动生效，
+ * 不需要再去改环境变量、重启服务。同一份信息不填两遍。
+ * ALLOWED_HOSTS 只作为「还没装插件就想先调代理」时的补充手段。
+ */
+const EXTRA_HOSTS = (process.env.ALLOWED_HOSTS ?? '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
+
+let allowed = new Set();
+
+/** 从数据库重新推导白名单。插件变动后调它。返回数组（JSON 可序列化） */
+function refreshAllowed() {
+  const fromPlugins = allowedHostsFromPlugins();
+  allowed = new Set([...EXTRA_HOSTS, ...fromPlugins]);
+  return [...allowed];
+}
 
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 6);
 let active = 0;
@@ -65,10 +81,6 @@ function release() {
 
 const MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
-
-if (ALLOWED.length === 0) {
-  console.warn('[zeno] 提示：未设置 ALLOWED_HOSTS，抓取代理会拒绝一切请求。');
-}
 
 /* ── 小工具 ───────────────────────────────────────── */
 
@@ -122,7 +134,13 @@ const server = createServer(async (req, res) => {
 
     /* ── 健康检查 / 状态 ── */
     if (path === '/api/health') {
-      json(res, 200, { ok: true, version: 1, ...stats() });
+      json(res, 200, {
+        ok: true,
+        version: 1,
+        ...stats(),
+        // 白名单放在状态里，排查「装插件了却抓不到」时一眼能看出原因
+        allowedHosts: [...allowed],
+      });
       return;
     }
 
@@ -154,7 +172,37 @@ const server = createServer(async (req, res) => {
       const deviceId = body.deviceId ?? req.headers['x-device-id'] ?? 'unknown';
       const result = pushAll(body, deviceId);
       saveClientState(deviceId, body.seq ?? 0, req.headers['user-agent']?.slice(0, 200) ?? null);
-      json(res, 200, { ok: true, applied: result, serverSeq: stats().seq });
+
+      /*
+       * 插件变了，白名单跟着变。
+       * 不刷新的话，用户在手机上装好插件后，家里 MiniPC 的代理还是拒绝该站点，
+       * 表现是「明明装了插件还是抓不到」—— 很难自己想到跟白名单有关。
+       *
+       * 注意 refreshAllowed 返回的是 Set，要展开成数组才能 JSON 序列化，
+       * 否则客户端拿到的是 {}。
+       */
+      refreshAllowed();
+
+      json(res, 200, {
+        ok: true,
+        applied: result,
+        serverSeq: stats().seq,
+        allowedHosts: [...allowed],
+      });
+      return;
+    }
+
+    /* ── 同步：删除插件（删除也要传播到其他设备） ── */
+    if (path === '/api/sync/forget-plugin' && req.method === 'POST') {
+      if (!auth(req)) return json(res, 401, { error: 'unauthorized' });
+      const body = await readBody(req);
+      const id = String(body.id ?? '');
+      if (!id) return json(res, 400, { error: 'missing id' });
+
+      const removed = removePlugin(id, body.deviceId ?? 'unknown');
+      refreshAllowed();
+
+      json(res, 200, { ok: true, removed, allowedHosts: [...allowed] });
       return;
     }
 
@@ -172,9 +220,14 @@ const server = createServer(async (req, res) => {
 
       const host = parsed.hostname.toLowerCase();
       // 白名单：精确相等或子域名。防止被当成开放代理
-      const ok = ALLOWED.some((a) => host === a || host.endsWith(`.${a}`));
+      const ok = [...allowed].some((a) => host === a || host.endsWith(`.${a}`));
       if (!ok) {
-        json(res, 403, { error: 'host not allowed', host });
+        json(res, 403, {
+          error: 'host not allowed',
+          host,
+          hint: '装上对应内容的插件后会自动放行；也可以设 ALLOWED_HOSTS 手动补充',
+          allowed: [...allowed],
+        });
         return;
       }
 
@@ -295,16 +348,24 @@ server.on('error', (err) => {
 });
 
 openDb();
+refreshAllowed();
 
 server.listen(PORT, '0.0.0.0', () => {
+  const n = allowed.size;
   console.log('');
-  console.log(`  Zeno 服务已启动`);
-  console.log(`  ├─ 本机     http://127.0.0.1:${PORT}`);
-  console.log(`  ├─ 局域网   http://<本机IP>:${PORT}`);
-  console.log(`  ├─ 静态目录 ${DIST_DIR}`);
-  console.log(`  ├─ 数据库   ${process.env.DB_PATH || './data/zeno.db'}`);
-  console.log(`  ├─ 代理白名单 ${ALLOWED.join(', ') || '(未设置 — 抓取会被拒绝)'}`);
-  console.log(`  └─ 同步令牌 ${SYNC_TOKEN ? '已启用' : '未设置（仅靠 tailnet 保护）'}`);
+  console.log('  Zeno 服务已启动');
+  console.log(`  ├─ 本机      http://127.0.0.1:${PORT}`);
+  console.log(`  ├─ 局域网    http://<本机IP>:${PORT}`);
+  console.log(`  ├─ 静态目录  ${DIST_DIR}`);
+  console.log(`  ├─ 数据库    ${process.env.DB_PATH || './data/zeno.db'}`);
+  console.log(
+    `  ├─ 抓取白名单 ${n ? `${n} 个（来自已安装的插件）` : '空 — 装个插件就会自动放行对应站点'}`,
+  );
+  console.log(`  └─ 同步令牌  ${SYNC_TOKEN ? '已启用' : '未设置（仅靠 tailnet 保护）'}`);
+  if (n > 0) {
+    console.log('');
+    console.log('     已放行：' + [...allowed].join(', '));
+  }
   console.log('');
   console.log('  远程访问请用 Tailscale Serve 拿 HTTPS（否则 PWA 离线失效）：');
   console.log(`    tailscale serve --bg ${PORT}`);

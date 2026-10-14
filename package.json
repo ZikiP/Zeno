@@ -1,7 +1,7 @@
 {
   "name": "zeno",
   "private": false,
-  "version": "0.2.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "干净的网页阅读器 — 跨端 PWA，内容源由用户自行配置",
   "license": "MIT",
@@ -12,11 +12,15 @@
     "offline"
   ],
   "scripts": {
+    "start": "node server/index.mjs",
+    "serve": "npm run build && node server/index.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "icons": "tsx scripts/gen-icons.ts"
+    "icons": "tsx scripts/gen-icons.ts",
+    "test": "node scripts/test-sync.mjs && node scripts/test-multidevice.mjs",
+    "test:whitelist": "node scripts/test-whitelist.mjs"
   },
   "dependencies": {
     "idb": "^8.0.0",

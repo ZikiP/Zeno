@@ -59,6 +59,22 @@ export function upsertPlugins(rows, deviceId) {
   return changed;
 }
 
+/**
+ * 插件：集合式合并 + 显式删除
+ *
+ * 插件是「整机一份」的语义（不像书架可以有不同漫画），
+ * 所以需要支持删除传播：某台设备删了插件，其他设备下次同步也要跟着删。
+ * upsert 只能增不能删，所以补一个 removePlugin。
+ */
+export function removePlugin(id, deviceId) {
+  const d = openDb();
+  const existing = d.prepare('SELECT id FROM plugins WHERE id = ?').get(id);
+  if (!existing) return false;
+  d.prepare('DELETE FROM plugins WHERE id = ?').run(id);
+  logChange('plugin', deviceId);
+  return true;
+}
+
 /* ── 书架 ─────────────────────────────────────────── */
 
 /** 集合式合并：按 (pluginId, slug) 取新 */

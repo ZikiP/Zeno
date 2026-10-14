@@ -28,9 +28,27 @@ export async function savePlugin(
   });
 }
 
+/**
+ * 删除插件。
+ *
+ * 除了删本地，还要通知服务端 —— 否则服务端那份永远留着，
+ * 白名单不会移除，其他设备同步时也删不掉。
+ * 同步没开时请求会失败，忽略即可，不影响本地删除。
+ */
 export async function deletePlugin(id: string): Promise<void> {
   await (await db()).delete('plugins', id);
   await deletePluginData(id);
+
+  try {
+    const endpoint = localStorage.getItem('syncEndpoint') ?? location.origin;
+    await fetch(`${endpoint}/api/sync/forget-plugin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+  } catch {
+    /* 没开同步或连不上，本地已删，够了 */
+  }
 }
 
 /** 取当前启用的插件；没有就用第一个；一个都没有返回 null（引导用户导入） */

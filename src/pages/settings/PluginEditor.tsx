@@ -163,10 +163,10 @@ export default function PluginEditor({
 
         {hosts.length > 0 && (
           <div className="notice-ok" style={{ padding: 10, fontSize: 12, lineHeight: 1.6 }}>
-            启动代理时需要放行这些域名：
+            保存后服务端会自动放行这些域名，无需其他配置：
             <br />
             <code style={{ fontSize: 11, wordBreak: 'break-all' }}>
-              ALLOWED_HOSTS={hosts.join(',')}
+              {hosts.join(', ')}
             </code>
           </div>
         )}

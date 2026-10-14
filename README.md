@@ -35,12 +35,19 @@
 一台机器 + Tailscale，手机平板电脑共用一份数据：
 
 ```bash
-npm ci && npm run build
-ALLOWED_HOSTS=你的站点域名 node server/index.mjs
-tailscale serve --bg 8788
+npm install
+npm run serve
 ```
 
-一个进程同时提供静态文件、同步 API、抓取代理，数据落在 SQLite（Node 内置，无需编译）。
+`npm run serve` = 构建 + 启动。**就这一条命令，不用配任何环境变量。**
+
+抓取白名单**从已安装的插件自动推导** —— 在应用里装好插件，服务端立刻放行对应站点。
+
+远程访问：
+
+```bash
+tailscale serve --bg 8788
+```
 
 **必须用 `tailscale serve` 拿 HTTPS** —— 直接用 `http://机器名:端口` 也能通，
 但浏览器不认那是安全上下文，Service Worker 不工作，PWA 离线会静默失效。
@@ -52,10 +59,10 @@ tailscale serve --bg 8788
 ```bash
 npm install
 
-# 终端 1：抓取代理（解决目标站点 CORS）
-ALLOWED_HOSTS=example.com,cdn.example.com node server/index.mjs
+# 终端 1：服务端（抓取代理 + 同步 API）
+npm start
 
-# 终端 2：开发（vite 会把 /api 转发给终端 1）
+# 终端 2：前端（vite 把 /api 转发给终端 1）
 npm run dev
 ```
 

@@ -38,30 +38,44 @@
 ```bash
 git clone https://github.com/ZikiP/Zeno.git
 cd Zeno
-npm ci
-npm run build
+npm install
 ```
 
-### 2. 启动服务
+### 2. 启动
 
 ```bash
-ALLOWED_HOSTS=你的站点域名,图片CDN域名 node server/index.mjs
+npm run serve
 ```
 
-环境变量：
+`serve` = `npm run build && node server/index.mjs`。**就这一条命令。**
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `PORT` | 8788 | 监听端口 |
-| `DIST_DIR` | `./dist` | 静态文件目录 |
-| `DB_PATH` | `./data/zeno.db` | 数据库位置 |
-| `ALLOWED_HOSTS` | 空 | 抓取代理白名单，**不设置则拒绝一切** |
-| `MAX_CONCURRENT` | 6 | 上游并发上限 |
-| `SYNC_TOKEN` | 空 | 设置后同步 API 需要 `Authorization: Bearer <token>` |
+启动后会打印：
 
-`ALLOWED_HOSTS` 填你要访问的站点与它的图片 CDN。插件编辑器里会自动算出该填什么。
+```
+  Zeno 服务已启动
+  ├─ 本机      http://127.0.0.1:8788
+  ├─ 局域网    http://192.168.x.x:8788
+  ├─ 静态目录  .../dist
+  ├─ 数据库    ./data/zeno.db
+  ├─ 抓取白名单 空 — 装个插件就会自动放行对应站点
+  └─ 同步令牌  未设置（仅靠 tailnet 保护）
+```
 
-### 3. 用 Tailscale 暴露 HTTPS
+### 3. 装个插件
+
+浏览器打开后进「设置 → 内容源插件」，导入一个 `.json` 插件文件。
+
+**装完自动放行** —— 服务端会从插件配置里读出 `entry` / `chapterHost` / `imageHosts`，
+写进代理白名单。不用改环境变量，不用重启。
+
+白名单当前状态可以随时查：
+
+```bash
+curl http://127.0.0.1:8788/api/health
+# 返回里的 allowedHosts 就是当前放行的域名
+```
+
+### 4. 用 Tailscale 暴露 HTTPS
 
 ```bash
 tailscale serve --bg 8788
@@ -77,18 +91,14 @@ https:// your-mini-pc.your-tailnet.ts.net/
 **这一步不能省。** 直接用 `http://机器名:8788` 虽然能通，但浏览器不认那是「安全上下文」，
 Service Worker 不工作，PWA 的离线能力会静默失效。
 
-### 4. 设备上访问
+### 5. 设备上访问
 
 手机/平板装 Tailscale、登录同一账号，浏览器打开上面的 `https://xxx.ts.net` 即可。
 
 - 安卓：菜单「添加到主屏幕」当 App 用
 - iOS：Safari 分享 →「添加到主屏幕」
 
-### 5. 配同步
-
-**同源部署时什么都不用填** —— 前端默认连当前地址，打开就同步。
-
-要在设置里填地址的情况：前端单独部署、或者要给多台后端做区分。
+**同步是零配置的** —— 同源部署时前端默认连当前地址，打开就同步。
 
 ## ⚠️ Tailscale 常见坑
 
@@ -97,42 +107,48 @@ Service Worker 不工作，PWA 的离线能力会静默失效。
 | Android 上 `*.ts.net` 解析失败 | 私人 DNS 冲突 | 设置 → 网络 → 私人 DNS 设为「自动」或「关闭」 |
 | Chrome 里解析不了 | Chrome 的安全 DNS 绕过 MagicDNS | `chrome://settings/security` 关掉「使用安全 DNS」 |
 | iOS 上装成 App 后收不到推送 | Safari 标签页无法收推送 | 必须从主屏幕图标启动，且与网站同源 |
-| 服务跑着跑着全 502 | 服务崩了 | 现在有全局兜底不会崩；看日志确认端口没被占 |
+| 在外面访问很卡 | 国内对称 NAT，UDP 打洞失败 | 见下方「在外网访问」 |
 
-## 数据同步说明
+### 在外网（用流量）访问
 
-### 同步什么
+能访问，但路径会变：
 
-| 数据 | 说明 |
-|---|---|
-| 书架 | 集合式合并 |
-| 阅读进度 | 每章一个百分比 |
-| 读到哪一章 | |
-| 书签与笔记 | 可写笔记 |
-| 插件配置 | 整机一份 |
-| 主题 / 阅读偏好 | |
+| 场景 | 路径 | 延迟 |
+|---|---|---|
+| 在家 / 同一网络 | P2P 直连 | 20-30ms |
+| 在外 / 蜂窝网络 | 打洞失败 → DERP 中继（最近在香港） | 200-300ms |
 
-**不同步图片缓存** —— 太大了，整部漫画几个 GB，且手机在外网时拉不动。
+先确认自己走的是哪条路：
 
-### 冲突怎么解决
+```bash
+tailscale status    # 看 relay 那列：direct=直连，derpX=中继
+tailscale netcheck  # MappingVariesByDestIP: true 说明是对称 NAT
+```
 
-全部按「`updated_at` 大的胜」。简单，且满足两条性质：
+**真正要操心的是流量**：一话 3-15 MB，看一小时 100-400 MB。
 
-- **幂等**：同样数据推多次结果不变
-- **可交换**：A→B、B→A 结果一致，不会来回震荡
+三个缓解手段，按性价比排：
 
-时钟不准只会让「最近写的赢」，不会丢数据。
+1. **出门前离线下载**（零成本，最有效）—— 详情页「离线下载」，之后完全不耗流量
+2. **路由器开 UPnP 或静态映射 UDP 41641**（免费）—— 把 NAT 从对称降级为全锥，打洞成功率大幅提升
+3. **自建 DERP 中继**（约 8 元/月）—— 国内 VPS 上跑一个，实测延迟 148ms → 38ms
 
-一个特判：**已读完的章节（100%）不会被小值覆盖** —— 平板上读完了，手机上误操作拖回去不会把它标成未读。
+PWA 本身有 CacheFirst 缓存，**看过的章节第二次不费流量**。
 
-### 什么时候同步
+## 数据备份
 
-- 打开页面时
-- 页面重新可见时（手机切后台回来，定时器被浏览器冻结了，所以用 `visibilitychange`）
-- 恢复联网时
-- 每 5 分钟
+全部数据在三个文件里：
 
-**服务端不可达不影响本地功能**，只是这次没同步上，下次补。
+```
+data/zeno.db          主库
+data/zeno.db-wal      WAL 日志
+data/zeno.db-shm      共享内存
+```
+
+停服后复制 `data/` 整个目录即可。运行中备份要用
+`sqlite3 data/zeno.db ".backup backup.db"`（WAL 模式下直接拷文件可能拿到不一致快照）。
+
+**插件配置也在这里** —— 备份丢了就得重新导入插件。
 
 ## 安全边界
 
@@ -141,24 +157,28 @@ Service Worker 不工作，PWA 的离线能力会静默失效。
 需要更强隔离时设置 `SYNC_TOKEN`：
 
 ```bash
-SYNC_TOKEN=你的随机长字符串 ALLOWED_HOSTS=... node server/index.mjs
+SYNC_TOKEN=你的随机长字符串 npm start
 ```
 
-然后在各设备设置页的「多端同步」里填同一个令牌。
+然后在各设备「设置 → 多端同步」里填同一个令牌。
 
 **不要用 `tailscale funnel`** —— 那会把服务暴露到公网，与「只给自己用」的目的相反。
 
-## 数据备份
+抓取代理有白名单保护，不会变成开放代理。白名单来自已安装的插件，
+不装插件就没有任何域名被放行。
 
-全部数据在一个文件里：
+## 环境变量（全部可选）
 
-```
-data/zeno.db          主库
-data/zeno.db-wal      WAL 日志
-data/zeno.db-shm      共享内存
-```
+一个都不设也能正常用。要改行为时才需要：
 
-直接复制这三个文件即可备份。也可以停服后只拷 `.db`。
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `PORT` | 8788 | 监听端口 |
+| `DIST_DIR` | `./dist` | 静态文件目录 |
+| `DB_PATH` | `./data/zeno.db` | 数据库位置 |
+| `ALLOWED_HOSTS` | 空 | 手动补充白名单。**装插件就自动放行了，通常不用设** |
+| `MAX_CONCURRENT` | 6 | 上游并发上限 |
+| `SYNC_TOKEN` | 空 | 设置后同步 API 需要 `Authorization: Bearer <token>` |
 
 ## 开机自启
 
@@ -172,8 +192,7 @@ After=network-online.target tailscaled.service
 
 [Service]
 WorkingDirectory=/opt/Zeno
-Environment=ALLOWED_HOSTS=example.com,cdn.example.com
-ExecStart=/usr/bin/node server/index.mjs
+ExecStart=/usr/bin/npm run serve
 Restart=always
 
 [Install]
@@ -184,21 +203,36 @@ WantedBy=multi-user.target
 systemctl enable --now zeno
 ```
 
+不用设任何环境变量 —— 白名单会从插件数据库自动读。
+
 ### 计划任务（Windows）
 
 ```bat
-schtasks /create /tn Zeno /tr "node D:\Zeno\server\index.mjs" /sc onstart /ru SYSTEM
+schtasks /create /tn Zeno /tr "npm run serve" /sc onstart /ru SYSTEM
 ```
+
+### Docker
+
+```dockerfile
+FROM node:22-slim
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+ENV PORT=8788
+EXPOSE 8788
+VOLUME /app/data
+CMD ["node", "server/index.mjs"]
+```
+
+`/app/data` 要挂卷，否则重启丢数据。
 
 ## 验证
 
 ```bash
-# 服务健康
-curl http://127.0.0.1:8788/api/health
-
-# 同步往返（含冲突、幂等、读完保护）
-node scripts/test-sync.mjs
-
-# 模拟第二台设备写入
-node scripts/test-multidevice.mjs
+npm test                              # 同步 API + 多端往返
+node scripts/verify-plugin.ts <插件>   # 插件解析
+curl http://127.0.0.1:8788/api/health # 状态 + 当前白名单
 ```
+
