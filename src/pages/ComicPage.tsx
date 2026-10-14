@@ -4,6 +4,7 @@ import { getChapter, getComic, coverUrl, type Chapter, type Comic } from '@/site
 import {
   addToShelf,
   cacheChapterImages,
+  cacheChapterList,
   deleteCachedByPluginAndSlug,
   formatBytes,
   getCachedChapter,
@@ -43,6 +44,15 @@ export default function ComicPage() {
       setComic(c);
       setChapters(ch);
       setOnShelf(inShelf);
+
+      // 顺手缓存章节表，阅读器内打开目录就不用再抓一次
+      void cacheChapterList(
+        plugin.meta.id,
+        slug,
+        c.title,
+        ch.map((x) => ({ id: x.id, index: x.index, title: x.title })),
+      );
+
       const map: CachedMap = {};
       for (const item of cacheList) map[item.chapterId] = { bytes: item.bytes };
       setCached(map);
