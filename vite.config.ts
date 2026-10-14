@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: [],
       manifest: {
-        name: '漫画阅读器',
-        short_name: '漫画',
-        description: '跨端漫画阅读器，无广告阅读体验',
+        name: 'Zeno',
+        short_name: 'Zeno',
+        description: '干净的跨端漫画阅读器',
         theme_color: '#111827',
         background_color: '#111827',
         display: 'standalone',
