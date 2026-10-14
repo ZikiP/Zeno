@@ -133,11 +133,43 @@ async function getContext(userAgent) {
 }
 
 /**
+ * 渲染结果缓存
+ *
+ * browser 模式一次渲染要 1–3s，而阅读里重复取同一个 URL 的场景很多：
+ * 返回列表再点进来、章节抽屉来回切、失败后重试。
+ *
+ * 键必须带上 waitFor —— 同一个 URL 等不同选择器，"算不算成功"的判据不同，
+ * 共用一份结果会把列表页的成功当成详情页的成功。
+ *
+ * TTL 故意短：列表/详情内容本来就在变，缓存久了用户看到的就是旧章节。
+ */
+const RENDER_TTL_MS = Number(process.env.RENDER_TTL_MS || 90_000);
+const RENDER_CACHE_MAX = 24;
+/** Map 的迭代顺序就是插入顺序，容量满了从头开始挤 */
+const renderCache = new Map();
+let cacheHits = 0;
+
+function cacheKey(url, opts) {
+  return `${url}\u0000${opts.waitFor ?? ''}`;
+}
+
+export function renderCacheStats() {
+  return { size: renderCache.size, hits: cacheHits, ttlMs: RENDER_TTL_MS };
+}
+
+/**
  * 渲染一个页面并返回 HTML。
  * @param {string} url
  * @param {{waitFor?: string, timeoutMs?: number, userAgent?: string}} opts
  */
 export async function renderHtml(url, opts = {}) {
+  const key = cacheKey(url, opts);
+  const hit = renderCache.get(key);
+  if (hit && Date.now() - hit.at < RENDER_TTL_MS) {
+    cacheHits++;
+    return { html: hit.html, status: hit.status, contentType: hit.contentType };
+  }
+
   const timeoutMs = Math.min(Math.max(opts.timeoutMs ?? 20_000, 5_000), 120_000);
   scheduleIdleClose();
 
@@ -181,6 +213,15 @@ export async function renderHtml(url, opts = {}) {
     let status = resp?.status() ?? 200;
     if (settled) status = 200;
     else if (status >= 400 && html.length > 2000) status = 200;
+
+    if (status < 400) {
+      /*
+       * 失败的结果不缓存 —— 那等于把一次抖动钉住 90 秒，
+       * 用户点重试也只会反复拿到同一个坏结果。
+       */
+      if (renderCache.size >= RENDER_CACHE_MAX) renderCache.delete(renderCache.keys().next().value);
+      renderCache.set(key, { at: Date.now(), html, status, contentType: 'text/html; charset=utf-8' });
+    }
 
     return { html, status, contentType: 'text/html; charset=utf-8' };
   } finally {

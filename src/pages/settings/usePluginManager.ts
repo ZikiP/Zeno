@@ -3,6 +3,7 @@ import {
   deletePlugin,
   getActivePlugin,
   listPlugins,
+  newPluginTemplate,
   savePlugin,
   setActivePlugin,
 } from '@/store/plugins';
@@ -136,7 +137,7 @@ export function usePluginManager(): PluginManager {
     editing,
     message,
     reload,
-    startCreate: () => setEditing(newEmptyPlugin()),
+    startCreate: () => setEditing(newPluginTemplate('新建插件')),
     startEdit: (p) => setEditing(p),
     closeEditor: () => setEditing(null),
     switchTo,
@@ -144,35 +145,5 @@ export function usePluginManager(): PluginManager {
     importFile,
     exportPlugin,
     finishSave,
-  };
-}
-
-/** 新建插件时的空白模板 */
-function newEmptyPlugin(): Plugin {
-  return {
-    format: 'zeno-plugin@1',
-    meta: {
-      id: `local-${Date.now().toString(36)}`,
-      name: '新建插件',
-      version: '0.1.0',
-    },
-    entry: 'https://example.com',
-    urls: {
-      search: '/search?q={q}',
-      classify: '/classify?region={region}&state={state}',
-      detail: '/comic/{slug}',
-      chapter: '/comic/chapter/{slug}/{id}.html',
-    },
-    parse: {
-      card: '<div class="comic-card',
-      slugFrom: 'href="/comic/([^"?]+)"',
-      title: { attr: 'title' },
-      cover: 'https?://[^"\'\\s]*?/cover/[^"\'\\s?]+\\.(?:jpg|jpeg|png|webp)',
-      chapterItem: 'class="chapter-item"',
-      chapterIdFrom: '/(\\d+)_(\\d+)\\.html',
-      imageAttr: 'data-src',
-    },
-    headers: {},
-    imageHosts: [],
   };
 }

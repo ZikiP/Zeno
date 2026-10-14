@@ -15,8 +15,13 @@ const DEFAULT_UA =
 /**
  * 把上游地址包进代理。
  *
- * 浏览器环境走代理（目标站点通常无 CORS 头，直连必被拦）；
- * Node 环境直连（探针脚本在那边跑，没有跨域限制）。
+ * 浏览器环境一定走代理（目标站点通常无 CORS 头，直连必被拦）。
+ * Node 环境默认直连 —— 探针脚本在那边跑，没有跨域限制。
+ *
+ * 但 Node 直连拿不到 `fetch.mode="browser"` 的效果：渲染是服务端做的。
+ * 所以设了 ZENO_PROXY 时 Node 也走代理，命令行验证插件才能覆盖到
+ * 需要渲染的站点（否则 browser 模式的插件在脚本里永远是 0 条结果，
+ * 看着像站点坏了）。
  *
  * mode='browser' 让服务端用浏览器引擎渲染后再回 HTML。只有取文档时才传；
  * 图片走 coverUrl / 章节图片列表，永远是默认的 fetch。
@@ -30,11 +35,20 @@ export function proxied(
   mode: 'fetch' | 'browser' = 'fetch',
   waitFor?: string,
 ): string {
-  if (typeof window === 'undefined') return url;
-  if (mode !== 'browser') return `${PROXY_PATH}?url=${encodeURIComponent(url)}`;
-  let out = `${PROXY_PATH}?url=${encodeURIComponent(url)}&mode=browser`;
+  const base = nodeProxyBase();
+  if (typeof window === 'undefined' && !base) return url;
+  const origin = typeof window === 'undefined' ? base! : '';
+  let out = `${origin}${PROXY_PATH}?url=${encodeURIComponent(url)}`;
+  if (mode !== 'browser') return out;
+  out += `&mode=browser`;
   if (waitFor) out += `&waitFor=${encodeURIComponent(waitFor)}`;
   return out;
+}
+
+/** Node 端有没有指定要经过的代理地址。浏览器构建里 process 不存在 */
+function nodeProxyBase(): string {
+  const p = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+  return p?.env?.ZENO_PROXY?.replace(/\/+$/, '') ?? '';
 }
 
 /**
@@ -113,13 +127,32 @@ export function waitForFor(plugin: Plugin, kind: PageKind): string | undefined {
 }
 
 /**
- * 取上游页面的 HTML，带退避重试。
+ * 取源失败。
+ *
+ * `status` 只在上游真的回了 HTTP 状态时才有，它是「这个页面不存在」和
+ * 「网络/渲染出问题了」唯一的区分依据 —— 翻页循环把后者当前者，
+ * 表现就是一章莫名其妙短了几页而界面上一切正常。
+ */
+export class FetchError extends Error {
+  constructor(
+    message: string,
+    readonly url: string,
+    readonly status?: number,
+  ) {
+    super(`${message} — ${url}`);
+    this.name = 'FetchError';
+  }
+}
+
+/** 取上游页面的 HTML，带退避重试。
  *
  * 重试是必需的：实测同一 URL 连测 4 次都 200，但并发放几个请求时
  * 会偶发 `fetch failed`（站点掐短时间多连接）。3 次尝试足够覆盖。
  *
  * browser 模式只试一次 —— 一次渲染就要几秒，而它失败的原因（页面确实没
  * 渲染出内容 / 被质询挡住）重试也不会变，三次串起来只是把一次卡死放大三倍。
+ *
+ * 404/410 也不重试：那是"这个 URL 就是没有"，重试只会把失败拖成三倍久。
  */
 export async function fetchText(
   plugin: Plugin,
@@ -145,15 +178,22 @@ export async function fetchText(
         signal: ctrl.signal,
         redirect: 'follow',
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new FetchError(`HTTP ${res.status}`, url, res.status);
       return decodeEntities(await res.text());
     } catch (e) {
       lastErr = e;
-      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      const status = e instanceof FetchError ? e.status : undefined;
+      const retryable = status !== 404 && status !== 410;
+      if (retryable && attempt < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        continue;
+      }
+      break;
     } finally {
       clearTimeout(timer);
     }
   }
 
-  throw new Error(`${(lastErr as Error)?.message ?? 'unknown'} — ${url}`);
+  if (lastErr instanceof FetchError) throw lastErr;
+  throw new FetchError((lastErr as Error)?.message ?? 'unknown', url);
 }

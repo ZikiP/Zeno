@@ -22,8 +22,6 @@ export interface ReaderPrefs {
   bgColor: BgColor;
   /** 灰度显示，省流量也护眼 */
   grayscale: boolean;
-  /** 阅读时隐藏状态栏（沉浸） */
-  immersive: boolean;
 }
 
 export const DEFAULT_PREFS: ReaderPrefs = {
@@ -33,7 +31,6 @@ export const DEFAULT_PREFS: ReaderPrefs = {
   brightness: null,
   bgColor: 'black',
   grayscale: false,
-  immersive: true,
 };
 
 const KEY = 'readerPrefs';

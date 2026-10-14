@@ -1,5 +1,5 @@
 ﻿import type { Plugin } from './types';
-import { coverUrl, escapeRe, fetchText, proxied } from './fetch';
+import { coverUrl, escapeRe, fetchText, FetchError, proxied } from './fetch';
 import {
   fillTemplate,
   isSearchExact,
@@ -40,6 +40,12 @@ export interface ChapterPage {
   totalPages: number;
   /** 已过代理的图片地址 */
   images: string[];
+  /**
+   * 内页没取完就中断了（网络失败、渲染超时），而不是这一章真的只有这么多页。
+   * 少了这个标记，"短了一截的一章"和"本来就短的一章"在界面上完全一样 ——
+   * 用户会以为漫画就这么点内容。
+   */
+  truncated?: boolean;
 }
 
 /** 搜索 / 分类列表 */
@@ -145,6 +151,7 @@ export async function getChapter(
 
   let totalPages = 1;
   let page = 1;
+  let truncated = false;
 
   while (page <= limit && page <= HARD_CAP) {
     if (opts?.signal?.aborted) break;
@@ -157,8 +164,22 @@ export async function getChapter(
         new URL(fillTemplate(plugin.urls.chapter, { slug, id: pageId }), base).toString(),
         'chapter',
       );
-    } catch {
-      break; // 到头了
+    } catch (e) {
+      const status = e instanceof FetchError ? e.status : undefined;
+      /*
+       * 404/410 = 这个内页真的不存在，章节到此为止。绝大多数单页章节都走这条，
+       * 是正常的结束方式，不是错误。
+       *
+       * 第一页就失败（任何原因）都必须抛 —— 那时一张图都没拿到，
+       * 静默返回空列表在界面上和"这章是空章节"长得一模一样。
+       *
+       * 后面的页失败且不是 404（超时、5xx、渲染不出来），返回已有部分但标记
+       * truncated：把网络抖动当成"这章就这么短"，用户读到最后也不会起疑。
+       */
+      if (status === 404 || status === 410) break;
+      if (page === 1) throw e;
+      truncated = true;
+      break;
     }
 
     // 页面里的总页数标记，形如标题中的 "(1/4)"
@@ -194,5 +215,5 @@ export async function getChapter(
     page++;
   }
 
-  return { totalPages, images };
+  return { totalPages, images, truncated };
 }

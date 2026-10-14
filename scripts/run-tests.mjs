@@ -22,10 +22,15 @@ const ALL_SUITES = [
   'test-whitelist.mjs',
   'test-ssrf.mjs',
   'test-auth.mjs',
+  // 直接测 src/ 里的纯逻辑（不碰 DOM、不碰网络），所以用 tsx 跑而不是编译产物
+  'test-validation.ts',
 ];
 const suites = process.argv.slice(2).length
-  ? process.argv.slice(2).map((s) => (s.endsWith('.mjs') ? s : `test-${s}.mjs`))
+  ? process.argv.slice(2).map((s) => (/\.(mjs|ts)$/.test(s) ? s : `test-${s}.mjs`))
   : ALL_SUITES;
+
+/** .ts 套件直接跑 src 里的源码，需要 tsx 的 CLI。走文件路径而不是 .bin 里的 shim，Windows 上少一层 shell 解析 */
+const TSX_CLI = resolve(ROOT, 'node_modules/tsx/dist/cli.mjs');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -93,7 +98,9 @@ for (const [i, suite] of suites.entries()) {
   }
 
   const code = await new Promise((res) => {
-    const p = spawn(process.execPath, [`scripts/${suite}`], {
+    /* .ts 套件跑 src 里的真源码，要经 tsx；.mjs 由 node 直接执行 */
+    const argv = suite.endsWith('.ts') ? [TSX_CLI, `scripts/${suite}`] : [`scripts/${suite}`];
+    const p = spawn(process.execPath, argv, {
       cwd: ROOT,
       stdio: 'inherit',
       env: { ...process.env, ...(srv ? { BASE: srv.base } : {}) },

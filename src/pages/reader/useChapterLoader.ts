@@ -15,6 +15,12 @@ export interface ChapterLoader {
   error: string | null;
   loading: boolean;
   fromCache: boolean;
+  /**
+   * 章节取到了但不完整（内页翻到一半失败了）。
+   * 单独一条而不是塞进 error：图片是能读的，只是末尾缺一截，
+   * 藏着不说的话，用户会当成"这章就这么短"。
+   */
+  warning: string | null;
   /** 记录当前进度（传 0–1 的比例，内部换算成百分比） */
   record: (ratio: number) => void;
   /** 重新加载 */
@@ -30,6 +36,7 @@ export function useChapterLoader(
 ): ChapterLoader {
   const [images, setImages] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [fromCache, setFromCache] = useState(false);
   const [nonce, setNonce] = useState(0);
@@ -44,6 +51,7 @@ export function useChapterLoader(
 
     setLoading(true);
     setError(null);
+    setWarning(null);
     setImages(null);
 
     (async () => {
@@ -70,6 +78,14 @@ export function useChapterLoader(
 
         setImages(result.images);
         setLoading(false);
+        if (result.truncated) {
+          setWarning('后面有几页没取到（网络或渲染失败），这一章可能不完整');
+          /*
+           * 不缓存残缺的一份 —— 缓存是按章节整条存的，写进去之后
+           * 下次进这一章直接命中，缺的那几页就永远补不回来了。
+           */
+          return;
+        }
         // 后台静默缓存，不阻塞阅读
         void cacheChapterImages(pluginId!, slug, chapterId, result.images);
       } catch (e) {
@@ -113,6 +129,7 @@ export function useChapterLoader(
   return {
     images,
     error,
+    warning,
     loading,
     fromCache,
     record,

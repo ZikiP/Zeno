@@ -51,11 +51,8 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const isRTL = prefs.value.direction === 'rtl';
 
   /* ── 数据 ── */
-  const { images, error, loading, fromCache, record, scrollRef } = useChapterLoader(
-    plugin,
-    slug,
-    chapterId,
-  );
+  const { images, error, warning, loading, fromCache, record, reload, scrollRef } =
+    useChapterLoader(plugin, slug, chapterId);
 
   const imageCount = images?.length ?? 0;
   const paging = usePaging(imageCount, mode, prefs.value.pageMode);
@@ -79,6 +76,14 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const flash = useCallback((text: string) => setToast(text), []);
   const clearToast = useCallback(() => setToast(null), []);
   useAutoDismiss(toast, clearToast);
+
+  /*
+   * 章节没取完要说出来。图片照样能读、进度条照样走到底，
+   * 不说一句的话用户只会以为「这一章就这么短」。
+   */
+  useEffect(() => {
+    if (warning) flash(warning);
+  }, [warning, flash]);
 
   /* ── 进度恢复（仅滚动模式） ── */
   const savedPercent = useSavedPercent(plugin?.meta.id, slug, chapterId);
@@ -182,7 +187,12 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
       />
 
       {error ? (
-        <ErrorBox message={error} onRetry={() => nav(0)} />
+        /*
+         * 重试必须走 reload（让 loader 的 nonce 前进、重新发请求）。
+         * 之前这里是 nav(0) —— react-router 把数字当"历史回退 N 步"，
+         * 0 步就是什么都不做，按钮看着能点、点了没反应。
+         */
+        <ErrorBox message={error} onRetry={reload} />
       ) : loading || !images ? (
         <Loading text="加载章节" />
       ) : mode === 'scroll' ? (

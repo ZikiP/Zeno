@@ -72,7 +72,7 @@ export async function getActivePlugin(): Promise<Plugin | null> {
     const found = all.find((p) => p.plugin.meta.id === activeId);
     if (found) return found.plugin;
   }
-  setActivePluginId(all[0].plugin.meta.id);
+  setActivePlugin(all[0].plugin.meta.id);
   return all[0].plugin;
 }
 
