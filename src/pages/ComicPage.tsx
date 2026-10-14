@@ -2,16 +2,14 @@
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { getChapter, getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import {
-  addToShelf,
   cacheChapterImages,
   cacheChapterList,
   deleteCachedByPluginAndSlug,
-  formatBytes,
   getCachedChapter,
-  isInShelf,
   listCachedChapters,
-  removeFromShelf,
-} from '@/store/db';
+} from '@/store/chapters';
+import { addToShelf, isInShelf, removeFromShelf } from '@/store/shelf';
+import { formatBytes } from '@/store/utils';
 import { usePlugin } from '@/store/PluginContext';
 import ChapterList from '@/components/ChapterList';
 import { IconBack, IconCheck, IconDownload, IconSettings, IconShelf } from '@/components/Icons';

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { getChapterList } from '@/store/db';
+﻿import { useEffect, useMemo, useState } from 'react';
+import { getChapterList } from '@/store/chapters';
 
 export interface ChapterRef {
   id: string;
