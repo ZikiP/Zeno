@@ -23,6 +23,7 @@ import {
   List,
   MonitorSmartphone,
   Moon,
+  NotebookText,
   Plus,
   RefreshCw,
   Rows3,
@@ -67,6 +68,8 @@ export const IconChevronRight = (p: P) => <ChevronRight strokeWidth={SW} {...p} 
 /** 双页显示 —— 左右两栏 */
 export const IconDouble = (p: P) => <Columns2 strokeWidth={SW} {...p} />;
 export const IconZoom = (p: P) => <ZoomIn strokeWidth={SW} {...p} />;
+/** 书签与笔记面板 —— 和「收藏本页」的 IconBookmark 区分开：一个是看集合，一个是切当前页状态 */
+export const IconNotes = (p: P) => <NotebookText strokeWidth={SW} {...p} />;
 
 /** 书签。filled 时实心，表示已收藏 */
 export const IconBookmark = ({

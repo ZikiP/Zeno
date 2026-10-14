@@ -3,6 +3,7 @@ import {
   IconBookmark,
   IconDouble,
   IconList,
+  IconNotes,
   IconRows,
   IconSettings,
 } from '@/components/Icons';
@@ -45,10 +46,10 @@ export default function ReaderBar(p: ReaderBarProps) {
       <button
         className="icon-btn"
         onClick={p.onBookmarks}
-        aria-label="书签"
+        aria-label="书签与笔记"
         title="书签与笔记"
       >
-        <IconBookmark />
+        <IconNotes />
       </button>
       <button
         className={`icon-btn${p.marked ? ' is-on' : ''}`}
