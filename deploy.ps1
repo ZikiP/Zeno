@@ -18,6 +18,11 @@
 .PARAMETER SkipTailscale
     跳过 Tailscale HTTPS 配置
 
+.PARAMETER SkipInstall
+    跳过 npm ci 与构建，沿用现有 dist。
+    依赖和 dist 已经是新的、只想重注册常驻任务时用这个 ——
+    npm ci 会整个删掉重建 node_modules，没必要每次部署都来一遍。
+
 .PARAMETER Uninstall
     卸载并清理（数据保留）
 
@@ -32,6 +37,7 @@ param(
     [ValidateSet('auto', 'none')]
     [string]$Mode = 'auto',
     [switch]$SkipTailscale,
+    [switch]$SkipInstall,
     [switch]$Uninstall
 )
 
@@ -73,13 +79,25 @@ Ok ("npm " + (npm -v))
 
 # ── 依赖与构建 ────────────────────────────────────
 Set-Location $InstallDir
-Step '安装依赖'
-if (Test-Path 'package-lock.json') { npm ci } else { npm install }
+if ($SkipInstall) {
+    Step '跳过依赖与构建'
+    if (-not (Test-Path 'dist')) {
+        Die '跳过了构建但 dist 不存在 —— 去掉 -SkipInstall 先完整跑一次'
+    }
+    Ok '沿用现有 dist'
+} else {
+    Step '安装依赖'
+    if (Test-Path 'package-lock.json') { npm ci } else { npm install }
+    # PS 5.1 不会因原生命令非零退出而抛异常，必须自己查 $LASTEXITCODE。
+    # 不查的话装挂了也会一路跑到注册任务，起一个没有依赖的常驻服务。
+    if ($LASTEXITCODE -ne 0) { Die ("依赖安装失败（exit " + $LASTEXITCODE + "）") }
 
-Step '构建'
-npm run build
-if (-not (Test-Path 'dist')) { Die '构建失败：dist 不存在' }
-Ok '构建完成'
+    Step '构建'
+    npm run build
+    if ($LASTEXITCODE -ne 0) { Die ('构建失败（exit ' + $LASTEXITCODE + '）') }
+    if (-not (Test-Path 'dist')) { Die '构建失败：dist 不存在' }
+    Ok '构建完成'
+}
 
 # ── 端口检查 ──────────────────────────────────────
 Step "检查端口 $Port"
@@ -195,10 +213,16 @@ if (-not $SkipTailscale) {
         try {
             & tailscale serve --bg $Port 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
 
-            $tsJson = & tailscale status --json 2>$null | ConvertFrom-Json
-            $tsName = $tsJson.Self.DNSName
+            # 别用 ConvertFrom-Json 读 `tailscale status --json`：
+            # 1.102 的 CapMap 里有重复键（"https" 出现两次），PS 5.1 直接抛
+            # 「无效的应为 ’}’」，整段 HTTPS 地址和代理检测就都不输出了。
+            # serve status 是纯文本，正则取第一个 ts.net 即可。
+            $serveOut = (& tailscale serve status 2>&1) -join ' '
+            $tsName = ''
+            if ($serveOut -match 'https://([A-Za-z0-9._-]+\.ts\.net)') {
+                $tsName = $Matches[1]
+            }
             if ($tsName) {
-                $tsName = $tsName.TrimEnd('.')
                 Ok ("HTTPS 地址：https://" + $tsName + "/")
 
                 # 绕开系统代理直连，单独确认 serve 与证书本身没问题。
