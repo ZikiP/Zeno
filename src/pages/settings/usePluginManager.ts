@@ -9,7 +9,8 @@ import {
 } from '@/store/plugins';
 import type { InstalledPlugin } from '@/store/db';
 import { notifyPluginChanged } from '@/store/PluginContext';
-import { validatePlugin, type Plugin } from '@/site/types';
+import type { Plugin } from '@/site/types';
+import { validatePlugin } from '@/site/validate';
 
 /**
  * 插件的增删改查与导入导出

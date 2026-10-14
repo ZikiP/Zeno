@@ -433,6 +433,18 @@ input {
   color: var(--text-dim);
 }
 
+.detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail__cached {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 .detail__desc {
   font-size: 13px;
   color: var(--text-dim);
@@ -542,6 +554,41 @@ input {
 .badge-done {
   background: rgba(16, 185, 129, 0.15);
   color: #34d399;
+}
+
+/*
+ * 插件行 = 章节行 + 一段说明 + 一组操作。
+ * 整行允许换行：名字 + 域名 + 作者 + 徽标 + 三个按钮在窄屏上必然挤不下，
+ * 挤不下就换行，比压成一团或让按钮溢出边框好。
+ */
+.plugin-row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.plugin-row__name {
+  text-align: left;
+}
+.plugin-row__meta {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin-left: 8px;
+}
+.plugin-row__by {
+  color: var(--text-faint);
+  font-size: 11px;
+  margin-left: 6px;
+}
+.plugin-row__actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.plugin-row__desc {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-faint);
+  padding-left: 4px;
+  margin-top: 2px;
 }
 .badge-cache {
   background: rgba(91, 156, 248, 0.15);

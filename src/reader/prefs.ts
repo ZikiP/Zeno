@@ -69,3 +69,15 @@ export const BG_LABELS: Record<BgColor, string> = {
   sepia: '护眼',
   gray: '中性',
 };
+
+/**
+ * 亮度 + 灰度合成一条 CSS filter。
+ * 都没开时返回 undefined，让 <img> 保持浏览器默认渲染而不是套一层空 filter
+ * （套了会强制走合成层，长章节几十张图一起开反而更卡）。
+ */
+export function buildFilter(p: ReaderPrefs): string | undefined {
+  const parts: string[] = [];
+  if (p.brightness !== null) parts.push(`brightness(${p.brightness})`);
+  if (p.grayscale) parts.push('grayscale(1)');
+  return parts.length ? `filter: ${parts.join(' ')}` : undefined;
+}

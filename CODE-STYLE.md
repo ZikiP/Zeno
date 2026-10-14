@@ -36,18 +36,19 @@
 
 按**职责**拆，不按行数硬切。
 
-阅读器是典型例子（772 → 10 个文件）：
+阅读器是典型例子（772 行一个文件 → 9 个文件）：
 
 ```
 pages/reader/
-├── ReaderPage.tsx        277  只做编排：谁依赖谁
-├── ReaderPanels.tsx      浮层互斥编排
-├── useChapterLoader.ts   章节加载 + 进度保存
-├── useBookmarks.ts       书签
-├── usePaging.ts          翻页状态机 + 工具栏显隐
-├── usePrefs.ts           偏好持久化
-├── useReaderEffects.ts   常亮 + 预加载
-└── useReaderHotkeys.ts   快捷键
+├── ReaderPage.tsx        238  只做编排：谁依赖谁
+├── ReaderPanels.tsx       85  浮层互斥编排
+├── useChapterLoader.ts   171  章节加载 + 进度保存
+├── useReaderActions.ts    98  换章 / 收藏 / 跳书签 / 切模式
+├── useBookmarks.ts        88  书签
+├── usePaging.ts          138  翻页状态机 + 工具栏显隐
+├── usePrefs.ts            34  偏好持久化
+├── useReaderEffects.ts   127  常亮 + 预加载 + 提示条 + 进度恢复
+└── useReaderHotkeys.ts   101  快捷键
 
 components/reader/         每个组件一件事
 ```
@@ -156,12 +157,17 @@ interface Props {
 }
 ```
 
-## 现状（2026-10-14）
+## 现状（2026-10-15）
 
-重构后最大文件：
+全部在上限内。最大的几个：
 
 | 文件 | 行数 | 说明 |
 |---|---|---|
-| `GlobalSearchPage.tsx` | 281 | 超 31 行，主要是 JSX，可继续拆但收益不大 |
-| `ReaderPage.tsx` | 277 | 超 27 行，都是编排代码，没有可拆的职责 |
-| `PluginEditor.tsx` | ~230 | 已把表单组件抽走，剩下是字段声明 |
+| `sync/client.ts` | 296 | 逼近 300。再加东西就该把"网络层"和"状态机"分开 |
+| `pages/GlobalSearchPage.tsx` | 249 | 逼近 250。搜索历史已抽成 `useSearchHistory` |
+| `pages/reader/ReaderPage.tsx` | 238 | 动作抽到 `useReaderActions`，副作用抽到 `useReaderEffects` |
+| `site/validate.ts` | 220 | 从 types.ts 拆出：类型定义和校验规则各自演进 |
+
+拆分的判据始终是「一个文件有几件事」，不是行数。几个例子：
+`site/types.ts` 377 行时超限，不是因为长，是因为里面同时有格式定义和校验规则；
+`server/index.mjs` 362 行时也是 —— 它既有请求分发，又有同步端点、白名单、并发闸。

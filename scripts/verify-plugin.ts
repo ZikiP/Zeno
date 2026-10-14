@@ -19,7 +19,8 @@ import type { ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { validatePlugin, pluginHosts, type Plugin } from '../src/site/types.ts';
+import type { Plugin } from '../src/site/types.ts';
+import { validatePlugin, pluginHosts } from '../src/site/validate.ts';
 import { listComics, getComic, getChapter } from '../src/site/engine.ts';
 
 const args = process.argv.slice(2);

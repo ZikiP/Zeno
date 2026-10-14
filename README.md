@@ -233,21 +233,33 @@ node --import tsx scripts/verify-plugin.ts 你的插件.json
 
 会依次验证格式、列表、搜索、详情、章节、图片，并输出每一步的实测数量。
 
+脚本默认**另起一个隔离的服务端**（独立端口 + 独立临时库）并把插件推上去，
+引擎经它的代理取页面 —— 因为 `fetch.mode="browser"` 的渲染发生在服务端，
+Node 里直连上游只会拿到质询页，这类插件在脚本里就永远验证不了。
+加 `--direct` 可以退回直连（只适合全 `fetch` 模式的插件）。
+
 ## 生产部署
 
-1. `npm run build`，把 `dist/` 交给任意静态服务器
-2. 把 `server/proxy.mjs` 挂在同一域名下的 `/api` 路径（前端写死了 `/api/proxy?url=`）
+一条命令：`node server/index.mjs`。它同时提供静态文件、同步 API 和抓取代理，
+**不需要把 `proxy.mjs` 单独挂到 `/api`** —— 前端写死的 `/api/proxy?url=`
+就是这个服务自己的路径。要拆开部署也可以，只要保证 `/api/*` 与页面同源。
 
-代理环境变量：
+服务端环境变量：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `PORT` | 8788 | 监听端口 |
-| `ALLOWED_HOSTS` | 空 | 允许的上游域名，逗号分隔。**不设置则拒绝一切请求** |
+| `DIST_DIR` | `dist` | 静态目录。作为系统服务运行时 cwd 不是项目目录，**要给绝对路径** |
+| `DB_PATH` | `data/zeno.db` | SQLite 路径。同上，建议绝对路径 |
+| `SYNC_TOKEN` | 空 | 设了之后同步 API 与代理都要 Bearer token |
+| `ALLOWED_HOSTS` | 空 | 额外允许的上游域名，逗号分隔。装了插件后会自动并入插件的域名 |
 | `MAX_CONCURRENT` | 6 | 上游并发上限，过高会被 CDN 限流导致图片裂开 |
+| `UPSTREAM_TIMEOUT_MS` | 20000 | 单次上游请求上限 |
 | `ALLOW_PRIVATE_HOSTS` | 关 | 设 `1` 才放行解析到内网/回环的目标。**仅供本地开发与测试** |
 | `ZENO_BROWSER` | 自动探测 | `fetch.mode="browser"` 用的浏览器可执行文件路径 |
 | `BROWSER_IDLE_MS` | 60000 | 渲染浏览器空闲多久后关闭 |
+| `BROWSER_MAX_PAGES` | 3 | 同时打开的渲染页面上限 |
+| `RENDER_TTL_MS` | 90000 | 渲染结果缓存时长。设 0 等于关掉缓存 |
 
 ### 抓取代理的地址策略（SSRF）
 
@@ -320,15 +332,30 @@ node --import tsx scripts/verify-plugin.ts 你的插件.json
 | PWA | vite-plugin-pwa (Workbox) | 手机可「添加到主屏幕」，不需要应用商店与签名证书 |
 | 存储 | idb (IndexedDB) | 容量足够存整章图片 |
 | 图标 | lucide-react | ISC 许可、零依赖、可 tree-shake。自绘的 22 个里有几组彼此认不出来，换库比逐个修更省事（22 个图标实测 +3.4 kB gzip） |
+| 路由 | react-router-dom 6 | 只有 6 个路由，声明式 `<Routes>` 就够，没上 data router |
 | 代理 | 原生 `node:http` | 零依赖，一百来行 |
+| 渲染 | playwright-core + 系统浏览器 | `fetch.mode="browser"` 需要真的 JS 引擎。只驱动已装好的 Edge/Chrome，不下浏览器 |
+
+### 依赖告警的处置
+
+`npm audit` 目前报 react-router 的 [GHSA-337j-9hxr-rhxg](https://github.com/advisories/GHSA-337j-9hxr-rhxg)
+（`deserializeErrors()` 任意构造器注入），修复方式是升到 7.x —— 一个破坏性大版本。
+
+**本项目不受影响，理由是这条路径根本不存在**：该缺陷在 SSR hydration / data router
+的 `Hydrate` 流程里，错误对象由服务端序列化、客户端 `deserializeErrors()` 反序列化。
+Zeno 是纯客户端 SPA，没有 SSR、没有 loader/action、没有 `HydratedRouter`，
+反序列化那一步不会执行。所以不为了消掉一行告警去做 6→7 的迁移。
+
+要复核的话：`grep -rn "createBrowserRouter\|Hydrat\|useLoaderData\|useActionData" src/` 应该没有结果。
 
 ## 项目结构
 
 ```
 src/
   site/
-    types.ts         插件格式定义与校验
-    fetch.ts         请求层（代理包装、实体解码、重试）
+    types.ts         插件格式的类型定义与空白模板
+    validate.ts      导入期校验（正则能否编译、URL 模板、字段形状）
+    fetch.ts         请求层（代理包装、实体解码、重试、FetchError）
     parse.ts         解析层（卡片、章节、搜索可信度）
     engine.ts        公开 API，只做编排
   store/
@@ -337,39 +364,61 @@ src/
     shelf.ts         书架与进度
     chapters.ts      离线缓存 + 章节表缓存
     bookmarks.ts     书签与笔记
+    tombstones.ts    删除墓碑（让删除能同步出去）
     dataEvents.ts    数据变更广播
     useDataVersion.ts 订阅变更（同步后 UI 自动刷新）
+    useOfflineCache.ts 一部漫画的离线缓存与整本下载
   sync/
     client.ts        同步管理器（网络、状态、定时）
-    transfer.ts      本地 ⇄ 服务端数据搬运
+    transfer.ts      本地 → 服务端（只读，整理成推送格式）
+    applyRemote.ts   服务端 → 本地（单个 IndexedDB 事务落库）
     SyncUI.tsx       状态条与设置面板
   reader/prefs.ts    阅读偏好
   hooks/useTheme.ts  主题切换
   pages/             书架 / 发现 / 搜索 / 详情 / 阅读器 / 设置
+    reader/          阅读器的 hooks（动作、快捷键、分页、书签）
   components/
     reader/          阅读器专属组件
+    BottomNav.tsx    底部导航
     ChapterList.tsx  章节列表（分批加载）
     ChapterDrawer.tsx 阅读器内章节目录
     BookmarkPanel.tsx 书签与笔记
     RetryableImage.tsx 带重试的图片
-    UI.tsx / Icons.tsx 通用组件与图标
+    UI.tsx / Icons.tsx 通用组件与图标（图标来自 lucide-react）
 server/
-  index.mjs          主服务（静态 + 同步 API + 代理分流）
+  index.mjs          启动与请求分发（静态 / 同步 / 代理 各归各的模块）
+  sync-api.mjs       同步与状态端点
+  merge.mjs          合并策略（增的一侧）
+  deletes.mjs        删除墓碑的应用与插件级联
+  lww.mjs            增删两侧共用的 LWW 判据
   proxy.mjs          抓取代理：白名单 → 地址策略 → fetch 或浏览器渲染
-  render.mjs         浏览器渲染池（fetch.mode="browser" 的后端）
+  allowlist.mjs      抓取白名单（从已装插件推导）与域名匹配
+  render.mjs         浏览器渲染池（fetch.mode="browser" 的后端）+ 结果缓存
   ssrf.mjs           目标地址策略：拒绝内网 / 回环 / 元数据 / CGNAT
   db.mjs             SQLite schema 与变更日志
-  merge.mjs          合并策略
+  respond.mjs        JSON 响应、请求体上限、令牌比较
   static.mjs         静态文件与 SPA 回退
 deploy.sh            Linux / macOS 一键部署（systemd）
 deploy.ps1           Windows 一键部署（计划任务）
 docs/DEPLOY.md       自托管与 Tailscale 部署
 scripts/
+  run-tests.mjs      测试编排（每个套件独立端口 + 独立临时库）
+  test-sync.mjs      同步 API 往返
+  test-multidevice.mjs 多端同步
+  test-deletes.mjs   删除传播与"删了又加回来"
+  test-whitelist.mjs 域名白名单自动推导
+  test-ssrf.mjs / test-auth.mjs 地址策略与鉴权覆盖
+  test-validation.ts 插件校验行为（直接跑 src 里的真源码）
   gen-icons.ts       生成 PWA 图标
-  verify-plugin.ts   插件命令行验证
-  test-sync.mjs      同步 API 往返测试
-  test-multidevice.mjs 多端同步验证
+  verify-plugin.ts   插件命令行验证（含 browser 模式）
+  verify-render.mjs  渲染差分与缓存验证
+  verify-sync-e2e.mjs 真浏览器验客户端落库
+  verify-ui.mjs      真浏览器界面走查（溢出、按钮挤压、封面是否真加载）
+  install-plugin.mjs / stress-proxy.mjs
 ```
+
+`verify-*` 与 `stress-proxy` 依赖本机浏览器或外网，不进 `npm test` ——
+在 CI 上它们只会假失败。
 
 ## 编码规范
 

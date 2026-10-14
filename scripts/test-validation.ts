@@ -5,7 +5,8 @@
  * 这里每条 case 都对应一类"插件导得进来、但用起来是坏的"的实际形态 ——
  * 越晚发现，用户越容易以为是站点挂了而不是配置写错。
  */
-import { PLUGIN_FORMAT, PLUGIN_TEMPLATE, URL_VARS, validatePlugin, type Plugin } from '../src/site/types';
+import { PLUGIN_FORMAT, PLUGIN_TEMPLATE, type Plugin } from '../src/site/types';
+import { URL_VARS, validatePlugin } from '../src/site/validate';
 
 let fails = 0;
 const check = (ok: boolean, msg: string) => {

@@ -27,10 +27,40 @@ function useOnline() {
   return online;
 }
 
+/**
+ * 首轮同步有没有出结果（最多等 4 秒）。
+ *
+ * RequirePlugin 用它避开冷启动竞态：插件还在同步路上时，
+ * 「本地没有插件」是个假结论，照它把用户弹到设置页，
+ * 插件到了人也回不去发现页了。
+ *
+ * 4 秒是硬上限 —— 服务端在 tailnet 外面时不该让人干等一个连不上的请求。
+ */
+function useFirstSyncSettled(): boolean {
+  const [settled, setSettled] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const timer = setTimeout(() => alive && setSettled(true), 4000);
+    void sync.whenSettled().then(() => {
+      if (!alive) return;
+      clearTimeout(timer);
+      setSettled(true);
+    });
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  return settled;
+}
+
 /** 没有已安装的插件时，除设置页外一律拦到设置页 */
 function RequirePlugin({ children }: { children: ReactNode }) {
   const { plugin, loading } = usePlugin();
-  if (loading) return <div className="loading">加载中</div>;
+  const synced = useFirstSyncSettled();
+  if (loading || !synced) return <div className="loading">加载中</div>;
   if (!plugin) return <Navigate to="/settings" replace />;
   return <>{children}</>;
 }

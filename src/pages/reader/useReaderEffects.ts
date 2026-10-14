@@ -1,4 +1,50 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { getShelf } from '@/store/shelf';
+
+/**
+ * 阅读器副作用
+ *
+ * 都只跟"订阅 + 释放"有关：常亮锁、图片预加载、提示条计时、切章时读进度。
+ * 抽出来是因为 ReaderPage 该剩下的只有「谁依赖谁」。
+ */
+
+/**
+ * 从书架记录里读上次读到百分之几。
+ * 只在切章时读一次 —— 滚动过程中反复读 IndexedDB 没必要。
+ */
+export function useSavedPercent(
+  pluginId: string | undefined,
+  slug: string,
+  chapterId: string,
+): number {
+  const [percent, setPercent] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!pluginId) return;
+
+    void getShelf(pluginId).then((shelf) => {
+      if (cancelled) return;
+      const entry = shelf.find((s) => s.slug === slug);
+      setPercent(entry?.positions?.[chapterId] ?? 0);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pluginId, slug, chapterId]);
+
+  return percent;
+}
+
+/** 提示条 2.6 秒后自动消失 */
+export function useAutoDismiss(text: string | null, clear: () => void) {
+  useEffect(() => {
+    if (!text) return;
+    const t = setTimeout(clear, 2600);
+    return () => clearTimeout(t);
+  }, [text, clear]);
+}
 
 /**
  * 屏幕常亮

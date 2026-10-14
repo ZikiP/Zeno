@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
 import { listPlugins, setActivePlugin } from '@/store/plugins';
@@ -7,13 +7,12 @@ import { usePlugin, notifyPluginChanged } from '@/store/PluginContext';
 import { IconSearch } from '@/components/Icons';
 import BottomNav from '@/components/BottomNav';
 import { ErrorBox, Loading } from '@/components/UI';
+import { useSearchHistory } from './useSearchHistory';
 
 interface Hit {
   comic: Comic;
   plugin: InstalledPlugin;
 }
-
-const RECENT_KEY = 'globalSearchRecent';
 
 export default function GlobalSearchPage() {
   const nav = useNavigate();
@@ -26,13 +25,7 @@ export default function GlobalSearchPage() {
   const [hits, setHits] = useState<Hit[]>([]);
   const [searching, setSearching] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [recent, setRecent] = useState<string[]>([]);
-  /**
-   * 搜索历史的镜像引用。
-   * search 回调里要读它来算新历史，但不能进依赖 —— 否则 setRecent 改值 →
-   * search 变新函数 → effect 重跑 → 又 setRecent，死循环打满请求。
-   */
-  const recentRef = useRef<string[]>([]);
+  const { recent, record: recordHit, clear: clearRecent } = useSearchHistory();
 
   useEffect(() => {
     listPlugins().then((all) => {
@@ -40,14 +33,6 @@ export default function GlobalSearchPage() {
       // 默认只搜当前插件，避免首次搜索就打一堆请求
       setScope((s) => s ?? (activePlugin ? [activePlugin.meta.id] : []));
     });
-    try {
-      const stored = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as string[];
-      recentRef.current = stored;
-      setRecent(stored);
-    } catch {
-      recentRef.current = [];
-      setRecent([]);
-    }
   }, [activePlugin]);
 
   const search = useCallback(async () => {
@@ -92,21 +77,8 @@ export default function GlobalSearchPage() {
 
     setSearching(false);
 
-    /*
-     * 记入搜索历史。
-     *
-     * 这里必须用 ref 读历史，不能把 recent 放进 search 的依赖 ——
-     * setRecent 会改 recent，进而让 search 变成新函数，effect 再跑一遍，
-     * 又是 setRecent …… 无限循环，请求打满（实测刷出 180+ 个报错）。
-     */
-    if (found.length) {
-      const prev = recentRef.current;
-      const next = [term, ...prev.filter((r) => r !== term)].slice(0, 8);
-      recentRef.current = next;
-      setRecent(next);
-      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-    }
-  }, [submitted, plugins, scope]);
+    if (found.length) recordHit(term);
+  }, [submitted, plugins, scope, recordHit]);
 
   useEffect(() => {
     void search();
@@ -174,15 +146,7 @@ export default function GlobalSearchPage() {
         <div className="gs-recent">
           <div className="gs-recent__head">
             <span>最近搜过</span>
-            <button
-              onClick={() => {
-                recentRef.current = [];
-                setRecent([]);
-                localStorage.removeItem(RECENT_KEY);
-              }}
-            >
-              清空
-            </button>
+            <button onClick={clearRecent}>清空</button>
           </div>
           <div className="gs-recent__items">
             {recent.map((r) => (

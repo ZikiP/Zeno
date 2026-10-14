@@ -7,7 +7,7 @@ import {
 import { HOTKEY_HELP } from '@/pages/reader/useReaderHotkeys';
 import {
   IconDouble,
-  IconList,
+  IconDirection,
   IconMoon,
   IconSun,
   IconZoom,
@@ -66,7 +66,7 @@ export default function ReaderPrefsSheet({
       {mode === 'paged' && (
         <Section title="翻页设置">
           <Row
-            icon={<IconList size={18} />}
+            icon={<IconDirection size={18} rtl={prefs.direction === 'rtl'} />}
             label="翻页方向"
             hint={
               prefs.direction === 'rtl'

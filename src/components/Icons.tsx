@@ -10,6 +10,7 @@
  */
 import {
   ArrowLeft,
+  ArrowRight,
   Bookmark,
   Check,
   ChevronLeft,
@@ -24,12 +25,14 @@ import {
   MonitorSmartphone,
   Moon,
   NotebookText,
+  Pencil,
   Plus,
   RefreshCw,
   Rows3,
   Search,
   Settings,
   Sun,
+  Trash2,
   Upload,
   X,
   ZoomIn,
@@ -65,6 +68,15 @@ export const IconDownload = ({ size = 18, ...p }: P) => <Download size={size} st
 export const IconExport = ({ size = 18, ...p }: P) => <Upload size={size} strokeWidth={SW} {...p} />;
 export const IconChevronLeft = (p: P) => <ChevronLeft strokeWidth={SW} {...p} />;
 export const IconChevronRight = (p: P) => <ChevronRight strokeWidth={SW} {...p} />;
+export const IconEdit = ({ size = 15, ...p }: P) => <Pencil size={size} strokeWidth={SW} {...p} />;
+export const IconTrash = ({ size = 15, ...p }: P) => <Trash2 size={size} strokeWidth={SW} {...p} />;
+/**
+ * 翻页方向。箭头指向「下一页在哪一边」——
+ * 用 List / Rows 这类中性图标的话，图标和右边写的「右起 / 左起」对不上，
+ * 等于没图标。
+ */
+export const IconDirection = ({ rtl = false, ...p }: P & { rtl?: boolean }) =>
+  rtl ? <ArrowLeft strokeWidth={SW} {...p} /> : <ArrowRight strokeWidth={SW} {...p} />;
 /** 双页显示 —— 左右两栏 */
 export const IconDouble = (p: P) => <Columns2 strokeWidth={SW} {...p} />;
 export const IconZoom = (p: P) => <ZoomIn strokeWidth={SW} {...p} />;

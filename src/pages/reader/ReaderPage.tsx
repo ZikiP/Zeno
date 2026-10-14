@@ -1,13 +1,17 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { usePlugin } from '@/store/PluginContext';
-import { getShelf } from '@/store/shelf';
-import type { Bookmark } from '@/store/db';
-import { BG_VALUES, DEFAULT_PREFS } from '@/reader/prefs';
+import { BG_VALUES, DEFAULT_PREFS, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
 import { useChapterLoader, useRestoreScrollPosition } from './useChapterLoader';
 import { useBookmarks } from './useBookmarks';
-import { useKeepAwake, useImagePreload } from './useReaderEffects';
+import {
+  useAutoDismiss,
+  useImagePreload,
+  useKeepAwake,
+  useSavedPercent,
+} from './useReaderEffects';
+import { useReaderActions } from './useReaderActions';
 import { useReaderHotkeys, nextBrightness } from './useReaderHotkeys';
 import { usePaging, useToolbarVisibility, type ReaderMode } from './usePaging';
 import ReaderPanel, { useReaderPanels } from './ReaderPanels';
@@ -59,19 +63,6 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
 
   const bookmarks = useBookmarks(plugin, chapterId);
 
-  /* ── 章节跳转 ── */
-  const gotoChapter = useCallback(
-    (id: string) => {
-      if (!plugin?.meta.id) return;
-      /*
-       * 不带 p/n：换了章就不知道新的前后关系了，
-       * 带着旧的过去会指错章。
-       */
-      nav(`/read/${plugin.meta.id}/${slug}/${id}`);
-    },
-    [plugin?.meta.id, slug, nav],
-  );
-
   /* ── 提示条 ── */
   const flash = useCallback((text: string) => setToast(text), []);
   const clearToast = useCallback(() => setToast(null), []);
@@ -85,6 +76,22 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     if (warning) flash(warning);
   }, [warning, flash]);
 
+  /* ── 动作（换章 / 收藏 / 跳书签 / 切模式）── */
+  const { gotoChapter, toggleMark, jumpToBookmark, switchMode } = useReaderActions({
+    plugin,
+    slug,
+    chapterId,
+    images,
+    mode,
+    paging,
+    bookmarks,
+    scrollRef,
+
+    nav,
+    flash,
+    setMode,
+  });
+
   /* ── 进度恢复（仅滚动模式） ── */
   const savedPercent = useSavedPercent(plugin?.meta.id, slug, chapterId);
   useRestoreScrollPosition(mode === 'scroll' && !!images, savedPercent, scrollRef);
@@ -92,49 +99,6 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   /* ── 副作用 ── */
   useKeepAwake(prefs.value.keepAwake, !!images);
   useImagePreload(images, paging.startIndex, paging.perPage, mode === 'paged');
-
-  /* ── 动作 ── */
-  const scrollToPage = useCallback(
-    (p: number) => {
-      if (mode === 'paged') {
-        paging.setPage(Math.floor(p / paging.perPage));
-        return;
-      }
-      const el = scrollRef.current;
-      const target = el?.querySelectorAll('.reader__page')[p] as HTMLElement | undefined;
-      if (el && target) el.scrollTop = target.offsetTop - 8;
-    },
-    [mode, paging],
-  );
-
-  const toggleMark = useCallback(async () => {
-    if (!images) return;
-    const added = await bookmarks.toggle(paging.currentImageIndex, {
-      plugin,
-      slug,
-      chapterId,
-      images,
-    });
-    flash(added ? '已收藏本页' : '已删除书签');
-  }, [images, bookmarks, paging.currentImageIndex, plugin, slug, chapterId, flash]);
-
-  const jumpToBookmark = useCallback(
-    (b: Bookmark) => {
-      if (b.slug !== slug || b.chapterId !== chapterId) {
-        nav(`/read/${plugin?.meta.id ?? ''}/${slug}/${b.chapterId}`);
-        return;
-      }
-      scrollToPage(b.page);
-      flash(`跳到第 ${b.page + 1} 页`);
-    },
-    [slug, chapterId, plugin?.meta.id, nav, scrollToPage, flash],
-  );
-
-  const switchMode = useCallback((m: ReaderMode) => {
-    setMode(m);
-    localStorage.setItem('readerMode', m);
-    paging.setPage(0);
-  }, [paging]);
 
   /* ── 快捷键 ── */
   useReaderHotkeys(
@@ -271,52 +235,4 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
       />
     </div>
   );
-}
-
-/* ── 局部工具 ─────────────────────────────────────── */
-
-/** 亮度 + 灰度合成一条 CSS filter */
-function buildFilter(prefs: { brightness: number | null; grayscale: boolean }): string | undefined {
-  const parts: string[] = [];
-  if (prefs.brightness !== null) parts.push(`brightness(${prefs.brightness})`);
-  if (prefs.grayscale) parts.push('grayscale(1)');
-  return parts.length ? `filter: ${parts.join(' ')}` : undefined;
-}
-
-/**
- * 从书架记录里读上次读到百分之几。
- * 只在切章时读一次 —— 滚动过程中反复读 IndexedDB 没必要。
- */
-function useSavedPercent(
-  pluginId: string | undefined,
-  slug: string,
-  chapterId: string,
-): number {
-  const [percent, setPercent] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!pluginId) return;
-
-    void getShelf(pluginId).then((shelf) => {
-      if (cancelled) return;
-      const entry = shelf.find((s) => s.slug === slug);
-      setPercent(entry?.positions?.[chapterId] ?? 0);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [pluginId, slug, chapterId]);
-
-  return percent;
-}
-
-/** 提示条 2.6 秒后自动消失 */
-function useAutoDismiss(text: string | null, clear: () => void) {
-  useEffect(() => {
-    if (!text) return;
-    const t = setTimeout(clear, 2600);
-    return () => clearTimeout(t);
-  }, [text, clear]);
 }

@@ -13,6 +13,29 @@
 import { Readable } from 'node:stream';
 import { assertPublicTarget } from './ssrf.mjs';
 import { renderHtml } from './render.mjs';
+import { hostAllowed } from './allowlist.mjs';
+import { json } from './respond.mjs';
+
+const MOBILE_UA =
+  'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+/** 放行解析到内网/回环的目标。只给本地测试用，生产不该开 */
+const ALLOW_PRIVATE_HOSTS = process.env.ALLOW_PRIVATE_HOSTS === '1';
+const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 20_000);
+const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 6);
+
+let active = 0;
+const waiters = [];
+function acquire() {
+  if (active < MAX_CONCURRENT) {
+    active++;
+    return Promise.resolve();
+  }
+  return new Promise((r) => waiters.push(r));
+}
+function release() {
+  active--;
+  waiters.shift()?.();
+}
 
 const CORS = {
   // 代理只被同源的 PWA 用（开发期由 vite 把 /api 转发过来），
@@ -21,9 +44,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
 };
 
-export async function handleProxy(req, res, url, ctx) {
-  const { allowed, acquire, release, json } = ctx;
-
+export async function handleProxy(req, res, url) {
   const target = url.searchParams.get('url');
   if (!target) return json(res, 400, { error: 'missing url' });
 
@@ -35,17 +56,15 @@ export async function handleProxy(req, res, url, ctx) {
   }
 
   const host = parsed.hostname.toLowerCase();
-  const ok = [...allowed].some((a) => host === a || host.endsWith(`.${a}`));
-  if (!ok) {
+  if (!hostAllowed(host)) {
     return json(res, 403, {
       error: 'host not allowed',
       host,
       hint: '装上对应内容的插件后会自动放行；也可以设 ALLOWED_HOSTS 手动补充',
-      allowed: [...allowed],
     });
   }
 
-  const guard = await assertPublicTarget(parsed, { allowPrivate: ctx.allowPrivateHosts });
+  const guard = await assertPublicTarget(parsed, { allowPrivate: ALLOW_PRIVATE_HOSTS });
   if (!guard.ok) {
     return json(res, 403, {
       error: 'blocked address',
@@ -103,7 +122,7 @@ export async function handleProxy(req, res, url, ctx) {
     let lastErr;
 
     for (let hop = 0; hop <= MAX_HOPS; hop++) {
-      const again = await assertPublicTarget(current, { allowPrivate: ctx.allowPrivateHosts });
+      const again = await assertPublicTarget(current, { allowPrivate: ALLOW_PRIVATE_HOSTS });
       if (!again.ok) {
         return json(res, 403, {
           error: 'blocked address',
@@ -112,7 +131,7 @@ export async function handleProxy(req, res, url, ctx) {
         });
       }
       const hopHost = current.hostname.toLowerCase();
-      if (![...allowed].some((a) => hopHost === a || hopHost.endsWith(`.${a}`))) {
+      if (!hostAllowed(hopHost)) {
         return json(res, 403, {
           error: 'host not allowed',
           host: hopHost,
@@ -124,7 +143,7 @@ export async function handleProxy(req, res, url, ctx) {
         try {
           upstream = await fetch(current.toString(), {
             headers: {
-              'User-Agent': ctx.mobileUa,
+              'User-Agent': MOBILE_UA,
               Accept: req.headers.accept ?? '*/*',
               'Accept-Language': 'zh-TW,zh;q=0.9',
             },
@@ -134,7 +153,7 @@ export async function handleProxy(req, res, url, ctx) {
              * MAX_CONCURRENT 六分之一的名额 —— 几个之后整个代理就"看起来卡死"，
              * 而且没有任何报错可看。
              */
-            signal: AbortSignal.timeout(ctx.upstreamTimeoutMs),
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
           });
           if (upstream.ok || upstream.status < 500) break;
           lastErr = new Error(`HTTP ${upstream.status}`);

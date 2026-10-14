@@ -35,6 +35,13 @@ const DEVICE_KEY = 'syncDeviceId';
 const ENDPOINT_KEY = 'syncEndpoint';
 const TOKEN_KEY = 'syncToken';
 const SYNC_INTERVAL = 5 * 60 * 1000;
+/**
+ * 单次同步请求的上限。
+ *
+ * 没有这个超时的话，一个"连得上但不回包"的服务端会让整轮同步永远挂着 ——
+ * 而挂着的这一轮还挡着后面每 5 分钟一次的触发（inflight 复用同一个 Promise）。
+ */
+const SYNC_FETCH_MS = 15_000;
 
 /**
  * 设备标识。
@@ -90,6 +97,30 @@ class SyncManager {
   private timer: number | undefined;
   private inflight: Promise<void> | null = null;
   private started = false;
+  /**
+   * 首轮同步是否已经出结果（成功、失败都算）。
+   *
+   * 有的页面要区分「本地确实没有插件」和「同步还没落库」：
+   * 冷启动直接打开 /explore 时，第一轮同步往往还在路上，
+   * 这时判定"没有插件"并把用户弹到设置页，等于凭空报一个假空状态 ——
+   * 而且弹过去之后插件才到，人却留在设置页上。
+   */
+  private settled = false;
+  private waiters = new Set<() => void>();
+
+  /** 首轮同步出结果时 resolve。已经出过就立即 resolve */
+  whenSettled(): Promise<void> {
+    if (this.settled) return Promise.resolve();
+    return new Promise((res) => this.waiters.add(res));
+  }
+
+  private settle() {
+    if (this.settled) return;
+    this.settled = true;
+    const w = [...this.waiters];
+    this.waiters.clear();
+    w.forEach((fn) => fn());
+  }
 
   /**
    * 应用新配置。
@@ -163,6 +194,7 @@ class SyncManager {
     const ep = this.state.endpoint;
     if (!ep) {
       this.update({ syncing: false, online: false });
+      this.settle();
       return;
     }
 
@@ -174,6 +206,7 @@ class SyncManager {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({ ...payload, deviceId: this.state.deviceId, seq: 0 }),
+        signal: AbortSignal.timeout(SYNC_FETCH_MS),
       });
       if (!pushRes.ok) throw new Error(`推送失败 HTTP ${pushRes.status}`);
       const pushBody = (await pushRes.json()) as { applied?: { total?: number } };
@@ -181,7 +214,7 @@ class SyncManager {
       // 2. 拉远端
       const pullRes = await fetch(
         `${ep}/api/sync/pull?since=0&deviceId=${encodeURIComponent(this.state.deviceId)}`,
-        { headers: this.headers() },
+        { headers: this.headers(), signal: AbortSignal.timeout(SYNC_FETCH_MS) },
       );
       if (!pullRes.ok) throw new Error(`拉取失败 HTTP ${pullRes.status}`);
       const remote = (await pullRes.json()) as RemoteSnapshot;
@@ -215,6 +248,12 @@ class SyncManager {
        * 所以只更新 online/error，不清 lastSyncAt（保留「上次成功是什么时候」）。
        */
       this.update({ online: false, syncing: false, error: (e as Error).message });
+    } finally {
+      /*
+       * 成功、失败、超时都要放行等待首轮结果的页面 ——
+       * 服务端不可达是常态（手机在 tailnet 外面），不能让人一直卡在「加载中」。
+       */
+      this.settle();
     }
   }
 

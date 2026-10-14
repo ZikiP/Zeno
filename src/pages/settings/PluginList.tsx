@@ -1,6 +1,6 @@
 import type { PluginManager } from './usePluginManager';
 import type { Plugin } from '@/site/types';
-import { IconDownload, IconExport, IconPlus } from '@/components/Icons';
+import { IconDownload, IconEdit, IconExport, IconPlus, IconTrash } from '@/components/Icons';
 
 /** 已安装插件的列表（空态、卡片、导出/编辑/删除） */
 export default function PluginList({
@@ -62,33 +62,22 @@ function PluginRow({
   manager: PluginManager;
 }) {
   return (
-    <div className="chapter-row" style={{ flexWrap: 'wrap' }}>
+    <div className="chapter-row plugin-row">
       <button
-        className="chapter-row__name"
-        style={{ textAlign: 'left' }}
+        className="chapter-row__name plugin-row__name"
         onClick={() => void manager.switchTo(plugin.meta.id)}
         title={active ? '当前使用中' : '点击切换到此插件'}
       >
         <span style={{ fontSize: 15 }}>{plugin.meta.icon ?? '📄'} </span>
         {plugin.meta.name}
-        <span style={{ color: 'var(--text-faint)', fontSize: 12, marginLeft: 8 }}>
-          {plugin.entry.replace(/^https?:\/\//, '')}
-        </span>
-        {plugin.meta.author && (
-          <span style={{ color: 'var(--text-faint)', fontSize: 11, marginLeft: 6 }}>
-            by {plugin.meta.author}
-          </span>
-        )}
-        {!active && origin === 'imported' && (
-          <span style={{ color: 'var(--text-faint)', fontSize: 11, marginLeft: 6 }}>
-            导入
-          </span>
-        )}
+        <span className="plugin-row__meta">{plugin.entry.replace(/^https?:\/\//, '')}</span>
+        {plugin.meta.author && <span className="plugin-row__by">by {plugin.meta.author}</span>}
+        {!active && origin === 'imported' && <span className="plugin-row__by">导入</span>}
       </button>
 
       {active && <span className="chapter-row__badge badge-done">使用中</span>}
 
-      <div style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
+      <div className="plugin-row__actions">
         <button
           className="icon-btn"
           onClick={() => manager.exportPlugin(plugin)}
@@ -97,36 +86,31 @@ function PluginRow({
         >
           <IconExport size={17} />
         </button>
+        {/*
+          * 编辑 / 删除用图标而不是两个字：.icon-btn 是方形的，
+          * 「编辑」两个汉字挤进去会被折成竖排两行 —— 之前就是这样才难看。
+          * 名字靠 aria-label 和 title 保住可达性与悬浮提示。
+          */}
         <button
           className="icon-btn"
           onClick={() => manager.startEdit(plugin)}
-          title="编辑"
+          title="编辑此插件"
           aria-label="编辑"
         >
-          编辑
+          <IconEdit />
         </button>
         <button
           className="icon-btn"
           aria-label="删除"
-          title="删除"
+          title="删除此插件"
           onClick={() => void manager.remove(plugin)}
         >
-          删除
+          <IconTrash />
         </button>
       </div>
 
       {plugin.meta.description && (
-        <div
-          style={{
-            width: '100%',
-            fontSize: 12,
-            color: 'var(--text-faint)',
-            paddingLeft: 4,
-            marginTop: 2,
-          }}
-        >
-          {plugin.meta.description}
-        </div>
+        <div className="plugin-row__desc">{plugin.meta.description}</div>
       )}
     </div>
   );

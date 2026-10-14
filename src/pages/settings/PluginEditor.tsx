@@ -1,5 +1,6 @@
 ﻿import { useState } from 'react';
-import { pluginHosts, validatePlugin, type Plugin } from '@/site/types';
+import type { Plugin } from '@/site/types';
+import { pluginHosts, validatePlugin } from '@/site/validate';
 import { savePlugin, setActivePlugin } from '@/store/plugins';
 import { notifyPluginChanged } from '@/store/PluginContext';
 import { Sheet } from '@/components/UI';
