@@ -5,11 +5,11 @@ dist-ssr/
 .DS_Store
 *.tsbuildinfo
 
-# 运行日志（不入库）
+# 运行日志
 *.log
 preview.txt
 dev.log
+proxy.log
 
-# 探针输出
-scripts/*.txt
+# 探测输出
 scripts/*.txt
