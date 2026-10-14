@@ -129,6 +129,12 @@ export async function handleProxy(req, res, url, ctx) {
               'Accept-Language': 'zh-TW,zh;q=0.9',
             },
             redirect: 'manual',
+            /*
+             * 必须有超时。之前没有，一个挂死的上游连接会永久占着
+             * MAX_CONCURRENT 六分之一的名额 —— 几个之后整个代理就"看起来卡死"，
+             * 而且没有任何报错可看。
+             */
+            signal: AbortSignal.timeout(ctx.upstreamTimeoutMs),
           });
           if (upstream.ok || upstream.status < 500) break;
           lastErr = new Error(`HTTP ${upstream.status}`);

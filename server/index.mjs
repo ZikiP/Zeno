@@ -33,6 +33,7 @@
  *                   不设则自动探测 ms-playwright 缓存 / Edge / Chrome。
  */
 import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { resolve } from 'node:path';
 
 import { openDb, pull, saveClientState, stats, listClients, allowedHostsFromPlugins } from './db.mjs';
@@ -44,6 +45,7 @@ const PORT = Number(process.env.PORT || 8788);
 const DIST_DIR = resolve(process.env.DIST_DIR || './dist');
 const SYNC_TOKEN = process.env.SYNC_TOKEN || '';
 const ALLOW_PRIVATE_HOSTS = process.env.ALLOW_PRIVATE_HOSTS === '1';
+const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 20_000);
 
 /* ── 抓取代理配置 ─────────────────────────────────── */
 
@@ -104,10 +106,24 @@ function json(res, status, body) {
 async function readBody(req, limitBytes = 8 * 1024 * 1024) {
   const chunks = [];
   let size = 0;
+  let tooLarge = false;
   for await (const c of req) {
     size += c.length;
-    if (size > limitBytes) throw new Error('payload too large');
+    if (size > limitBytes) {
+      /*
+       * 超限后不能直接 throw —— 请求体还没被读完就回响应，Node 会重置连接，
+       * 复用同一 socket 的下一个请求就拿到 ECONNRESET（实测踩过：
+       * 413 用例自己把后面的用例打挂了）。
+       * 正确做法是继续把剩下的排空但不再缓存，读完才报错。
+       */
+      tooLarge = true;
+      chunks.length = 0;
+      continue;
+    }
     chunks.push(c);
+  }
+  if (tooLarge) {
+    throw Object.assign(new Error('payload too large'), { status: 413 });
   }
   if (size === 0) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -116,7 +132,19 @@ async function readBody(req, limitBytes = 8 * 1024 * 1024) {
 function auth(req) {
   if (!SYNC_TOKEN) return true;
   const h = req.headers.authorization ?? '';
-  return h === `Bearer ${SYNC_TOKEN}`;
+  return tokenEquals(h, `Bearer ${SYNC_TOKEN}`);
+}
+
+/**
+ * 定长比较 + timingSafeEqual。
+ * 用 === 比较令牌的耗时随前缀相同长度增长，理论上可被计时攻击逐字节猜。
+ * 本机自用威胁模型下几乎不可利用，但正确写法并不更贵。
+ */
+function tokenEquals(a, b) {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false; // 长度本身不敏感
+  return timingSafeEqual(ba, bb);
 }
 
 /* ── 请求处理 ─────────────────────────────────────── */
@@ -140,13 +168,19 @@ const server = createServer(async (req, res) => {
 
     /* ── 健康检查 / 状态 ── */
     if (path === '/api/health') {
-      json(res, 200, {
-        ok: true,
-        version: 1,
-        ...stats(),
-        // 白名单放在状态里，排查「装插件了却抓不到」时一眼能看出原因
-        allowedHosts: [...allowed],
-      });
+      const s = stats();
+      /*
+       * 公开字段只到"活着没有"。dbPath 是绝对路径、allowedHosts 等于
+       * 在告诉任何能连上这个端口的人"你在读哪些站点" —— 这两个只在带令牌时给。
+       * 计数保留公开，部署脚本的健康检查要用，而且本身不敏感。
+       */
+      const body = { ok: true, version: 1, ...s, allowedHostsCount: allowed.size };
+      if (auth(req)) {
+        body.allowedHosts = [...allowed];
+      } else {
+        delete body.dbPath;
+      }
+      json(res, 200, body);
       return;
     }
 
@@ -214,7 +248,19 @@ const server = createServer(async (req, res) => {
 
     /* ── 抓取代理 ── */
     if (path === '/api/proxy') {
-      const ctx = { allowed, acquire, release, json, mobileUa: MOBILE_UA, allowPrivateHosts: ALLOW_PRIVATE_HOSTS };
+      /*
+       * 代理必须和其它端点一样过鉴权。
+       * 它只靠域名白名单挡不住什么：白名单是从"装过哪些插件"推导的，
+       * 而设了 SYNC_TOKEN 的人默认以为整个服务都有令牌保护 ——
+       * 之前恰恰是这个端点漏了 auth()，等于留了一个免票的开放中继。
+       */
+      if (!auth(req)) return json(res, 401, { error: 'unauthorized' });
+      const ctx = {
+        allowed, acquire, release, json,
+        mobileUa: MOBILE_UA,
+        allowPrivateHosts: ALLOW_PRIVATE_HOSTS,
+        upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS,
+      };
       await handleProxy(req, res, url, ctx);
       return;
     }
@@ -226,35 +272,50 @@ const server = createServer(async (req, res) => {
         sendFile(res, file, { immutable: isHashedAsset(path) });
         return;
       }
-      // SPA 回退：前端用 History 路由，深链接要能直接打开
-      const index = resolveStatic(DIST_DIR, '/index.html');
-      if (index) {
-        sendFile(res, index);
-        return;
+      /*
+       * 带扩展名的路径不要回退到 index.html。
+       * History 路由的 URL 没有扩展名，所以"像文件的路径"就是资源请求 ——
+       * 回退成 HTML 会让浏览器把 HTML 当 JS 模块解析，
+       * 报 "Expected a JavaScript module script but the server responded
+       * with a MIME type of text/html" 然后白屏，且极难归因。
+       * 404 才是能被看懂的失败。
+       */
+      const looksLikeAsset = /\.[A-Za-z0-9]{2,8}$/.test(path);
+      if (!looksLikeAsset) {
+        const index = resolveStatic(DIST_DIR, '/index.html');
+        if (index) {
+          sendFile(res, index);
+          return;
+        }
       }
-      json(res, 404, {
-        error: 'dist not found',
-        hint: '先跑 npm run build',
-      });
+      json(res, 404, looksLikeAsset
+        ? { error: 'not found', hint: '资源不存在。多半是前端重新构建后旧缓存还在引用已删除的文件。' }
+        : { error: 'dist not found', hint: '先跑 npm run build' });
       return;
     }
 
     json(res, 405, { error: 'method not allowed' });
   } catch (e) {
     console.error('[zeno] request failed:', e);
-    if (!res.headersSent) json(res, 500, { error: e.message });
+    if (!res.headersSent) json(res, e.status ?? 500, { error: e.message });
     else res.end();
   }
 });
 
 /* ── 启动 ─────────────────────────────────────────── */
 
-// 长驻进程：任何意外都不该让它整个消失
+/*
+ * 长驻进程不该因为一个意外就整个消失 —— 保留兜底。
+ * 但只打 err.message 会把真实缺陷压成一行看不懂的日志（之前就是这样）。
+ * 改成打完整堆栈，并且不吞 unhandledRejection 的原因对象。
+ */
 process.on('uncaughtException', (err) => {
-  console.error('[zeno] uncaught exception (继续运行):', err.message);
+  console.error('[zeno] uncaught exception（继续运行，但这是 bug）:');
+  console.error(err.stack ?? err);
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('[zeno] unhandled rejection (继续运行):', reason);
+  console.error('[zeno] unhandled rejection（继续运行，但这是 bug）:');
+  console.error(reason instanceof Error ? (reason.stack ?? reason) : reason);
 });
 
 server.on('error', (err) => {

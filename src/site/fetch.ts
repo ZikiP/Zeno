@@ -37,10 +37,27 @@ export function proxied(
   return out;
 }
 
-/** 封面地址：拼 CDN 的尺寸参数后过代理 */
+/**
+ * 封面地址：拼 CDN 的尺寸参数后过代理。
+ *
+ * 不能无条件 `url + '?w=...'` —— 很多站的封面本来就带 query
+ * （包子漫画是 `...jpg?w=285&h=375&q=100`），那样拼出来是
+ * `...jpg?w=285&h=375&q=100?w=300&h=400&q=85`，第二个 ? 落在值里，
+ * 参数全废。用 URL 设置参数才会正确合并。
+ */
 export function coverUrl(rawCover: string, w: number, h: number): string {
   if (!rawCover) return '';
-  return proxied(`${rawCover}?w=${w}&h=${h}&q=85`);
+  let url = rawCover;
+  try {
+    const u = new URL(rawCover);
+    u.searchParams.set('w', String(w));
+    u.searchParams.set('h', String(h));
+    u.searchParams.set('q', '85');
+    url = u.toString();
+  } catch {
+    url = `${rawCover}${rawCover.includes('?') ? '&' : '?'}w=${w}&h=${h}&q=85`;
+  }
+  return proxied(url);
 }
 
 /** HTML 实体解码 —— AMP 之类会把 / 编码成 &#x2F;，不解码就取不到 URL */

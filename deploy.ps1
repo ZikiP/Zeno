@@ -233,7 +233,7 @@ for ($i = 0; $i -lt 6; $i++) {
     try {
         $r = Invoke-RestMethod "http://127.0.0.1:$Port/api/health" -TimeoutSec 3
         $healthy = $true
-        Ok ("服务响应正常（插件 " + $r.plugins + " 个，白名单 " + $r.allowedHosts.Count + " 个）")
+        Ok ("服务响应正常（插件 " + $r.plugins + " 个，白名单 " + $r.allowedHostsCount + " 个）")
         # 光看 /api/health 会漏判：它不依赖 dist。曾经有一次部署健康检查全绿，
         # 但因为 cwd 是 System32，站点根路径其实返回的是 "dist not found"。
         try {
