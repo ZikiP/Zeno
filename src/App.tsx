@@ -4,8 +4,8 @@ import ShelfPage from '@/pages/ShelfPage';
 import ExplorePage from '@/pages/ExplorePage';
 import GlobalSearchPage from '@/pages/GlobalSearchPage';
 import ComicPage from '@/pages/ComicPage';
-import ReaderPage from '@/pages/ReaderPage';
-import SettingsPage from '@/pages/SettingsPage';
+import ReaderPage from '@/pages/reader/ReaderPage';
+import SettingsPage from '@/pages/settings/SettingsPage';
 import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { OfflineBar } from '@/components/UI';
 

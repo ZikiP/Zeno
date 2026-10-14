@@ -1,4 +1,4 @@
-import {
+﻿import {
   createContext,
   useCallback,
   useContext,
@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation } from 'react-router-dom';
-import { getActivePlugin } from '@/store/db';
+import { getActivePlugin } from '@/store/plugins';
 import type { Plugin } from '@/site/types';
 
 interface PluginCtxValue {

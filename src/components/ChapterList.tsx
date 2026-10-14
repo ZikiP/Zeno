@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Chapter } from '@/site/engine';
-import { formatBytes } from '@/store/db';
+import { formatBytes } from '@/store/utils';
 
 /**
  * 章节列表

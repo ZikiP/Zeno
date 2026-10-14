@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
-import { listPlugins, setActivePlugin, type InstalledPlugin } from '@/store/db';
+import { listPlugins, setActivePlugin } from '@/store/plugins';
+import type { InstalledPlugin } from '@/store/db';
 import { usePlugin, notifyPluginChanged } from '@/store/PluginContext';
 import { IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';
 import { ErrorBox, Loading } from '@/components/UI';

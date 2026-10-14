@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getShelf, type ShelfEntry } from '@/store/db';
+import { getShelf } from '@/store/shelf';
+import type { ShelfEntry } from '@/store/types';
 import { usePlugin } from '@/store/PluginContext';
 import { coverUrl } from '@/site/engine';
 import { IconEmpty, IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';

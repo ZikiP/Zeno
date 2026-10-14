@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { getBookmarks, removeBookmark, updateBookmarkNote, type Bookmark } from '@/store/db';
+﻿import { useEffect, useState } from 'react';
+import { getBookmarks, removeBookmark, updateBookmarkNote } from '@/store/bookmarks';
+import type { Bookmark } from '@/store/db';
 
 export default function BookmarkPanel({
   pluginId,
