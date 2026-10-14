@@ -89,6 +89,7 @@ const server = createServer(async (req, res) => {
     }
 
     await acquire();
+    let released = false;
     try {
       let upstream;
       let lastErr;
@@ -128,10 +129,48 @@ const server = createServer(async (req, res) => {
         res.end();
         return;
       }
-      Readable.fromWeb(upstream.body).pipe(res);
+
+      /*
+       * 流式转发必须挂 error 监听。
+       *
+       * 实测踩过的坑：CDN 中途断开连接（UND_ERR_SOCKET / "other side closed"）时，
+       * pipe 会抛 'error' 事件。Node 默认对 Readable 的 error 事件做 throw，
+       * 没有监听就直接把整个代理进程打死 —— 表现是跑着跑着所有请求变 502/500，
+       * 而代理进程已经不在了，只能重启。
+       *
+       * 现在两侧都挂监听：上游断就结束本响应，客户端断就销毁上游流，
+       * 单个请求失败不会影响服务存活。
+       */
+      const src = Readable.fromWeb(upstream.body);
+
+      src.on('error', (err) => {
+        console.warn(`[proxy] upstream stream aborted: ${err.message}`);
+        if (!res.headersSent) {
+          res.writeHead(502).end('upstream aborted');
+        } else {
+          res.end(); // 头已发出，只能断在这里
+        }
+        if (!released) {
+          released = true;
+          release();
+        }
+      });
+
+      res.on('close', () => {
+        // 客户端提前断开（切页面、取消下载）时，销毁上游流避免泄漏
+        if (!res.writableEnded) src.destroy();
+      });
+
+      res.on('error', (err) => {
+        console.warn(`[proxy] client response error: ${err.message}`);
+        src.destroy();
+      });
+
+      src.pipe(res);
     } catch (e) {
       res.writeHead(502).end(`upstream failed: ${e.message}`);
     } finally {
+      released = true;
       release();
     }
     return;
@@ -146,7 +185,41 @@ const server = createServer(async (req, res) => {
   res.writeHead(404).end('not found');
 });
 
+/*
+ * 全局兜底。
+ *
+ * 这个服务是长驻进程，任何一个请求的意外都不该让它整个消失 ——
+ * 否则用户会看到"用着用着全挂了"，还得手动重启。
+ * uncaughtException / unhandledRejection 记日志后继续跑，
+ * 真正撑不住（端口被占）才退出。
+ */
+process.on('uncaughtException', (err) => {
+  console.error('[proxy] uncaught exception (服务继续运行):', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[proxy] unhandled rejection (服务继续运行):', reason);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[proxy] 端口 ${PORT} 已被占用。换一个：PORT=9000 node server/proxy.mjs`);
+  } else {
+    console.error('[proxy] server error:', err.message);
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, () => {
   console.log(`[proxy] listening on http://0.0.0.0:${PORT}`);
-  console.log(`[proxy] allowed hosts: ${ALLOWED.join(', ')}`);
+  console.log(`[proxy] allowed hosts: ${ALLOWED.join(', ') || '(无 — 所有请求将被拒绝)'}`);
 });
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    console.log(`\n[proxy] ${sig} received, shutting down`);
+    server.close(() => process.exit(0));
+    // 兜底：3 秒内没关干净就强退
+    setTimeout(() => process.exit(0), 3000).unref();
+  });
+}
+

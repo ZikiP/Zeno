@@ -232,6 +232,18 @@ export async function getCachedChapter(pluginId: string, slug: string, cid: stri
   return (await db()).get('chapters', chapKey(pluginId, slug, cid));
 }
 
+/**
+ * 下载一章的图片到本机离线缓存。
+ *
+ * 并发控制：默认 3 路并发。
+ * 太少（串行）会让几百张图的一章等很久；太多会触发上游 CDN 限流导致失败。
+ * 3 是在实测里比较稳的值。
+ */
+const DOWNLOAD_CONCURRENCY = 3;
+
+/** 单张图的超时。CDN 偶尔会挂住连接，不设超时整章会卡死 */
+const IMAGE_TIMEOUT_MS = 30000;
+
 export async function cacheChapterImages(
   pluginId: string,
   slug: string,
@@ -243,20 +255,35 @@ export async function cacheChapterImages(
   let bytes = 0;
   let done = 0;
 
-  for (const url of images) {
+  const cache = await caches.open('comic-images');
+
+  async function downloadOne(url: string) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), IMAGE_TIMEOUT_MS);
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: ctrl.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
-      bytes += blob.size;
-      const cache = await caches.open('comic-images');
       await cache.put(url, new Response(blob, { headers: res.headers }));
+      return blob.size;
     } catch {
-      /* 单张失败不中断整章 */
+      return 0; // 单张失败不中断整章
+    } finally {
+      clearTimeout(timer);
+      done++;
+      onProgress?.({ done, total: images.length });
     }
-    done++;
-    onProgress?.({ done, total: images.length });
   }
+
+  // 定长工作池：始终保持 N 个任务在跑
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, images.length) }, async () => {
+    while (cursor < images.length) {
+      const i = cursor++;
+      bytes += await downloadOne(images[i]);
+    }
+  });
+  await Promise.all(workers);
 
   await d.put('chapters', {
     key: chapKey(pluginId, slug, cid),

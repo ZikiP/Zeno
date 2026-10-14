@@ -52,7 +52,9 @@ console.log(`  需要放行的域名: ${pluginHosts(plugin).join(', ')}`);
 console.log('\n=== 2. 列表解析 ===');
 let slug = '';
 try {
-  const list = await listComics(plugin);
+  const result = await listComics(plugin);
+  const list = result.comics;
+  check(result.exact, '分类页结果可信');
   check(list.length > 0, `分类页解析到 ${list.length} 部`);
   list.slice(0, 4).forEach((c) =>
     console.log(`      · ${c.title}  [${c.slug}]  封面=${c.cover ? '有' : '无'}`),
@@ -70,8 +72,27 @@ try {
 
 console.log('\n=== 3. 搜索解析 ===');
 try {
-  const list = await listComics(plugin, { query: '炎' });
-  check(list.length >= 0, `搜索返回 ${list.length} 部`);
+  const hit = await listComics(plugin, { query: '炎' });
+  check(hit.exact && hit.comics.length > 0, `搜索「炎」${hit.comics.length} 部，结果可信`);
+
+  /*
+   * 无结果搜索。
+   *
+   * 注意：不是所有站点都能区分「查不到」和「推荐列表」。
+   * 查不到时返回一堆无关内容、且页面无任何标记的站点，无论怎么判都判不准 ——
+   * 这是站点行为，不是插件配置问题。所以这里只检查程序逻辑是否正常，
+   * 不断言站点必须能区分。
+   */
+  const miss = await listComics(plugin, { query: 'zzzznotexist99999' });
+  const canDetect = !miss.exact;
+  console.log(
+    `      无结果搜索返回 ${miss.comics.length} 部，` +
+      (canDetect ? '程序已正确识别' : '该站点无法区分真伪（属站点行为，界面会提示模糊匹配）'),
+  );
+  check(
+    typeof miss.exact === 'boolean',
+    'listComics 始终返回 exact 标记',
+  );
 } catch (e) {
   check(false, '搜索失败: ' + (e as Error).message);
 }

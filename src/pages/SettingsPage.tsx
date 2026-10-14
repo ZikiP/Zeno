@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   deletePlugin,
   getActivePlugin,
@@ -8,6 +8,7 @@ import {
   setActivePlugin,
   type InstalledPlugin,
 } from '@/store/db';
+import { notifyPluginChanged } from '@/store/PluginContext';
 import { PLUGIN_FORMAT, pluginHosts, validatePlugin, type Plugin } from '@/site/types';
 import { useTheme, THEMES } from '@/hooks/useTheme';
 import {
@@ -66,6 +67,7 @@ export default function SettingsPage() {
     });
     await setActivePlugin(p.meta.id);
     await reload();
+    notifyPluginChanged();
     setMsg({
       kind: 'ok',
       text: exists
@@ -80,7 +82,12 @@ export default function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `zeno-plugin-${p.meta.id}.json`;
+    /*
+     * 文件名要过滤非法字符。插件 id 由使用者填写，可能含 / \ : * ? " < > |，
+     * 这些在 Windows 上会导致保存失败。
+     */
+    const safeId = p.meta.id.replace(/[\\/:*?"<>|\s-]/g, "_").slice(0, 60);
+    a.download = `zeno-plugin-${safeId || 'unnamed'}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -168,6 +175,7 @@ export default function SettingsPage() {
                       onClick={async () => {
                         await setActivePlugin(p.meta.id);
                         await reload();
+                        notifyPluginChanged();
                       }}
                       title={isActive ? '当前使用中' : '点击切换到此插件'}
                     >
@@ -212,6 +220,7 @@ export default function SettingsPage() {
                           }
                           await deletePlugin(p.meta.id);
                           await reload();
+                          notifyPluginChanged();
                         }}
                       >
                         删除
@@ -352,11 +361,15 @@ function PluginEditor({
     setTestMsg(null);
     try {
       const { listComics } = await import('@/site/engine');
-      const list = await listComics(draft);
+      /*
+       * 用搜索模式测试而不是分类模式 —— 一次能验证两个 URL 模板，
+       * 而搜索结果页的卡片结构与列表页一致，正好复用来测解析规则。
+       */
+      const result = await listComics(draft, { query: 'test' });
       setTestMsg(
-        list.length > 0
-          ? `成功，解析到 ${list.length} 部。示例：${list[0].title}`
-          : '请求成功但一条都没解析出来。检查「卡片起始片段」是否填了标签开头，以及 slug 正则是否含捕获组。',
+        result.exact && result.comics.length > 0
+          ? `成功，搜索「test」解析到 ${result.comics.length} 部。示例：${result.comics[0].title}`
+          : '请求成功但没解析到内容。请检查：\n· 搜索 URL 模板是否正确\n· 卡片起始片段是否填了标签开头（不能填 CSS 选择器）\n· slug 正则是否含捕获组',
       );
     } catch (e) {
       setTestMsg(`失败：${(e as Error).message}`);
@@ -458,6 +471,13 @@ function PluginEditor({
           onChange={(v) => setParse('imageAttr', v)}
         />
         <Field
+          label="搜索无结果特征（可选）"
+          hint="有些站点查不到时不返回空列表而是塞推荐，且不留任何标记。这种情况请填一个能识别它的正则；能明确写「未找到」的站点已内置识别，无需填写"
+          value={draft.parse.noResultPattern ?? ''}
+          onChange={(v) => setParse('noResultPattern', v || undefined)}
+          placeholder={'<div class=&quot;result-list&quot;></div>'}
+        />
+        <Field
           label="图片域名后缀"
           hint="逗号分隔。用于代理白名单提示与离线缓存"
           value={draft.imageHosts.join(',')}
@@ -504,6 +524,7 @@ function PluginEditor({
             onClick={async () => {
               await savePlugin({ plugin: draft, installedAt: Date.now(), origin });
               await setActivePlugin(draft.meta.id);
+              notifyPluginChanged();
               onSaved();
             }}
           >

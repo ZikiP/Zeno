@@ -853,3 +853,13 @@ input {
   border: 1px solid color-mix(in srgb, #f87171 35%, transparent);
   color: color-mix(in srgb, #f87171 82%, var(--text));
 }
+
+/* 搜索提示条 */
+.search-hint {
+  padding: 7px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-bottom: 1px solid var(--border);
+}

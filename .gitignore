@@ -3,6 +3,7 @@ dist/
 dist-ssr/
 *.local
 .DS_Store
+# 构建缓存
 *.tsbuildinfo
 
 # 运行日志
@@ -19,4 +20,3 @@ scripts/*.txt
 !package.json
 !package-lock.json
 !tsconfig.json
-!tsconfig.tsbuildinfo

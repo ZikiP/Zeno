@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { getChapter, getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import {
   addToShelf,
@@ -12,6 +12,7 @@ import {
   removeFromShelf,
 } from '@/store/db';
 import { usePlugin } from '@/store/PluginContext';
+import ChapterList from '@/components/ChapterList';
 import { IconBack, IconCheck, IconDownload, IconSettings, IconShelf } from '@/components/Icons';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
@@ -181,33 +182,12 @@ export default function ComicPage() {
               </div>
             )}
 
-            <div>
-              <div className="section-head">
-                <h2>章节</h2>
-                <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-                  共 {chapters.length} 章
-                </span>
-              </div>
-              <div className="chapters">
-                {chapters.map((ch) => {
-                  const isCached = cached[ch.id];
-                  return (
-                    <Link
-                      key={ch.id}
-                      to={`/read/${plugin.meta.id}/${slug}/${ch.id}`}
-                      className="chapter-row"
-                    >
-                      <span className="chapter-row__name">{ch.title}</span>
-                      {isCached && (
-                        <span className="chapter-row__badge badge-cache">
-                          离线 {formatBytes(isCached.bytes)}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
+            <ChapterList
+              chapters={chapters}
+              pluginId={plugin.meta.id}
+              slug={slug}
+              cached={cached}
+            />
           </div>
         )}
       </main>

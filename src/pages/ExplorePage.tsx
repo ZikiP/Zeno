@@ -31,6 +31,7 @@ export default function ExplorePage() {
   const [region, setRegion] = useState('all');
   const [state, setState] = useState('all');
   const [comics, setComics] = useState<Comic[] | null>(null);
+  const [exact, setExact] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -39,11 +40,20 @@ export default function ExplorePage() {
     setLoading(true);
     setErr(null);
     try {
-      setComics(
-        submitted
-          ? await listComics(plugin, { query: submitted })
-          : await listComics(plugin, { region, state }),
-      );
+      const result = submitted
+        ? await listComics(plugin, { query: submitted })
+        : await listComics(plugin, { region, state });
+      /*
+       * 搜索无结果时，站点常常塞一堆推荐内容。
+       * 这时把结果丢掉并明确告知「没找到」，比显示 91 部无关作品好得多。
+       */
+      if (!result.exact) {
+        setComics([]);
+        setExact(false);
+      } else {
+        setComics(result.comics);
+        setExact(true);
+      }
     } catch (e) {
       setErr((e as Error).message);
       setComics([]);
@@ -55,6 +65,12 @@ export default function ExplorePage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /* 切筛选/搜索时立即清空，避免旧结果停留造成误解 */
+  useEffect(() => {
+    setComics(null);
+    setExact(true);
+  }, [submitted, region, state, plugin?.meta.id]);
 
   if (!plugin?.meta.id) return null;
 
@@ -129,7 +145,20 @@ export default function ExplorePage() {
             borderBottom: '1px solid var(--border)',
           }}
         >
-          搜索「{submitted}」{comics ? ` · ${comics.length} 个结果` : ''}
+          搜索「{submitted}」
+          {comics !== null && (exact ? ` · ${comics.length} 个结果` : ' · 无结果')}
+        </div>
+      )}
+
+      {/*
+       * 模糊匹配提示。
+       *
+       * 有些站点的搜索是模糊的（匹配简介、标签而非标题），且查不到时不返回空列表
+       * 而是塞推荐 —— 客户端无法区分真假结果。与其假装精准，不如说清楚。
+       */}
+      {submitted && exact && comics !== null && comics.length > 0 && !plugin?.parse.noResultPattern && (
+        <div className="search-hint">
+          该站点的搜索为模糊匹配，结果可能包含部分相关内容，请留意标题是否符合
         </div>
       )}
 
@@ -138,12 +167,19 @@ export default function ExplorePage() {
           <ErrorBox message={err} onRetry={load} />
         ) : loading && comics === null ? (
           <Loading text="抓取中" />
+        ) : submitted && !exact ? (
+          <div className="empty">
+            <IconEmpty />
+            <div>没找到「{submitted}」</div>
+            <div style={{ fontSize: 12 }}>换个关键词试试</div>
+          </div>
         ) : !comics || comics.length === 0 ? (
           <div className="empty">
             <IconEmpty />
-            <div>没有内容</div>
+            <div>这个筛选下没有内容</div>
+            <div style={{ fontSize: 12 }}>换个筛选条件，或检查插件配置</div>
             <Link to="/settings" className="btn btn--sm">
-              调整站点配置
+              调整插件配置
             </Link>
           </div>
         ) : (

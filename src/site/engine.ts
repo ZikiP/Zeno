@@ -170,10 +170,28 @@ function parseCards(html: string, plugin: Plugin): Comic[] {
   return out;
 }
 
+/** 列表查询结果 */
+export interface ListResult {
+  comics: Comic[];
+  /**
+   * 结果是否可信。
+   *
+   * 很多站点在搜索无结果时不会返回空列表，而是塞一堆推荐内容。
+   * 那种情况下 `comics` 里全是无关作品，必须让调用方知道，
+   * 否则用户会以为「搜到了」但其实全不对。
+   * 判定方式：搜索框的值是否与查询词一致 + 结果数是否明显异常。
+   */
+  exact: boolean;
+}
+
+/** 搜索无结果时页面里常见的「未找到」措辞 */
+const NO_RESULT_HINTS =
+  /沒有找到|没有找到|無搜尋結果|无搜索结果|找不到相關|找不到相关|查無此書|查无此书|沒有相關|没有相关|no\s*result/i;
+
 export async function listComics(
   plugin: Plugin,
   filter: { query?: string; type?: string; region?: string; state?: string } = {},
-): Promise<Comic[]> {
+): Promise<ListResult> {
   const url = filter.query
     ? new URL(fill(plugin.urls.search, { q: filter.query }), plugin.entry).toString()
     : new URL(
@@ -185,7 +203,35 @@ export async function listComics(
         plugin.entry,
       ).toString();
 
-  return parseCards(await fetchText(plugin, url), plugin);
+  const html = await fetchText(plugin, url);
+  const comics = parseCards(html, plugin);
+
+  // 分类页永远是精确结果
+  if (!filter.query) return { comics, exact: true };
+
+  /*
+   * 判定搜索是否无结果 —— 这一段踩过坑，务必读完再改。
+   *
+   * 实测某站点：搜「炎火」89 部，搜完全不存在的东西 **91 部**，数量几乎一样；
+   * 页面没有任何「未找到」字样；<title> 里照样带着查询词。
+   * 逐条比对标题匹配率也没用 —— 搜「炎火」精确命中 0%，因为它匹配的是简介和标签。
+   *
+   * 结论：**该站点根本没有「无结果」这个状态**，返回的是推荐列表，
+   * 而 HTML 层面无法与真实搜索结果区分。客户端侧的启发式判断都是瞎猜。
+   *
+   * 所以只认两种可确证的信号：
+   *   1. 页面明确写了「未找到」
+   *   2. 插件作者在配置里给出了该站的无结果正则（parse.noResultPattern）
+   * 都拿不到时，诚实返回 exact: true，由界面提示用户「该站点搜索为模糊匹配」。
+   */
+  const custom = plugin.parse.noResultPattern;
+  const matchesCustom = custom ? new RegExp(custom).test(html) : false;
+
+  if (NO_RESULT_HINTS.test(html) || matchesCustom || comics.length === 0) {
+    return { comics: [], exact: false };
+  }
+
+  return { comics, exact: true };
 }
 
 /* ── 详情页 ───────────────────────────────────────── */
@@ -288,17 +334,23 @@ export async function getChapter(
   plugin: Plugin,
   slug: string,
   chapterId: string,
-  opts?: { maxPages?: number },
+  opts?: { signal?: AbortSignal },
 ): Promise<ChapterPage> {
-  const maxPages = opts?.maxPages ?? 30;
+  // 0 = 不限。硬编码上限会让人误以为"读完了"，实际后面还有内容。
+  const configured = plugin.maxChapterPages ?? 0;
+  const limit = configured > 0 ? configured : Number.POSITIVE_INFINITY;
   const base = plugin.chapterHost ?? plugin.entry;
   const images: string[] = [];
   const seen = new Set<string>();
 
   let totalPages = 1;
   let page = 1;
+  /** 硬性安全上限，防止站点返回死循环时无限抓取 */
+  const HARD_CAP = 500;
 
-  while (page <= maxPages) {
+  while (page <= limit && page <= HARD_CAP) {
+    if (opts?.signal?.aborted) break;
+
     // 长章节会分页：首屏 {id}.html，后续 {id}_{n}.html
     const pageId = page === 1 ? chapterId : `${chapterId}_${page}`;
     let html: string;
@@ -308,8 +360,12 @@ export async function getChapter(
       break; // 到头了
     }
 
+    // 优先信页面里的总页数标记（形如标题中的 "(1/4)"）
     const tp = html.match(/\((\d+)\/(\d+)\)/);
-    if (tp && page === 1) totalPages = Number(tp[2]) || 1;
+    if (tp) {
+      const declared = Number(tp[2]) || 1;
+      if (page === 1) totalPages = Math.max(totalPages, declared);
+    }
 
     // 关键：真实 URL 在配置的属性上（很多站点 src 里是框架绑定符号）
     const re = new RegExp(
