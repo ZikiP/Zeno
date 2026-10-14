@@ -1,30 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { getComic, getChapter, coverUrl, type Chapter, type Comic } from '@/site/twmanga';
+import { getChapter, getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import {
   addToShelf,
   cacheChapterImages,
+  deleteCachedBySiteAndSlug,
+  formatBytes,
   getCachedChapter,
   isInShelf,
   listCachedChapters,
   removeFromShelf,
-  deleteCachedBySlug,
-  formatBytes,
 } from '@/store/db';
-import {
-  IconBack,
-  IconCheck,
-  IconDownload,
-  IconExplore,
-  IconShelf,
-} from '@/components/Icons';
-import { ErrorBox, Loading, Sheet, ToggleRow } from '@/components/UI';
+import { useSite } from '@/store/SiteContext';
+import { IconBack, IconCheck, IconDownload, IconSettings, IconShelf } from '@/components/Icons';
+import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
 type CachedMap = Record<string, { bytes: number }>;
 
 export default function ComicPage() {
   const { slug = '' } = useParams();
   const nav = useNavigate();
+  const { site } = useSite();
 
   const [comic, setComic] = useState<Comic | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -33,17 +29,15 @@ export default function ComicPage() {
   const [cached, setCached] = useState<CachedMap>({});
   const [caching, setCaching] = useState<{ done: number; total: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [offlineFirst, setOfflineFirst] = useState(
-    () => localStorage.getItem('offlineFirst') !== '0',
-  );
 
   const load = useCallback(async () => {
+    if (!site) return;
     setErr(null);
     try {
       const [{ comic: c, chapters: ch }, inShelf, cacheList] = await Promise.all([
-        getComic(slug),
-        isInShelf(slug),
-        listCachedChapters(slug),
+        getComic(site, slug),
+        isInShelf(site.id, slug),
+        listCachedChapters(site.id, slug),
       ]);
       setComic(c);
       setChapters(ch);
@@ -54,45 +48,44 @@ export default function ComicPage() {
     } catch (e) {
       setErr((e as Error).message);
     }
-  }, [slug]);
+  }, [site, slug]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const toggleShelf = async () => {
-    if (!comic) return;
+    if (!site || !comic) return;
     if (onShelf) {
-      await removeFromShelf(slug);
+      await removeFromShelf(site.id, slug);
       setOnShelf(false);
     } else {
-      await addToShelf(comic);
+      await addToShelf(site.id, { slug, title: comic.title, cover: comic.cover });
       setOnShelf(true);
     }
   };
 
-  /** 下载整部漫画的所有章节 */
+  /** 离线下载整部：逐章抓取并缓存 */
   const cacheAll = async () => {
+    if (!site) return;
     const targets = chapters.filter((c) => !cached[c.id]);
     if (targets.length === 0) {
       alert('所有章节都已缓存');
       return;
     }
-    if (!confirm(`将下载 ${targets.length} 章内容到本机离线存储，可能占用较多空间。继续？`)) {
-      return;
-    }
+    if (!confirm(`将下载 ${targets.length} 章到本机离线存储，可能占用较多空间。继续？`)) return;
+
     const total = targets.length;
     setCaching({ done: 0, total });
 
     for (let i = 0; i < targets.length; i++) {
       const ch = targets[i];
       try {
-        const existing = await getCachedChapter(slug, ch.id);
-        const images = existing?.images ?? (await getChapter(slug, ch.id)).images;
-        const bytes = await cacheChapterImages(slug, ch.id, images, (p) => {
-          // 章节内进度折算到总进度
-          setCaching({ done: i + p.done / p.total, total });
-        });
+        const existing = await getCachedChapter(site.id, slug, ch.id);
+        const images = existing?.images ?? (await getChapter(site, slug, ch.id)).images;
+        const bytes = await cacheChapterImages(site.id, slug, ch.id, images, (p) =>
+          setCaching({ done: i + p.done / p.total, total }),
+        );
         setCached((m) => ({ ...m, [ch.id]: { bytes } }));
       } catch (e) {
         console.error(`缓存 ${ch.id} 失败`, e);
@@ -105,6 +98,22 @@ export default function ComicPage() {
 
   const cachedBytes = Object.values(cached).reduce((s, v) => s + v.bytes, 0);
 
+  if (!site) {
+    return (
+      <>
+        <header className="topbar">
+          <div className="topbar__title">未配置站点</div>
+        </header>
+        <div className="empty">
+          <div>还没有可用的内容源</div>
+          <Link to="/settings" className="btn btn--sm">
+            去添加站点
+          </Link>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <header className="topbar">
@@ -114,7 +123,7 @@ export default function ComicPage() {
         <div className="topbar__title">{comic?.title ?? '加载中'}</div>
         <div className="topbar__spacer" />
         <button className="icon-btn" onClick={() => setShowSettings(true)} aria-label="设置">
-          ⓘ
+          <IconSettings />
         </button>
       </header>
 
@@ -126,11 +135,7 @@ export default function ComicPage() {
         ) : (
           <div className="detail">
             <div className="detail__head">
-              <img
-                className="detail__cover"
-                src={coverUrl(comic.cover, 400, 530)}
-                alt={comic.title}
-              />
+              <img className="detail__cover" src={coverUrl(comic.cover, 400, 530)} alt={comic.title} />
               <div>
                 <h1 className="detail__title">{comic.title}</h1>
                 <div className="detail__meta">
@@ -151,11 +156,7 @@ export default function ComicPage() {
                     {onShelf ? <IconCheck size={16} /> : <IconShelf size={16} />}
                     {onShelf ? '已在书架' : '加入书架'}
                   </button>
-                  <button
-                    className="btn btn--ghost"
-                    onClick={cacheAll}
-                    disabled={!!caching}
-                  >
+                  <button className="btn btn--ghost" onClick={cacheAll} disabled={!!caching}>
                     <IconDownload size={16} />
                     {caching
                       ? `下载中 ${Math.floor(caching.done)}/${caching.total}`
@@ -191,11 +192,7 @@ export default function ComicPage() {
                 {chapters.map((ch) => {
                   const isCached = cached[ch.id];
                   return (
-                    <Link
-                      key={ch.id}
-                      to={`/read/${slug}/${ch.id}`}
-                      className="chapter-row"
-                    >
+                    <Link key={ch.id} to={`/read/${ch.id}`} className="chapter-row">
                       <span className="chapter-row__name">{ch.title}</span>
                       {isCached && (
                         <span className="chapter-row__badge badge-cache">
@@ -213,15 +210,15 @@ export default function ComicPage() {
 
       {showSettings && comic && (
         <Sheet title="阅读设置" onClose={() => setShowSettings(false)}>
-          <ToggleRow
-            label="优先读离线内容"
-            hint="打开后优先用本机缓存的图片，省流量"
-            value={offlineFirst}
-            onChange={(v) => {
-              setOfflineFirst(v);
-              localStorage.setItem('offlineFirst', v ? '1' : '0');
-            }}
-          />
+          <div className="opt-row">
+            <div>
+              <div className="opt-row__label">当前站点</div>
+              <div className="opt-row__hint">{site.name}</div>
+            </div>
+            <Link to="/settings" className="btn btn--ghost btn--sm">
+              切换
+            </Link>
+          </div>
           <div className="opt-row">
             <div>
               <div className="opt-row__label">从书架移除</div>
@@ -231,8 +228,8 @@ export default function ComicPage() {
               className="btn btn--ghost btn--sm"
               onClick={async () => {
                 if (confirm(`移除《${comic.title}》并清除其离线缓存？`)) {
-                  await deleteCachedBySlug(slug);
-                  await removeFromShelf(slug);
+                  await deleteCachedBySiteAndSlug(site.id, slug);
+                  await removeFromShelf(site.id, slug);
                   nav('/shelf');
                 }
               }}
@@ -242,17 +239,6 @@ export default function ComicPage() {
           </div>
         </Sheet>
       )}
-
-      <nav className="bottom-nav">
-        <Link to="/shelf">
-          <IconShelf />
-          书架
-        </Link>
-        <Link to="/explore">
-          <IconExplore />
-          发现
-        </Link>
-      </nav>
     </>
   );
 }

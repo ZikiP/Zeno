@@ -1,15 +1,22 @@
 {
-  "name": "manga-reader",
+  "name": "zeno",
   "private": false,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "跨端漫画阅读器（Android 手机 / 平板 / Web），无广告阅读体验",
+  "description": "干净的网页阅读器 — 跨端 PWA，内容源由用户自行配置",
+  "license": "MIT",
+  "keywords": [
+    "pwa",
+    "reader",
+    "comic",
+    "offline"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "probe": "tsx scripts/probe.ts"
+    "icons": "tsx scripts/gen-icons.ts"
   },
   "dependencies": {
     "idb": "^8.0.0",

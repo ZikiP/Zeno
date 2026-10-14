@@ -1,25 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { getChapter } from '@/site/twmanga';
-import {
-  cacheChapterImages,
-  getCachedChapter,
-  getShelf,
-  savePosition,
-} from '@/store/db';
+import { useNavigate } from 'react-router-dom';
+import { getChapter } from '@/site/engine';
+import { cacheChapterImages, getCachedChapter, getShelf, savePosition } from '@/store/db';
+import { useSite } from '@/store/SiteContext';
 import { IconBack, IconGrid, IconList, IconSettings } from '@/components/Icons';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
 type Mode = 'scroll' | 'paged';
 
-export default function ReaderPage() {
-  const { slug = '', chapterId = '' } = useParams();
+export default function ReaderPage({ slug, chapterId }: { slug: string; chapterId: string }) {
   const nav = useNavigate();
+  const { site } = useSite();
 
   const [images, setImages] = useState<string[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>(
-    () => (localStorage.getItem('readerMode') as Mode) || 'scroll',
+    () => (localStorage.getItem('readerMode') as Mode) === 'paged' ? 'paged' : 'scroll',
   );
   const [showBar, setShowBar] = useState(true);
   const [showSheet, setShowSheet] = useState(false);
@@ -29,8 +25,8 @@ export default function ReaderPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number | undefined>(undefined);
 
-  /** 加载：先看本地缓存，没有再抓网络并顺手缓存 */
   useEffect(() => {
+    if (!site) return;
     let cancelled = false;
 
     (async () => {
@@ -39,7 +35,7 @@ export default function ReaderPage() {
       setPage(0);
 
       try {
-        const cached = await getCachedChapter(slug, chapterId);
+        const cached = await getCachedChapter(site.id, slug, chapterId);
         if (cancelled) return;
 
         if (cached) {
@@ -49,18 +45,17 @@ export default function ReaderPage() {
         }
 
         setFromCache(false);
-        const result = await getChapter(slug, chapterId);
+        const result = await getChapter(site, slug, chapterId);
         if (cancelled) return;
 
         if (result.images.length === 0) {
-          setErr('这一章没有图片，可能站点结构变了');
+          setErr('这一章没有图片。请检查站点的「章节正文 URL」与「图片属性」配置');
           return;
         }
 
         setImages(result.images);
-
         // 后台静默缓存，不阻塞阅读
-        void cacheChapterImages(slug, chapterId, result.images);
+        void cacheChapterImages(site.id, slug, chapterId, result.images);
       } catch (e) {
         if (!cancelled) setErr((e as Error).message);
       }
@@ -69,41 +64,34 @@ export default function ReaderPage() {
     return () => {
       cancelled = true;
     };
-  }, [slug, chapterId]);
+  }, [site, slug, chapterId]);
 
   const switchMode = (m: Mode) => {
     setMode(m);
     localStorage.setItem('readerMode', m);
-    if (m === 'scroll') setPage(0);
-    else setPage(0);
+    setPage(0);
   };
 
-  /** 记录阅读进度（节流） */
   const record = useCallback(
     (pos: number) => {
+      if (!site) return;
       window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
-        savePosition(slug, chapterId, pos);
+        void savePosition(site.id, slug, chapterId, pos);
       }, 600);
     },
-    [slug, chapterId],
+    [site, slug, chapterId],
   );
 
-  /* 竖向滚动模式：滚动即切页 + 进度 */
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const total = el.scrollHeight - el.clientHeight;
-    if (total > 0) {
-      record(Math.round((el.scrollTop / total) * 100));
-    }
-    const w = el.clientWidth;
-    setPage(Math.min(images?.length ?? 1, Math.floor(el.scrollTop / w) + 1));
-    // 滚到底自动隐藏工具栏
+    if (total > 0) record(Math.round((el.scrollTop / total) * 100));
+    setPage(Math.min(images?.length ?? 1, Math.floor(el.scrollTop / el.clientWidth) + 1));
     if (el.scrollTop > 200) setShowBar(false);
   }, [record, images]);
 
-  /* 分页模式：左右分区点击翻页 */
   const onTapZone = useCallback(
     (side: 'prev' | 'next') => {
       setShowBar((s) => !s);
@@ -113,7 +101,6 @@ export default function ReaderPage() {
     [page, images],
   );
 
-  /* 键盘：桌面端左右键翻页，空格切换工具栏 */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') onTapZone('prev');
@@ -127,13 +114,12 @@ export default function ReaderPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [onTapZone, nav]);
 
-  /* 进入时恢复上次的滚动位置 */
+  /* 恢复上次阅读位置 */
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || mode !== 'scroll' || !images) return;
+    if (!el || !site || mode !== 'scroll' || !images) return;
     (async () => {
-      const shelf = await getShelf();
-      const entry = shelf.find((s) => s.slug === slug);
+      const entry = (await getShelf(site.id)).find((s) => s.slug === slug);
       const pct = entry?.positions?.[chapterId];
       if (pct && pct > 2 && pct < 98) {
         requestAnimationFrame(() => {
@@ -141,7 +127,7 @@ export default function ReaderPage() {
         });
       }
     })();
-  }, [images, mode, slug, chapterId]);
+  }, [images, mode, site, slug, chapterId]);
 
   const current = images?.[page];
 
@@ -152,7 +138,7 @@ export default function ReaderPage() {
           <IconBack />
         </button>
         <div className="reader__title">
-          {fromCache && '离线 · '}
+          {fromCache ? '离线 · ' : ''}
           {page + 1} / {images?.length ?? '?'}
         </div>
         <button
@@ -212,10 +198,8 @@ export default function ReaderPage() {
           </div>
           <div className="opt-row">
             <div>
-              <div className="opt-row__label">已缓存</div>
-              <div className="opt-row__hint">
-                打开过的章节会自动存到本机，断网也能看
-              </div>
+              <div className="opt-row__label">离线缓存</div>
+              <div className="opt-row__hint">打开过的章节会自动存到本机，断网也能看</div>
             </div>
             <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>
               {fromCache ? '当前来自缓存' : '当前来自网络'}

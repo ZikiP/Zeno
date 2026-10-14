@@ -1,53 +1,72 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { listComics, CATEGORIES, type Comic } from '@/site/twmanga';
-import { IconExplore, IconSearch, IconShelf } from '@/components/Icons';
-import { ComicGrid, ErrorBox, Loading } from '@/components/UI';
+import { listComics, coverUrl, type Comic } from '@/site/engine';
+import { useSite } from '@/store/SiteContext';
+import { IconEmpty, IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';
+import { ErrorBox, Loading } from '@/components/UI';
 
-type Filter = { type: string; region: string; state: string };
+/**
+ * 分类维度。这些值会填进站点配置的 URL 模板变量，
+ * 所以是否有效取决于目标站点支持哪些取值 —— 不支持时列表会返回空。
+ * 用户可以直接在站点配置里改 URL 模板来匹配自己站点的实际参数。
+ */
+const REGIONS = [
+  { key: 'all', label: '全部' },
+  { key: 'cn', label: '国漫' },
+  { key: 'jp', label: '日本' },
+  { key: 'kr', label: '韩国' },
+  { key: 'en', label: '欧美' },
+];
+
+const STATES = [
+  { key: 'all', label: '全部' },
+  { key: 'serial', label: '连载中' },
+  { key: 'pub', label: '已完结' },
+];
 
 export default function ExplorePage() {
+  const { site } = useSite();
   const [q, setQ] = useState('');
   const [submitted, setSubmitted] = useState('');
-  const [filter, setFilter] = useState<Filter>({ type: 'all', region: 'all', state: 'all' });
+  const [region, setRegion] = useState('all');
+  const [state, setState] = useState('all');
   const [comics, setComics] = useState<Comic[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
+    if (!site) return;
     setLoading(true);
     setErr(null);
     try {
-      const list = submitted
-        ? await listComics({ query: submitted })
-        : await listComics(filter);
-      setComics(list);
+      setComics(
+        submitted
+          ? await listComics(site, { query: submitted })
+          : await listComics(site, { region, state }),
+      );
     } catch (e) {
       setErr((e as Error).message);
       setComics([]);
     } finally {
       setLoading(false);
     }
-  }, [submitted, filter]);
+  }, [site, submitted, region, state]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const onSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitted(q.trim());
-  };
+  if (!site) return null;
 
   return (
     <>
       <header className="topbar">
-        <form className="search" onSubmit={onSearch}>
+        <form className="search" onSubmit={(e) => { e.preventDefault(); setSubmitted(q.trim()); }}>
           <IconSearch size={17} />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="搜索漫画"
+            placeholder="搜索"
             enterKeyHint="search"
           />
           {submitted && (
@@ -66,54 +85,39 @@ export default function ExplorePage() {
       </header>
 
       {!submitted && (
-        <div className="filters">
-          <span style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: '30px' }}>
-            题材
-          </span>
-          {CATEGORIES.type.map((c) => (
-            <button
-              key={c.key}
-              className={`chip${filter.type === c.key ? ' on' : ''}`}
-              onClick={() => setFilter((f) => ({ ...f, type: c.key }))}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!submitted && (
-        <div className="filters">
-          <span style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: '30px' }}>
-            地区
-          </span>
-          {CATEGORIES.region.map((c) => (
-            <button
-              key={c.key}
-              className={`chip${filter.region === c.key ? ' on' : ''}`}
-              onClick={() => setFilter((f) => ({ ...f, region: c.key }))}
-            >
-              {c.label}
-            </button>
-          ))}
-          <span
+        <>
+          <div className="filters">
+            {REGIONS.map((c) => (
+              <button
+                key={c.key}
+                className={`chip${region === c.key ? ' on' : ''}`}
+                onClick={() => setRegion(c.key)}
+              >
+                {c.label}
+              </button>
+            ))}
+            <span style={{ width: 1, background: 'var(--border)', margin: '4px', flexShrink: 0 }} />
+            {STATES.map((c) => (
+              <button
+                key={c.key}
+                className={`chip${state === c.key ? ' on' : ''}`}
+                onClick={() => setState(c.key)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <div
             style={{
-              width: 1,
-              background: 'var(--border)',
-              margin: '4px 4px',
-              flexShrink: 0,
+              padding: '6px 12px',
+              fontSize: 11,
+              color: 'var(--text-faint)',
+              borderBottom: '1px solid var(--border)',
             }}
-          />
-          {CATEGORIES.state.map((c) => (
-            <button
-              key={c.key}
-              className={`chip${filter.state === c.key ? ' on' : ''}`}
-              onClick={() => setFilter((f) => ({ ...f, state: c.key }))}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
+          >
+            筛选值取自通用预设，若你的站点参数不同，请在设置里改 URL 模板
+          </div>
+        </>
       )}
 
       {submitted && (
@@ -134,8 +138,33 @@ export default function ExplorePage() {
           <ErrorBox message={err} onRetry={load} />
         ) : loading && comics === null ? (
           <Loading text="抓取中" />
+        ) : !comics || comics.length === 0 ? (
+          <div className="empty">
+            <IconEmpty />
+            <div>没有内容</div>
+            <Link to="/settings" className="btn btn--sm">
+              调整站点配置
+            </Link>
+          </div>
         ) : (
-          <ComicGrid comics={comics ?? []} />
+          <div className="grid">
+            {comics.map((c) => (
+              <Link key={c.slug} to={`/comic/${c.slug}`} className="card">
+                <div className="card__cover">
+                  {c.cover && (
+                    <img
+                      src={coverUrl(c.cover, 300, 400)}
+                      alt={c.title}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  )}
+                </div>
+                <div className="card__name">{c.title}</div>
+                {c.latestChapter && <div className="card__sub">{c.latestChapter}</div>}
+              </Link>
+            ))}
+          </div>
         )}
       </main>
 
@@ -147,6 +176,10 @@ export default function ExplorePage() {
         <Link to="/explore" className="active">
           <IconExplore />
           发现
+        </Link>
+        <Link to="/settings">
+          <IconSettings />
+          设置
         </Link>
       </nav>
     </>
