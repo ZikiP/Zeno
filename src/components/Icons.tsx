@@ -151,3 +151,19 @@ export const IconZoom = ({ size = 20 }: P) => (
     <path d="M15.5 15.5L21 21M8 10.5h5M10.5 8v5" />
   </svg>
 );
+
+/** 书签。filled 时实心，用于表示已收藏 */
+export const IconBookmark = ({ size = 18, filled }: P & { filled?: boolean }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill={filled ? 'currentColor' : 'none'}
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M6 3h12a1 1 0 011 1v17l-7-4-7 4V4a1 1 0 011-1z" />
+  </svg>
+);

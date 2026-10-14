@@ -1,7 +1,15 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getChapter } from '@/site/engine';
-import { cacheChapterImages, getCachedChapter, getShelf, savePosition } from '@/store/db';
+import {
+  addBookmark,
+  cacheChapterImages,
+  getBookmarks,
+  getCachedChapter,
+  getShelf,
+  savePosition,
+  type Bookmark,
+} from '@/store/db';
 import { usePlugin } from '@/store/PluginContext';
 import {
   BG_LABELS,
@@ -13,6 +21,7 @@ import {
 } from '@/reader/prefs';
 import {
   IconBack,
+  IconBookmark,
   IconChevronLeft,
   IconChevronRight,
   IconDouble,
@@ -23,6 +32,9 @@ import {
   IconSun,
   IconZoom,
 } from '@/components/Icons';
+import ChapterDrawer from '@/components/ChapterDrawer';
+import BookmarkPanel from '@/components/BookmarkPanel';
+import { RetryableImage } from '@/components/RetryableImage';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
 type Mode = 'scroll' | 'paged';
@@ -49,9 +61,45 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const [fromCache, setFromCache] = useState(false);
   const [zoom, setZoom] = useState<{ src: string; i: number } | null>(null);
 
+  /* 章节目录 / 书签面板 */
+  const [showChapters, setShowChapters] = useState(false);
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  /** 本章有书签的页码。目录里靠它标记 */
+  const [markedPages, setMarkedPages] = useState<Set<number>>(new Set());
+  /** 全部书签，用于面板。key = chapterId，值是页码数组 */
+  const [bookmarkMap, setBookmarkMap] = useState<Map<string, number[]>>(new Map());
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number | undefined>(undefined);
   const preloaded = useRef(new Set<string>());
+
+  /* 书签数据：进入章节时读一次 */
+  const loadBookmarks = useCallback(async () => {
+    if (!plugin?.meta.id) return;
+    const all = await getBookmarks(plugin.meta.id);
+    const map = new Map<string, number[]>();
+    for (const b of all) {
+      const arr = map.get(b.chapterId) ?? [];
+      arr.push(b.page);
+      map.set(b.chapterId, arr);
+    }
+    setBookmarkMap(map);
+    setMarkedPages(new Set(map.get(chapterId) ?? []));
+  }, [plugin?.meta.id, chapterId]);
+
+  useEffect(() => {
+    void loadBookmarks();
+  }, [loadBookmarks]);
+
+  /* 提示条：3 秒后自动消失 */
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
 
   /* 偏好设置 */
   useEffect(() => {
@@ -160,6 +208,64 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     localStorage.setItem('readerMode', m);
     setPage(0);
   }, []);
+
+  /** 当前页在「整章图片」里的序号，双页时取第一张 */
+  const currentImageIndex = mode === 'paged' ? page * perPage : page;
+
+  /** 书签已存在则移除，不存在则添加 */
+  const toggleBookmark = useCallback(
+    async (explicitPage?: number) => {
+      if (!plugin?.meta.id || !images) return;
+      const p = explicitPage ?? currentImageIndex;
+      const existing = markedPages.has(p);
+
+      if (existing) {
+        const all = await getBookmarks(plugin.meta.id, slug);
+        const hit = all.find((b) => b.chapterId === chapterId && b.page === p);
+        if (hit) {
+          const { removeBookmark } = await import('@/store/db');
+          await removeBookmark(hit.key);
+          setToast('已删除书签');
+        }
+      } else {
+        await addBookmark({
+          pluginId: plugin.meta.id,
+          slug,
+          chapterId,
+          page: p,
+          percent: images.length ? Math.round((p / images.length) * 100) : 0,
+          thumb: images[p],
+        });
+        setToast(`已收藏第 ${p + 1} 页`);
+      }
+      await loadBookmarks();
+    },
+    [plugin?.meta.id, images, currentImageIndex, markedPages, slug, chapterId, loadBookmarks],
+  );
+
+  /** 跳到某个书签 */
+  const jumpToBookmark = useCallback(
+    (b: Bookmark) => {
+      if (b.chapterId !== chapterId) {
+        // 跨章跳转：走路由，并带上目标章的前后关系未知，清掉 p/n
+        nav(`/read/${b.pluginId}/${b.slug}/${b.chapterId}`);
+        return;
+      }
+      if (mode === 'paged') {
+        setPage(Math.floor(b.page / perPage));
+      } else {
+        // 滚动模式：图片高度不一，用比例估算后再微调
+        requestAnimationFrame(() => {
+          const el = scrollRef.current;
+          const imgs = el?.querySelectorAll('.reader__page');
+          const target = imgs?.[b.page] as HTMLElement | undefined;
+          if (el && target) el.scrollTop = target.offsetTop - 8;
+        });
+      }
+      setToast(`跳到第 ${b.page + 1} 页`);
+    },
+    [chapterId, mode, perPage, nav],
+  );
 
   /** 切到相邻章节。前后 id 由详情页跳转时写在 URL 查询参数里 */
   const gotoChapter = useCallback(
@@ -271,6 +377,12 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
       else if (e.key.toLowerCase() === 'd') {
         updatePrefs({ direction: isRTL ? 'ltr' : 'rtl' });
         setPage(0);
+      } else if (e.key.toLowerCase() === 'b') {
+        void toggleBookmark();
+      } else if (e.key.toLowerCase() === 'c') {
+        setShowChapters(true);
+      } else if (e.key.toLowerCase() === 'k') {
+        setShowBookmarks(true);
       } else if (e.key === '+' || e.key === '=') {
         updatePrefs({ brightness: Math.min(1, (prefs.brightness ?? 1) + 0.1) });
       } else if (e.key === '-') {
@@ -279,7 +391,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goPage, isRTL, nav, prefs.brightness, updatePrefs, zoom]);
+  }, [goPage, isRTL, nav, prefs.brightness, updatePrefs, zoom, toggleBookmark]);
 
   /* 恢复阅读位置 */
   useEffect(() => {
@@ -327,7 +439,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   if (zoom) {
     return (
       <div className="zoom-view" style={{ background: BG_VALUES[prefs.bgColor] }}>
-        <img src={zoom.src} alt={`第 ${zoom.i + 1} 页`} onClick={() => setZoom(null)} />
+        <RetryableImage src={zoom.src} alt={`第 ${zoom.i + 1} 页`} onClick={() => setZoom(null)} />
         <div className="zoom-view__hint">点击任意处关闭</div>
       </div>
     );
@@ -344,15 +456,29 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           {mode === 'paged' ? `${page + 1} / ${totalPages}` : `${page + 1} / ${images?.length ?? '?'}`}
           {prefs.direction === 'rtl' && ' ←右起'}
         </div>
+        <button className="icon-btn" onClick={() => setShowSheet(true)} aria-label="阅读设置">
+          <IconSettings />
+        </button>
+        <button className="icon-btn" onClick={() => setShowChapters(true)} aria-label="章节目录">
+          <IconList />
+        </button>
+        <button className="icon-btn" onClick={() => setShowBookmarks(true)} aria-label="书签">
+          <IconBookmark />
+        </button>
+        <button
+          className={`icon-btn${markedPages.has(currentImageIndex) ? ' is-on' : ''}`}
+          onClick={() => void toggleBookmark()}
+          aria-label="收藏本页"
+          title={markedPages.has(currentImageIndex) ? '取消收藏本页' : '收藏本页'}
+        >
+          <IconBookmark filled={markedPages.has(currentImageIndex)} />
+        </button>
         <button
           className="icon-btn"
           onClick={() => switchMode(mode === 'scroll' ? 'paged' : 'scroll')}
           aria-label="切换模式"
         >
           {mode === 'scroll' ? <IconGrid /> : <IconList />}
-        </button>
-        <button className="icon-btn" onClick={() => setShowSheet(true)} aria-label="阅读设置">
-          <IconSettings />
         </button>
       </div>
 
@@ -365,18 +491,23 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         <div className="reader__scroll" ref={scrollRef} onScroll={onScroll} style={{ filter }}>
           {images.map((src, i) => (
             <div key={src + i} className="reader__item">
-              <img
+              <RetryableImage
                 className="reader__page"
                 src={src}
                 alt={`第 ${i + 1} 页`}
-                loading={i < 3 ? 'eager' : 'lazy'}
-                decoding="async"
+                eager={i < 3}
                 onClick={() => setShowBar((s) => !s)}
+                onDoubleClick={() => setZoom({ src, i })}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setZoom({ src, i });
                 }}
               />
+              {markedPages.has(i) && (
+                <span className="reader__bm-mark" title="已收藏">
+                  <IconBookmark size={13} filled />
+                </span>
+              )}
             </div>
           ))}
           <div className="reader__end">— 本章完 —</div>
@@ -401,17 +532,23 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         /* 分页模式 */
         <div className="reader__paged" style={{ filter }}>
           <div className={`reader__spread${perPage === 2 ? ' is-double' : ''}`}>
-            {visibleImages.map((src, i) => (
-              <img
-                key={src}
-                src={src}
-                alt={`第 ${page * perPage + i + 1} 页`}
-                decoding="async"
-                onDoubleClick={() =>
-                  setZoom({ src, i: page * perPage + i })
-                }
-              />
-            ))}
+            {visibleImages.map((src, i) => {
+              const abs = page * perPage + i;
+              return (
+                <div key={src} className="reader__cell">
+                  <RetryableImage
+                    src={src}
+                    alt={`第 ${abs + 1} 页`}
+                    onDoubleClick={() => setZoom({ src, i: abs })}
+                  />
+                  {markedPages.has(abs) && (
+                    <span className="reader__bm-mark" title="已收藏">
+                      <IconBookmark size={13} filled />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* 左右点击区。中间留一条不响应翻页的区域，避免误触 */}
@@ -469,13 +606,25 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         <div
           className="reader__progress"
           onClick={(e) => {
-            // 点击进度条跳转到对应位置（分页模式）
-            if (mode !== 'paged') return;
             const rect = e.currentTarget.getBoundingClientRect();
             const ratio = (e.clientX - rect.left) / rect.width;
-            setPage(Math.max(0, Math.min(totalPages - 1, Math.floor(ratio * totalPages))));
+            if (mode === 'paged') {
+              setPage(Math.max(0, Math.min(totalPages - 1, Math.floor(ratio * totalPages))));
+            } else if (ratio > 0.97) {
+              // 滚动模式点最右端 = 跳到下一章，这是长章节最顺手的操作
+              if (nextId) gotoChapter(nextId);
+            }
           }}
         >
+          {/* 已收藏的页在进度条上标出来 */}
+          {mode === 'paged' &&
+            [...markedPages].map((p) => (
+              <span
+                key={p}
+                className="reader__progress-bm"
+                style={{ left: `${((p / images.length) * 100).toFixed(2)}%` }}
+              />
+            ))}
           <div
             className="reader__progress-fill"
             style={{
@@ -483,6 +632,30 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
             }}
           />
         </div>
+      )}
+
+      {/* 提示条 */}
+      {toast && <div className="reader__toast">{toast}</div>}
+
+      {/* 章节目录 */}
+      {showChapters && plugin?.meta.id && (
+        <ChapterDrawer
+          pluginId={plugin.meta.id}
+          slug={slug}
+          currentId={chapterId}
+          bookmarks={bookmarkMap}
+          onPick={gotoChapter}
+          onClose={() => setShowChapters(false)}
+        />
+      )}
+
+      {/* 书签 */}
+      {showBookmarks && plugin?.meta.id && (
+        <BookmarkPanel
+          pluginId={plugin.meta.id}
+          onJump={jumpToBookmark}
+          onClose={() => setShowBookmarks(false)}
+        />
       )}
 
       {showSheet && (

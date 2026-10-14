@@ -2,6 +2,7 @@
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import ShelfPage from '@/pages/ShelfPage';
 import ExplorePage from '@/pages/ExplorePage';
+import GlobalSearchPage from '@/pages/GlobalSearchPage';
 import ComicPage from '@/pages/ComicPage';
 import ReaderPage from '@/pages/ReaderPage';
 import SettingsPage from '@/pages/SettingsPage';
@@ -44,6 +45,14 @@ function Shell() {
           element={
             <RequirePlugin>
               <ExplorePage />
+            </RequirePlugin>
+          }
+        />
+        <Route
+          path="/search"
+          element={
+            <RequirePlugin>
+              <GlobalSearchPage />
             </RequirePlugin>
           }
         />

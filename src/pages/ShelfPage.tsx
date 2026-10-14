@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { getShelf, type ShelfEntry } from '@/store/db';
 import { usePlugin } from '@/store/PluginContext';
 import { coverUrl } from '@/site/engine';
-import { IconEmpty, IconExplore, IconSettings, IconShelf } from '@/components/Icons';
+import { IconEmpty, IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';
 import { ErrorBox, Loading } from '@/components/UI';
 
 export default function ShelfPage() {
@@ -88,6 +88,10 @@ export default function ShelfPage() {
         <Link to="/explore">
           <IconExplore />
           发现
+        </Link>
+        <Link to="/search">
+          <IconSearch size={20} />
+          搜索
         </Link>
         <Link to="/settings">
           <IconSettings />

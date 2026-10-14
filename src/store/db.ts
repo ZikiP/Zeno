@@ -35,10 +35,49 @@ interface ReaderDB extends DBSchema {
       bytes: number;
     };
   };
+  /**
+   * 书签与笔记。合在一张表里，因为它们都是「定位到某一页」。
+   * 书签只记位置，笔记带文本。
+   */
+  bookmarks: {
+    key: string; // `${pluginId}/${slug}/${chapterId}/${page}`
+    value: Bookmark;
+    indexes: { createdAt: number };
+  };
+  /** 章节表缓存 —— 避免每次进详情页都重新抓 */
+  chapterCache: {
+    key: string; // `${pluginId}/${slug}`
+    value: {
+      key: string;
+      pluginId: string;
+      slug: string;
+      title: string;
+      chapters: { id: string; index: number; title: string }[];
+      cachedAt: number;
+    };
+  };
   settings: {
     key: string;
     value: { key: string; value: unknown };
   };
+}
+
+/** 书签 / 笔记 */
+export interface Bookmark {
+  key: string;
+  pluginId: string;
+  slug: string;
+  chapterId: string;
+  chapterTitle?: string;
+  /** 第几张图，从 0 开始 */
+  page: number;
+  /** 阅读进度百分比，用于列表展示 */
+  percent: number;
+  /** 图片地址，缩略图用。断网时可能加载不出来 */
+  thumb?: string;
+  createdAt: number;
+  /** 有值则是笔记，没有就是纯书签 */
+  note?: string;
 }
 
 export interface ShelfEntry {
@@ -64,7 +103,7 @@ export interface InstalledPlugin {
 }
 
 const DB_NAME = 'zeno-reader';
-const DB_VER = 2;
+const DB_VER = 3;
 
 let dbp: Promise<IDBPDatabase<ReaderDB>> | null = null;
 
@@ -85,6 +124,14 @@ function db() {
         if (!d.objectStoreNames.contains('shelf')) {
           const s = d.createObjectStore('shelf', { keyPath: 'key' });
           s.createIndex('addedAt', 'addedAt');
+        }
+        // v3：书签与章节缓存
+        if (!d.objectStoreNames.contains('bookmarks')) {
+          const s = d.createObjectStore('bookmarks', { keyPath: 'key' });
+          s.createIndex('createdAt', 'createdAt');
+        }
+        if (!d.objectStoreNames.contains('chapterCache')) {
+          d.createObjectStore('chapterCache', { keyPath: 'key' });
         }
         if (!d.objectStoreNames.contains('chapters')) d.createObjectStore('chapters', { keyPath: 'key' });
         if (!d.objectStoreNames.contains('settings')) d.createObjectStore('settings', { keyPath: 'key' });
@@ -121,8 +168,8 @@ export async function savePlugin(item: Omit<InstalledPlugin, 'id' | 'updatedAt'>
 export async function deletePlugin(id: string) {
   const d = await db();
   await d.delete('plugins', id);
-  // 连带清理该插件的书架与离线缓存
-  for (const store of ['shelf', 'chapters'] as const) {
+  // 连带清理该插件的书架、离线缓存、书签、章节缓存
+  for (const store of ['shelf', 'chapters', 'bookmarks', 'chapterCache'] as const) {
     const keys = (await d.getAllKeys(store)) as string[];
     for (const k of keys) if (typeof k === 'string' && k.startsWith(`${id}/`)) await d.delete(store, k);
   }
@@ -310,6 +357,79 @@ export async function deleteCachedByPluginAndSlug(pluginId: string, slug: string
   for (const k of keys) {
     if (typeof k === 'string' && k.startsWith(`${pluginId}/${slug}/`)) await d.delete('chapters', k);
   }
+}
+
+/* ── 章节表缓存 ───────────────────────────────────── */
+
+/**
+ * 缓存漫画的章节表。
+ * 阅读器内的章节列表要用它 —— 否则打开阅读器还得重新抓一次详情页。
+ */
+export async function cacheChapterList(
+  pluginId: string,
+  slug: string,
+  title: string,
+  chapters: { id: string; index: number; title: string }[],
+) {
+  await (await db()).put('chapterCache', {
+    key: `${pluginId}/${slug}`,
+    pluginId,
+    slug,
+    title,
+    chapters,
+    cachedAt: Date.now(),
+  });
+}
+
+export async function getChapterList(pluginId: string, slug: string) {
+  return (await db()).get('chapterCache', `${pluginId}/${slug}`);
+}
+
+/* ── 书签 / 笔记 ──────────────────────────────────── */
+
+const bmKey = (pluginId: string, slug: string, cid: string, page: number) =>
+  `${pluginId}/${slug}/${cid}/${page}`;
+
+export async function addBookmark(b: Omit<Bookmark, 'key' | 'createdAt'> & { key?: string }) {
+  const key = b.key ?? bmKey(b.pluginId, b.slug, b.chapterId, b.page);
+  const existing = await (await db()).get('bookmarks', key);
+  await (await db()).put('bookmarks', {
+    ...b,
+    key,
+    createdAt: existing?.createdAt ?? Date.now(),
+  });
+  return key;
+}
+
+export async function updateBookmarkNote(key: string, note: string) {
+  const d = await db();
+  const bm = await d.get('bookmarks', key);
+  if (!bm) return;
+  await d.put('bookmarks', { ...bm, note });
+}
+
+export async function removeBookmark(key: string) {
+  await (await db()).delete('bookmarks', key);
+}
+
+export async function getBookmarks(pluginId: string, slug?: string): Promise<Bookmark[]> {
+  const all = await (await db()).getAll('bookmarks');
+  const filtered = slug ? all.filter((b) => b.pluginId === pluginId && b.slug === slug) : all;
+  return filtered.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 某章已有书签的页码集合，用于在阅读器里标记 */
+export async function getBookmarkedPages(
+  pluginId: string,
+  slug: string,
+  chapterId: string,
+): Promise<Set<number>> {
+  const all = await (await db()).getAll('bookmarks');
+  return new Set(
+    all
+      .filter((b) => b.pluginId === pluginId && b.slug === slug && b.chapterId === chapterId)
+      .map((b) => b.page),
+  );
 }
 
 /* ── 工具 ─────────────────────────────────────────── */

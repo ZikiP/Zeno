@@ -213,6 +213,10 @@ export default function ExplorePage() {
           <IconExplore />
           发现
         </Link>
+        <Link to="/search">
+          <IconSearch size={20} />
+          搜索
+        </Link>
         <Link to="/settings">
           <IconSettings />
           设置
