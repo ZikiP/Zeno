@@ -5,13 +5,20 @@
 const BASE = 'http://127.0.0.1:8788/api/proxy?url=';
 
 // 从真实插件里拿几个图片 URL
+const PLUGIN_FILE = process.argv[2] || 'baozimh-plugin.json';
 const plugin = JSON.parse(
-  await import('node:fs').then((fs) => fs.readFileSync('baozimanga-plugin.json', 'utf8')),
+  await import('node:fs').then((fs) => fs.readFileSync(PLUGIN_FILE, 'utf8')),
 );
 const entry = plugin.entry;
+const listMode = plugin.fetch?.mode?.list ?? plugin.fetch?.mode;
+const waitFor = plugin.fetch?.waitFor?.list ?? plugin.fetch?.waitFor;
 
 console.log('预取图片地址…');
-const searchUrl = BASE + encodeURIComponent(`${entry}/search?q=${encodeURIComponent('炎')}`);
+let searchUrl = BASE + encodeURIComponent(`${entry}/search?q=${encodeURIComponent('炎')}`);
+// 列表页配了 browser 就必须带上渲染参数，否则预取回来的是质询空壳，一个封面也找不到
+if (listMode === 'browser') {
+  searchUrl += `&mode=browser${waitFor ? `&waitFor=${encodeURIComponent(waitFor)}` : ''}`;
+}
 const html = await (await fetch(searchUrl)).text();
 const covers = [
   ...new Set(

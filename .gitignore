@@ -27,6 +27,7 @@ data/
 !package.json
 !package-lock.json
 !tsconfig.json
+*.json.bak
 
 # 部署实测记录（含本机 IP / 域名，不入仓库）
 DEPLOY-NOTES.md

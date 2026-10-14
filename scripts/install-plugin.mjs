@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:8788';
-const FILE = process.argv[2] || 'baozimanga-plugin.json';
+const FILE = process.argv[2] || 'baozimh-plugin.json';
 
 const plugin = JSON.parse(readFileSync(FILE, 'utf8'));
 console.log(`读取插件: ${plugin.meta.name} (${plugin.meta.id})`);
