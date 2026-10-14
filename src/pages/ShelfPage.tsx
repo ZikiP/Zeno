@@ -1,24 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getShelf, type ShelfEntry } from '@/store/db';
-import { useSite } from '@/store/SiteContext';
+import { usePlugin } from '@/store/PluginContext';
 import { coverUrl } from '@/site/engine';
 import { IconEmpty, IconExplore, IconSettings, IconShelf } from '@/components/Icons';
 import { ErrorBox, Loading } from '@/components/UI';
 
 export default function ShelfPage() {
-  const { site } = useSite();
+  const { plugin } = usePlugin();
   const [items, setItems] = useState<ShelfEntry[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setErr(null);
     try {
-      setItems(await getShelf(site?.id));
+      setItems(await getShelf(plugin?.meta.id));
     } catch (e) {
       setErr((e as Error).message);
     }
-  }, [site?.id]);
+  }, [plugin?.meta.id]);
 
   useEffect(() => {
     load();
@@ -31,9 +31,9 @@ export default function ShelfPage() {
           我的书架{items && items.length > 0 ? ` (${items.length})` : ''}
         </div>
         <div className="topbar__spacer" />
-        {site && (
+        {plugin && (
           <span style={{ fontSize: 12, color: 'var(--text-faint)', paddingRight: 8 }}>
-            {site.name}
+            {plugin.meta.name}
           </span>
         )}
       </header>
@@ -47,7 +47,7 @@ export default function ShelfPage() {
           <div className="empty">
             <IconEmpty />
             <div>书架还是空的</div>
-            {site ? (
+            {plugin ? (
               <Link to="/explore" className="btn btn--sm" style={{ marginTop: 6 }}>
                 <IconExplore size={16} />
                 去发现漫画
@@ -64,7 +64,7 @@ export default function ShelfPage() {
             {items.map((it) => (
               <Link key={it.key} to={`/comic/${it.slug}`} className="card">
                 <div className="card__cover">
-                  {it.cover && site && (
+                  {it.cover && plugin && (
                     <img
                       src={coverUrl(it.cover, 300, 400)}
                       alt={it.title}

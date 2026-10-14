@@ -1,4 +1,10 @@
-:root {
+﻿/* ── 主题变量 ───────────────────────────────────────
+   浅色与深色各一套，通过 <html data-theme="light|dark"> 切换。
+   跟随系统时 html 上不带 data-theme，由下面的 media query 决定。
+   新增主题只需在这里加一组，不动组件。 */
+
+:root,
+[data-theme='dark'] {
   color-scheme: dark;
 
   --bg: #0f1115;
@@ -13,8 +19,67 @@
 
   --accent: #5b9cf8;
   --accent-dim: #2d5a9e;
+  --on-accent: #ffffff;
   --danger: #f87171;
 
+  --reader-bg: #000000;
+  --topbar-bg: rgba(15, 17, 21, 0.92);
+  --nav-bg: rgba(23, 26, 33, 0.96);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f6f7f9;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #eef0f4;
+  --border: #dde1e7;
+  --border-strong: #c3c9d4;
+
+  --text: #1a1d23;
+  --text-dim: #5a6270;
+  --text-faint: #8b94a3;
+
+  --accent: #2563eb;
+  --accent-dim: #1d4ed8;
+  --on-accent: #ffffff;
+  --danger: #dc2626;
+
+  --reader-bg: #f0f1f3;
+  --topbar-bg: rgba(255, 255, 255, 0.92);
+  --nav-bg: rgba(255, 255, 255, 0.96);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* 跟随系统：用户选「跟随」时 html 不带 data-theme，这里兜底 */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+
+    --bg: #f6f7f9;
+    --bg-elev: #ffffff;
+    --bg-elev-2: #eef0f4;
+    --border: #dde1e7;
+    --border-strong: #c3c9d4;
+
+    --text: #1a1d23;
+    --text-dim: #5a6270;
+    --text-faint: #8b94a3;
+
+    --accent: #2563eb;
+    --accent-dim: #1d4ed8;
+    --on-accent: #ffffff;
+    --danger: #dc2626;
+
+    --reader-bg: #f0f1f3;
+    --topbar-bg: rgba(255, 255, 255, 0.92);
+    --nav-bg: rgba(255, 255, 255, 0.96);
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  }
+}
+
+:root {
   --radius: 10px;
   --radius-sm: 6px;
   --gap: 12px;
@@ -103,7 +168,7 @@ input {
   display: flex;
   align-items: center;
   gap: var(--gap);
-  background: rgba(15, 17, 21, 0.92);
+  background: var(--topbar-bg);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
@@ -151,7 +216,7 @@ input {
   height: calc(var(--bottom-nav-h) + var(--safe-b));
   padding-bottom: var(--safe-b);
   display: flex;
-  background: rgba(23, 26, 33, 0.96);
+  background: var(--nav-bg);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
 }
@@ -237,7 +302,7 @@ input {
 .chip.on {
   background: var(--accent-dim);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ── 漫画网格 ───────────────────────────────────── */
@@ -297,7 +362,7 @@ input {
   font-size: 10px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.75);
-  color: #fff;
+  color: var(--on-accent);
   backdrop-filter: blur(4px);
 }
 
@@ -389,7 +454,7 @@ input {
   padding: 0 18px;
   border-radius: var(--radius-sm);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 14px;
   font-weight: 600;
   transition: opacity 0.15s;
@@ -476,7 +541,7 @@ input {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: #000;
+  background: var(--reader-bg);
   display: flex;
   flex-direction: column;
 }
@@ -525,7 +590,7 @@ input {
   width: 100%;
   height: auto;
   margin: 0 auto;
-  background: #000;
+  background: var(--reader-bg);
 }
 
 /* 分页模式 */
@@ -619,7 +684,7 @@ input {
   text-align: center;
   font-size: 12px;
   background: rgba(180, 83, 9, 0.95);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ── 弹层 ───────────────────────────────────────── */
@@ -720,4 +785,71 @@ input {
   height: 100%;
   background: var(--accent);
   transition: width 0.2s;
+}
+
+/* ── 主题选择 ───────────────────────────────────── */
+
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 14px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1.5px solid var(--border);
+  transition: all 0.15s;
+}
+.theme-option:hover {
+  border-color: var(--border-strong);
+}
+.theme-option.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev));
+}
+
+.theme-option__icon {
+  color: var(--text-dim);
+}
+.theme-option.on .theme-option__icon {
+  color: var(--accent);
+}
+
+.theme-option__label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.theme-option__hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ── 提示条 ─────────────────────────────────────── */
+
+.notice-ok,
+.notice-err {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.notice-ok {
+  background: color-mix(in srgb, #10b981 12%, transparent);
+  border: 1px solid color-mix(in srgb, #10b981 35%, transparent);
+  color: color-mix(in srgb, #10b981 80%, var(--text));
+}
+.notice-err {
+  background: color-mix(in srgb, #f87171 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f87171 35%, transparent);
+  color: color-mix(in srgb, #f87171 82%, var(--text));
 }

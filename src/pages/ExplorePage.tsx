@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
-import { useSite } from '@/store/SiteContext';
+import { usePlugin } from '@/store/PluginContext';
 import { IconEmpty, IconExplore, IconSearch, IconSettings, IconShelf } from '@/components/Icons';
 import { ErrorBox, Loading } from '@/components/UI';
 
@@ -25,7 +25,7 @@ const STATES = [
 ];
 
 export default function ExplorePage() {
-  const { site } = useSite();
+  const { plugin } = usePlugin();
   const [q, setQ] = useState('');
   const [submitted, setSubmitted] = useState('');
   const [region, setRegion] = useState('all');
@@ -35,14 +35,14 @@ export default function ExplorePage() {
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
-    if (!site) return;
+    if (!plugin?.meta.id) return;
     setLoading(true);
     setErr(null);
     try {
       setComics(
         submitted
-          ? await listComics(site, { query: submitted })
-          : await listComics(site, { region, state }),
+          ? await listComics(plugin, { query: submitted })
+          : await listComics(plugin, { region, state }),
       );
     } catch (e) {
       setErr((e as Error).message);
@@ -50,13 +50,13 @@ export default function ExplorePage() {
     } finally {
       setLoading(false);
     }
-  }, [site, submitted, region, state]);
+  }, [plugin, submitted, region, state]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  if (!site) return null;
+  if (!plugin?.meta.id) return null;
 
   return (
     <>

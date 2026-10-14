@@ -1,31 +1,33 @@
 /**
- * 本地存储：站点配置 + 书架 + 阅读进度 + 离线章节缓存
+ * 本地存储：内容源插件 + 书架 + 阅读进度 + 离线章节缓存
  *
- * 站点信息不进代码仓库，只存在使用者自己的浏览器里。
- * 这既是隐私，也意味着：本项目仓库里永远只有通用框架，
- * 没有任何人填的具体站点地址与解析规则。
+ * 插件不进代码仓库，只存在使用者自己的浏览器里。
+ * 这既是隐私，也意味着：本项目仓库里永远只有通用框架与插件格式说明，
+ * 不附带任何现成的内容源。
  */
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { SiteConfig } from '@/site/types';
-import { SITE_TEMPLATE } from '@/site/types';
+import type { Plugin } from '@/site/types';
+import { PLUGIN_FORMAT, PLUGIN_TEMPLATE } from '@/site/types';
 
 interface ReaderDB extends DBSchema {
-  sites: {
+  plugins: {
+    /** 顶层 key 是插件 id，方便直接 get/delete */
     key: string;
-    value: SiteConfig;
+    value: InstalledPlugin;
+    indexes: { installedAt: number };
   };
-  /** 书架。keyPath 用组合键，同站同漫画只存一条 */
+  /** 书架。keyPath 用组合键，同插件同漫画只存一条 */
   shelf: {
-    key: string; // `${siteId}/${slug}`
+    key: string; // `${pluginId}/${slug}`
     value: ShelfEntry;
     indexes: { addedAt: number };
   };
   /** 离线缓存的章节图片 */
   chapters: {
-    key: string; // `${siteId}/${slug}/${chapterId}`
+    key: string; // `${pluginId}/${slug}/${chapterId}`
     value: {
       key: string;
-      siteId: string;
+      pluginId: string;
       slug: string;
       chapterId: string;
       images: string[];
@@ -41,7 +43,7 @@ interface ReaderDB extends DBSchema {
 
 export interface ShelfEntry {
   key: string;
-  siteId: string;
+  pluginId: string;
   slug: string;
   title: string;
   cover: string;
@@ -50,16 +52,36 @@ export interface ShelfEntry {
   positions: Record<string, number>;
 }
 
+/** 插件在本地存储里的附加信息（不污染插件本身，导出时不含这些） */
+export interface InstalledPlugin {
+  /** 与 plugin.meta.id 相同，作为 IndexedDB 的 keyPath（IndexedDB 不支持嵌套 keyPath） */
+  id: string;
+  plugin: Plugin;
+  installedAt: number;
+  updatedAt?: number;
+  /** 是否为用户自己创建的 */
+  origin: 'local' | 'imported';
+}
+
 const DB_NAME = 'zeno-reader';
-const DB_VER = 1;
+const DB_VER = 2;
 
 let dbp: Promise<IDBPDatabase<ReaderDB>> | null = null;
 
 function db() {
   if (!dbp) {
     dbp = openDB<ReaderDB>(DB_NAME, DB_VER, {
-      upgrade(d) {
-        if (!d.objectStoreNames.contains('sites')) d.createObjectStore('sites', { keyPath: 'id' });
+      upgrade(d, old) {
+        // v1 用的是 sites 表（keyPath: 'id'），v2 换成 plugins（同样 keyPath，但 value 包一层）
+        // objectStoreNames 在 idb 的类型上只认新表名，这里转成原生类型删旧表
+        if (old < 2) {
+          const native = d as unknown as IDBDatabase;
+          if (native.objectStoreNames.contains('sites')) native.deleteObjectStore('sites');
+        }
+        if (!d.objectStoreNames.contains('plugins')) {
+          const s = d.createObjectStore('plugins', { keyPath: 'id' });
+          s.createIndex('installedAt', 'installedAt');
+        }
         if (!d.objectStoreNames.contains('shelf')) {
           const s = d.createObjectStore('shelf', { keyPath: 'key' });
           s.createIndex('addedAt', 'addedAt');
@@ -72,58 +94,72 @@ function db() {
   return dbp;
 }
 
-/* ── 站点 ─────────────────────────────────────────── */
+/* ── 插件 ─────────────────────────────────────────── */
 
-export async function listSites(): Promise<SiteConfig[]> {
-  return (await db()).getAll('sites');
+export async function listPlugins(): Promise<InstalledPlugin[]> {
+  const all = await (await db()).getAll('plugins');
+  return all.sort((a, b) => a.installedAt - b.installedAt);
 }
 
-export async function getSite(id: string): Promise<SiteConfig | undefined> {
-  return (await db()).get('sites', id);
+export async function getPlugin(id: string): Promise<InstalledPlugin | undefined> {
+  return (await db()).get('plugins', id);
 }
 
-export async function saveSite(site: SiteConfig) {
-  await (await db()).put('sites', site);
-}
-
-export async function deleteSite(id: string) {
+/** 新增或覆盖一个插件。已存在时保留 installedAt，刷新 updatedAt */
+export async function savePlugin(item: Omit<InstalledPlugin, 'id' | 'updatedAt'>) {
   const d = await db();
-  await d.delete('sites', id);
-  // 连带清理该站的书架与离线缓存
+  const id = item.plugin.meta.id;
+  const existing = await d.get('plugins', id);
+  await d.put('plugins', {
+    ...item,
+    id,
+    installedAt: existing?.installedAt ?? item.installedAt,
+    updatedAt: Date.now(),
+  });
+}
+
+export async function deletePlugin(id: string) {
+  const d = await db();
+  await d.delete('plugins', id);
+  // 连带清理该插件的书架与离线缓存
   for (const store of ['shelf', 'chapters'] as const) {
     const keys = (await d.getAllKeys(store)) as string[];
     for (const k of keys) if (typeof k === 'string' && k.startsWith(`${id}/`)) await d.delete(store, k);
   }
 }
 
-/** 取当前站点；没有就用第一个；一个都没有返回 null（引导用户新建） */
-export async function getActiveSite(): Promise<SiteConfig | null> {
-  const activeId = await getSetting<string>('activeSiteId');
-  const all = await listSites();
+/** 取当前启用的插件；没有就用第一个；一个都没有返回 null（引导用户导入） */
+export async function getActivePlugin(): Promise<Plugin | null> {
+  const activeId = await getSetting<string>('activePluginId');
+  const all = await listPlugins();
   if (all.length === 0) return null;
   if (activeId) {
-    const found = all.find((s) => s.id === activeId);
-    if (found) return found;
+    const found = all.find((p) => p.plugin.meta.id === activeId);
+    if (found) return found.plugin;
   }
-  await setSetting('activeSiteId', all[0].id);
-  return all[0];
+  await setSetting('activePluginId', all[0].plugin.meta.id);
+  return all[0].plugin;
 }
 
-export async function setActiveSite(id: string) {
-  await setSetting('activeSiteId', id);
+export async function setActivePlugin(id: string) {
+  await setSetting('activePluginId', id);
 }
 
-export function newSiteTemplate(name: string): SiteConfig {
+/** 新建空白插件 */
+export function newPluginTemplate(name: string): Plugin {
   return {
-    ...SITE_TEMPLATE,
-    id: `site-${Date.now().toString(36)}`,
-    name,
-    urls: { ...SITE_TEMPLATE.urls },
-    parse: {
-      ...SITE_TEMPLATE.parse,
-      title: { attr: 'title' },
+    format: PLUGIN_FORMAT,
+    meta: {
+      id: `local-${Date.now().toString(36)}`,
+      name,
+      version: '0.1.0',
     },
-    headers: {},
+    entry: PLUGIN_TEMPLATE.entry,
+    urls: { ...PLUGIN_TEMPLATE.urls },
+    parse: {
+      ...PLUGIN_TEMPLATE.parse,
+      title: { attr: 'title' },
+    },    headers: {},
     imageHosts: [],
   };
 }
@@ -141,25 +177,25 @@ export async function setSetting(key: string, value: unknown) {
 
 /* ── 书架 ─────────────────────────────────────────── */
 
-const shelfKey = (siteId: string, slug: string) => `${siteId}/${slug}`;
+const shelfKey = (pluginId: string, slug: string) => `${pluginId}/${slug}`;
 
-export async function getShelf(siteId?: string): Promise<ShelfEntry[]> {
+export async function getShelf(pluginId?: string): Promise<ShelfEntry[]> {
   const all = await (await db()).getAll('shelf');
-  const filtered = siteId ? all.filter((e) => e.siteId === siteId) : all;
+  const filtered = pluginId ? all.filter((e) => e.pluginId === pluginId) : all;
   return filtered.sort((a, b) => b.addedAt - a.addedAt);
 }
 
-export async function isInShelf(siteId: string, slug: string): Promise<boolean> {
-  return !!(await (await db()).get('shelf', shelfKey(siteId, slug)));
+export async function isInShelf(pluginId: string, slug: string): Promise<boolean> {
+  return !!(await (await db()).get('shelf', shelfKey(pluginId, slug)));
 }
 
 export async function addToShelf(
-  siteId: string,
+  pluginId: string,
   comic: { slug: string; title: string; cover: string },
 ) {
   await (await db()).put('shelf', {
-    key: shelfKey(siteId, comic.slug),
-    siteId,
+    key: shelfKey(pluginId, comic.slug),
+    pluginId,
     slug: comic.slug,
     title: comic.title,
     cover: comic.cover,
@@ -168,18 +204,18 @@ export async function addToShelf(
   });
 }
 
-export async function removeFromShelf(siteId: string, slug: string) {
-  await (await db()).delete('shelf', shelfKey(siteId, slug));
+export async function removeFromShelf(pluginId: string, slug: string) {
+  await (await db()).delete('shelf', shelfKey(pluginId, slug));
 }
 
 export async function savePosition(
-  siteId: string,
+  pluginId: string,
   slug: string,
   chapterId: string,
   pct: number,
 ) {
   const d = await db();
-  const entry = await d.get('shelf', shelfKey(siteId, slug));
+  const entry = await d.get('shelf', shelfKey(pluginId, slug));
   if (!entry) return;
   await d.put('shelf', {
     ...entry,
@@ -190,14 +226,14 @@ export async function savePosition(
 
 /* ── 离线缓存 ─────────────────────────────────────── */
 
-const chapKey = (siteId: string, slug: string, cid: string) => `${siteId}/${slug}/${cid}`;
+const chapKey = (pluginId: string, slug: string, cid: string) => `${pluginId}/${slug}/${cid}`;
 
-export async function getCachedChapter(siteId: string, slug: string, cid: string) {
-  return (await db()).get('chapters', chapKey(siteId, slug, cid));
+export async function getCachedChapter(pluginId: string, slug: string, cid: string) {
+  return (await db()).get('chapters', chapKey(pluginId, slug, cid));
 }
 
 export async function cacheChapterImages(
-  siteId: string,
+  pluginId: string,
   slug: string,
   cid: string,
   images: string[],
@@ -223,8 +259,8 @@ export async function cacheChapterImages(
   }
 
   await d.put('chapters', {
-    key: chapKey(siteId, slug, cid),
-    siteId,
+    key: chapKey(pluginId, slug, cid),
+    pluginId,
     slug,
     chapterId: cid,
     images,
@@ -234,18 +270,18 @@ export async function cacheChapterImages(
   return bytes;
 }
 
-export async function listCachedChapters(siteId: string, slug: string) {
+export async function listCachedChapters(pluginId: string, slug: string) {
   const all = await (await db()).getAll('chapters');
   return all
-    .filter((c) => c.siteId === siteId && c.slug === slug)
+    .filter((c) => c.pluginId === pluginId && c.slug === slug)
     .sort((a, b) => b.cachedAt - a.cachedAt);
 }
 
-export async function deleteCachedBySiteAndSlug(siteId: string, slug: string) {
+export async function deleteCachedByPluginAndSlug(pluginId: string, slug: string) {
   const d = await db();
   const keys = (await d.getAllKeys('chapters')) as string[];
   for (const k of keys) {
-    if (typeof k === 'string' && k.startsWith(`${siteId}/${slug}/`)) await d.delete('chapters', k);
+    if (typeof k === 'string' && k.startsWith(`${pluginId}/${slug}/`)) await d.delete('chapters', k);
   }
 }
 

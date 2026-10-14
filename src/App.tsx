@@ -1,11 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
+﻿import { useEffect, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import ShelfPage from '@/pages/ShelfPage';
 import ExplorePage from '@/pages/ExplorePage';
 import ComicPage from '@/pages/ComicPage';
 import ReaderPage from '@/pages/ReaderPage';
 import SettingsPage from '@/pages/SettingsPage';
-import { SiteProvider, useSite } from '@/store/SiteContext';
+import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { OfflineBar } from '@/components/UI';
 
 function useOnline() {
@@ -23,11 +23,11 @@ function useOnline() {
   return online;
 }
 
-/** 没有配置站点时，除设置页外一律拦到设置页 */
-function RequireSite({ children }: { children: ReactNode }) {
-  const { site, loading } = useSite();
+/** 没有已安装的插件时，除设置页外一律拦到设置页 */
+function RequirePlugin({ children }: { children: ReactNode }) {
+  const { plugin, loading } = usePlugin();
   if (loading) return <div className="loading">加载中</div>;
-  if (!site) return <Navigate to="/settings" replace />;
+  if (!plugin) return <Navigate to="/settings" replace />;
   return <>{children}</>;
 }
 
@@ -42,25 +42,25 @@ function Shell() {
         <Route
           path="/explore"
           element={
-            <RequireSite>
+            <RequirePlugin>
               <ExplorePage />
-            </RequireSite>
+            </RequirePlugin>
           }
         />
         <Route
           path="/comic/:slug"
           element={
-            <RequireSite>
+            <RequirePlugin>
               <ComicPage />
-            </RequireSite>
+            </RequirePlugin>
           }
         />
         <Route
-          path="/read/:slug/:chapterId"
+          path="/read/:pluginId/:slug/:chapterId"
           element={
-            <RequireSite>
+            <RequirePlugin>
               <ReaderRoute />
-            </RequireSite>
+            </RequirePlugin>
           }
         />
         <Route path="/settings" element={<SettingsPage />} />
@@ -70,7 +70,11 @@ function Shell() {
   );
 }
 
-/** slug 由路由提供，chapterId 也是；这里只做参数透传 */
+/**
+ * 阅读器路由。
+ * slug 与插件 id 都在路径里 —— 这样刷新页面、分享链接都能还原，
+ * 不会因为路由 state 丢失而白屏。
+ */
 function ReaderRoute() {
   const { slug = '', chapterId = '' } = useParams();
   return <ReaderPage slug={slug} chapterId={chapterId} />;
@@ -78,9 +82,9 @@ function ReaderRoute() {
 
 export default function App() {
   return (
-    <SiteProvider>
+    <PluginProvider>
       <Shell />
-    </SiteProvider>
+    </PluginProvider>
   );
 }
 
