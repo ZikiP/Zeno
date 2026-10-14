@@ -638,6 +638,11 @@ input {
   padding: 0 env(safe-area-inset-left, 0) 0 env(safe-area-inset-right, 0);
 }
 
+.reader__spread.is-rtl {
+  /* 双页 + 右起：靠视觉反转，DOM 顺序不动，绝对页号才不会错 */
+  flex-direction: row-reverse;
+}
+
 .reader__spread img {
   max-width: 100%;
   max-height: 100%;

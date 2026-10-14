@@ -1,14 +1,15 @@
-import { db } from '@/store/db';
-import { listPlugins, savePlugin } from '@/store/plugins';
+import { listPlugins } from '@/store/plugins';
 import { getShelf } from '@/store/shelf';
 import { getBookmarks } from '@/store/bookmarks';
+import { listTombstones } from '@/store/tombstones';
 import type { ShelfEntry } from '@/store/types';
 
 /**
- * 本地数据 ↔ 服务端格式的双向转换
+ * 本地数据 → 服务端格式
  *
- * 与 client.ts 分开是因为这部分是纯数据搬运，
- * 不该和网络请求、状态管理混在一个文件里。
+ * 反方向（服务端 → 本地）在 applyRemote.ts。
+ * 拆开是因为这两半各自都要处理冲突、顺序、级联，混在一起两头都读不清；
+ * 而且它们碰存储的方式完全不同 —— 这边只读，那边要写事务。
  */
 
 /** 服务端返回的任意行（字段是 snake_case） */
@@ -22,6 +23,7 @@ export interface RemoteSnapshot {
   lastChapter: RemoteRow[];
   bookmarks: RemoteRow[];
   settings: RemoteRow[];
+  deletes?: { kind: string; id: string; updated_at: number }[];
 }
 
 /** 会同步的 localStorage 键 */
@@ -31,10 +33,11 @@ const SYNCED_KEYS = ['themeMode', 'readerPrefs', 'readerMode', 'activePluginId']
 
 /** 把 IndexedDB + localStorage 整成推送格式 */
 export async function collectLocal(): Promise<Record<string, unknown>> {
-  const [plugins, shelf, bookmarks] = await Promise.all([
+  const [plugins, shelf, bookmarks, tombstones] = await Promise.all([
     listPlugins(),
     getShelf(),
     getBookmarks(''),
+    listTombstones(),
   ]);
 
   return {
@@ -50,9 +53,10 @@ export async function collectLocal(): Promise<Record<string, unknown>> {
       title: e.title,
       cover: e.cover,
       addedAt: e.addedAt,
-      // 本地书架没有独立的 updatedAt，用 addedAt 兜底。
-      // 语义上偏保守：本地改动不会覆盖服务端的更新
-      updatedAt: e.addedAt,
+      // LWW 时钟用 updatedAt；没写过的旧数据退回 addedAt，
+      // 但绝不能退回 Date.now() —— 那等于每轮同步都宣称"我这份最新"，
+      // 会把别处的删除和更新统统压掉。
+      updatedAt: e.updatedAt ?? e.addedAt,
     })),
     positions: collectPositions(shelf),
     lastChapter: collectLastChapter(shelf),
@@ -66,14 +70,23 @@ export async function collectLocal(): Promise<Record<string, unknown>> {
       thumb: b.thumb,
       note: b.note,
       createdAt: b.createdAt,
-      updatedAt: b.createdAt,
+      // 用真实的修改时间。用 createdAt 的话，改了笔记也永远"不比服务端新"。
+      updatedAt: b.updatedAt ?? b.createdAt,
     })),
     settings: collectSettings(),
+    deletes: tombstones.map((t) => ({ kind: t.kind, id: t.id, deletedAt: t.deletedAt })),
   };
 }
 
+/**
+ * 进度时间戳取自记录本身。
+ *
+ * 之前这里是现算 Date.now()：于是每 5 分钟一轮同步就把**所有**进度
+ * 刷成"刚刚更新过"，服务端 change_log 无意义膨胀，
+ * LWW 也退化成"最近同步的那台赢"而不是"真的改过的那台赢"。
+ * 没有记录过时间的旧数据，退回 addedAt 而不是 now，避免凭空变最新。
+ */
 function collectPositions(shelf: ShelfEntry[]) {
-  const now = Date.now();
   const out: { pluginId: string; slug: string; chapterId: string; percent: number; updatedAt: number }[] = [];
   for (const entry of shelf) {
     for (const [chapterId, percent] of Object.entries(entry.positions ?? {})) {
@@ -82,7 +95,7 @@ function collectPositions(shelf: ShelfEntry[]) {
         slug: entry.slug,
         chapterId,
         percent,
-        updatedAt: now,
+        updatedAt: entry.positionsAt?.[chapterId] ?? entry.addedAt,
       });
     }
   }
@@ -90,14 +103,13 @@ function collectPositions(shelf: ShelfEntry[]) {
 }
 
 function collectLastChapter(shelf: ShelfEntry[]) {
-  const now = Date.now();
   return shelf
     .filter((e) => e.lastChapterId)
     .map((e) => ({
       pluginId: e.pluginId,
       slug: e.slug,
       chapterId: e.lastChapterId!,
-      updatedAt: now,
+      updatedAt: e.lastChapterAt ?? e.addedAt,
     }));
 }
 
@@ -108,122 +120,4 @@ function collectSettings() {
     // 单独记一个时间戳，避免每次同步都让所有设置都显得「更新过」
     updatedAt: Number(localStorage.getItem(`${key}__at`) ?? Date.now()),
   })).filter((s) => s.value !== null);
-}
-/* ── 服务端 → 本地 ─────────────────────────────────── */
-
-/**
- * 把远端快照落进本地。
- *
- * 只写「本地没有的」或「远端时间戳更新的」——
- * 真正的冲突裁决在服务端做过了，这里是无脑落库。
- */
-export async function applyRemote(data: RemoteSnapshot): Promise<void> {
-  await applyPlugins(data.plugins ?? []);
-  await applyShelf(data.shelf ?? []);
-  await applyProgress(data);
-  await applyBookmarks(data.bookmarks ?? []);
-  applySettings(data.settings ?? []);
-}
-
-async function applyPlugins(rows: RemoteRow[]) {
-  for (const row of rows) {
-    try {
-      const plugin = JSON.parse(String(row.data));
-      if (!plugin?.meta?.id) continue;
-      await savePlugin({
-        plugin,
-        installedAt: Number(row.updated_at ?? Date.now()),
-        origin: row.origin === 'local' ? 'local' : 'imported',
-      });
-    } catch {
-      /* 远端数据坏了就跳过，不能覆盖本地好的 */
-    }
-  }
-}
-
-async function applyShelf(rows: RemoteRow[]) {
-  const d = await db();
-  for (const row of rows) {
-    const key = `${row.plugin_id}/${row.slug}`;
-    const existing = await d.get('shelf', key);
-    const remoteTs = Number(row.updated_at ?? 0);
-    if (existing && existing.addedAt >= remoteTs) continue;
-
-    await d.put('shelf', {
-      key,
-      pluginId: String(row.plugin_id),
-      slug: String(row.slug),
-      title: String(row.title ?? ''),
-      cover: String(row.cover ?? ''),
-      // 已有条目保留原添加时间，那决定书架排序
-      addedAt: existing?.addedAt ?? Number(row.added_at ?? remoteTs),
-      positions: existing?.positions ?? {},
-      lastChapterId: existing?.lastChapterId,
-    });
-  }
-}
-
-/**
- * 进度与「读到哪一章」一起处理。
- * 服务端是两张表，这里分别写回本地书架条目的两个字段。
- */
-async function applyProgress(data: RemoteSnapshot) {
-  const d = await db();
-
-  for (const row of data.positions ?? []) {
-    const entry = await d.get('shelf', `${row.plugin_id}/${row.slug}`);
-    if (!entry) continue; // 本地没这本漫画，跳过（可能还没导入插件）
-    const chapterId = String(row.chapter_id);
-    await d.put('shelf', {
-      ...entry,
-      positions: { ...entry.positions, [chapterId]: Number(row.percent ?? 0) },
-    });
-  }
-
-  for (const row of data.lastChapter ?? []) {
-    const entry = await d.get('shelf', `${row.plugin_id}/${row.slug}`);
-    if (!entry) continue;
-    await d.put('shelf', { ...entry, lastChapterId: String(row.chapter_id) });
-  }
-
-  void d;
-}
-
-async function applyBookmarks(rows: RemoteRow[]) {
-  const d = await db();
-  for (const row of rows) {
-    const key = String(row.key ?? '');
-    if (!key) continue;
-    const existing = await d.get('bookmarks', key);
-    const remoteTs = Number(row.updated_at ?? 0);
-    if (existing && existing.createdAt >= remoteTs) continue;
-
-    await d.put('bookmarks', {
-      key,
-      pluginId: String(row.plugin_id ?? ''),
-      slug: String(row.slug ?? ''),
-      chapterId: String(row.chapter_id ?? ''),
-      page: Number(row.page ?? 0),
-      percent: Number(row.percent ?? 0),
-      thumb: (row.thumb as string) || undefined,
-      note: (row.note as string) || undefined,
-      createdAt: Number(row.created_at ?? remoteTs),
-    });
-  }
-}
-
-function applySettings(rows: RemoteRow[]) {
-  for (const row of rows) {
-    const key = String(row.key ?? '');
-    const value = row.value;
-    if (!key || value == null) continue;
-
-    // 本地更新时间比远端新就不覆盖
-    const localAt = Number(localStorage.getItem(`${key}__at`) ?? 0);
-    const remoteAt = Number(row.updated_at ?? 0);
-    if (localAt > remoteAt) continue;
-
-    localStorage.setItem(key, String(value));
-    localStorage.setItem(`${key}__at`, String(remoteAt || Date.now()));
-  }
 }

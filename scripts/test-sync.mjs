@@ -136,8 +136,35 @@ const root = await fetch(BASE + '/');
 check(root.ok, `根路径 200（${root.headers.get('content-type')}）`);
 const deep = await fetch(BASE + '/comic/abc');
 check(deep.ok && (await deep.text()).includes('<div id="root">'), '深链接回退到 index.html');
+
+/*
+ * 带扩展名的路径必须 404，不能回退成 HTML。
+ * History 路由的 URL 没有扩展名，所以"像文件的路径"就是资源请求 ——
+ * 回退会让浏览器把 HTML 当 JS 模块解析，白屏且极难归因。
+ */
 const asset = await fetch(BASE + '/nonexistent.js');
-check(asset.status === 200, '未知 JS 路径也回退（避免路由 404）');
+check(asset.status === 404, `未知 .js 返回 404 而不是 HTML（HTTP ${asset.status}）`);
+const assetType = asset.headers.get('content-type') ?? '';
+check(!assetType.includes('text/html'), `错误响应不是 HTML（${assetType}）`);
+
+console.log('\n=== 6b. 请求体过大回 413 ===');
+const huge = await fetch(BASE + '/api/sync/push', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ deviceId: 'x', seq: 0, settings: [{ key: 'k', value: 'y'.repeat(9 * 1024 * 1024) }] }),
+});
+check(huge.status === 413, `超大 body 回 413 而不是 500（HTTP ${huge.status}）`);
+
+console.log('\n=== 6c. health 的敏感字段 ===');
+const hpub = await (await fetch(BASE + '/api/health')).json();
+check(
+  hpub.allowedHostsCount !== undefined,
+  `公开可见 allowedHostsCount（${hpub.allowedHostsCount}）`,
+);
+check(
+  Array.isArray(hpub.allowedHosts),
+  '未设令牌时 allowedHosts 仍可见（auth() 放行，行为不变）',
+);
 
 console.log('\n=== 7. 代理白名单 ===');
 const bad = await fetch(BASE + '/api/proxy?url=' + encodeURIComponent('https://evil.example.com/'));

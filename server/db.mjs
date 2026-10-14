@@ -108,6 +108,18 @@ export function openDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_change_log_seq ON change_log(seq);
 
+    -- 删除墓碑。
+    -- upsert 只能增不能删；没有这张表时，设备删了书架/书签，
+    -- 服务端那行还在，它下次 pull 又被插回来 —— 表现为「删不掉」。
+    -- 有了墓碑，删除成为可参与 LWW 的状态，并能传播到其他设备。
+    CREATE TABLE IF NOT EXISTS deletes (
+      kind       TEXT NOT NULL,        -- shelf / bookmark / position / lastChapter / plugin
+      id         TEXT NOT NULL,        -- 被删记录的主键
+      updated_at INTEGER NOT NULL,
+      device_id  TEXT,
+      PRIMARY KEY (kind, id)
+    );
+
     -- 客户端上报的同步游标，用于「我上次同步到哪」
     CREATE TABLE IF NOT EXISTS client_state (
       device_id      TEXT PRIMARY KEY,
@@ -160,6 +172,7 @@ export function pull(sinceSeq = 0) {
     lastChapter: d.prepare('SELECT * FROM last_chapter').all(),
     bookmarks: d.prepare('SELECT * FROM bookmarks ORDER BY created_at DESC').all(),
     settings: d.prepare('SELECT * FROM settings').all(),
+    deletes: d.prepare('SELECT * FROM deletes ORDER BY updated_at').all(),
     sinceSeq,
   };
 }

@@ -15,7 +15,14 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE_PORT = Number(process.env.TEST_PORT_BASE || 8899);
 
-const ALL_SUITES = ['test-sync.mjs', 'test-multidevice.mjs', 'test-whitelist.mjs', 'test-ssrf.mjs'];
+const ALL_SUITES = [
+  'test-sync.mjs',
+  'test-multidevice.mjs',
+  'test-deletes.mjs',
+  'test-whitelist.mjs',
+  'test-ssrf.mjs',
+  'test-auth.mjs',
+];
 const suites = process.argv.slice(2).length
   ? process.argv.slice(2).map((s) => (s.endsWith('.mjs') ? s : `test-${s}.mjs`))
   : ALL_SUITES;
@@ -64,7 +71,7 @@ async function stopServer(child, dbPath) {
 
 let failed = 0;
 /** 自己管理服务端生命周期的套件（需要特殊 env，跑器再套一层反而干扰） */
-const SELF_HOSTED = new Set(['test-ssrf.mjs']);
+const SELF_HOSTED = new Set(['test-ssrf.mjs', 'test-auth.mjs']);
 
 for (const [i, suite] of suites.entries()) {
   const port = BASE_PORT + i;

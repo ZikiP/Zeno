@@ -9,9 +9,11 @@ import type { ReaderPrefs } from '@/reader/prefs';
  */
 
 export interface HotkeyHandlers {
-  /** 翻页。RTL 下方向相反，这里收的是语义化的「前进 / 后退」 */
+  /** 翻页。这里收的是语义化的「前进 / 后退」，方向差异由本 hook 按 rtl 换算 */
   goForward: () => void;
   goBack: () => void;
+  /** 右起阅读。必须参与判定，否则键盘和点击区会各说各话 */
+  rtl: boolean;
   toggleBar: () => void;
   toggleDirection: () => void;
   toggleBookmark: () => void;
@@ -41,8 +43,12 @@ export function useReaderHotkeys(h: HotkeyHandlers, deps: unknown[] = []) {
       switch (e.key) {
         case 'ArrowLeft':
         case 'ArrowRight': {
-          // RTL：点左前进、点右后退。键盘方向跟着一起反过来
-          const forward = e.key === 'ArrowLeft';
+          /*
+           * 必须和 tap 区一致：usePaging.tap 是「RTL 点左=前进，LTR 点右=前进」。
+           * 早先这里无条件把 ArrowLeft 当前进，注释还写着"跟着一起反过来"，
+           * 结果左起（国漫/韩漫）下键盘方向和点击区正好相反。
+           */
+          const forward = h.rtl ? e.key === 'ArrowLeft' : e.key === 'ArrowRight';
           if (forward) h.goForward();
           else h.goBack();
           e.preventDefault();
@@ -78,7 +84,7 @@ export function useReaderHotkeys(h: HotkeyHandlers, deps: unknown[] = []) {
 
 /** 快捷键说明，供设置面板展示 */
 export const HOTKEY_HELP = [
-  { keys: '← →', desc: '翻页' },
+  { keys: '← →', desc: '翻页（方向跟随「右起 / 左起」设置）' },
   { keys: '空格 / F', desc: '显示或隐藏工具栏' },
   { keys: 'B', desc: '收藏当前页' },
   { keys: 'C', desc: '章节目录' },

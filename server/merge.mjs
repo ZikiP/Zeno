@@ -1,7 +1,9 @@
 import { logChange, openDb } from './db.mjs';
+import { applyDeletes } from './deletes.mjs';
+import { goneBefore, goneStmt, num } from './lww.mjs';
 
 /**
- * 合并策略
+ * 合并策略：增的一侧
  *
  * 单用户多设备，同步的核心问题是「两边都改了一条记录，听谁的」。
  * 全部用「updated_at 时间戳大者胜」，简单且能收敛。
@@ -9,19 +11,10 @@ import { logChange, openDb } from './db.mjs';
  * 关键性质：**合并是幂等且可交换的**。
  * A 推给 B、B 再推给 A，结果一致；不会来回震荡。
  * 时钟不准只会导致「最近写的赢」，不会导致数据丢失或重复。
+ *
+ * 每个 upsert 都先问一句 goneBefore —— 删除也是 LWW 的一部分，
+ * 增的一侧如果不认墓碑，别处推来的旧数据会把已删的记录复活。
  */
-
-/** 取两组记录里 updated_at 更大的那条。相等时取本地（避免无意义写入） */
-function newer(local, remote) {
-  if (!remote) return local;
-  if (!local) return remote;
-  return remote.updated_at > local.updated_at ? remote : local;
-}
-
-function num(v, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 /* ── 插件 ─────────────────────────────────────────── */
 
@@ -31,12 +24,7 @@ function num(v, fallback = 0) {
  */
 export function upsertPlugins(rows, deviceId) {
   const d = openDb();
-  const stmt = d.prepare(
-    `SELECT updated_at FROM plugins WHERE id = ?
-     UNION ALL SELECT updated_at FROM plugins WHERE id = ?`,
-  );
-
-  let changed = 0;
+  const gone = goneStmt(d);
   const apply = d.prepare(
     `INSERT INTO plugins (id, origin, data, updated_at, device_id)
      VALUES (?, ?, ?, ?, ?)
@@ -46,11 +34,13 @@ export function upsertPlugins(rows, deviceId) {
   );
   const touch = d.prepare('SELECT updated_at FROM plugins WHERE id = ?');
 
+  let changed = 0;
   for (const r of rows ?? []) {
     if (!r?.id) continue;
-    const local = touch.get(r.id);
     const ts = num(r.updatedAt, Date.now());
+    if (goneBefore(gone, 'plugin', r.id, ts)) continue;
     // 本地更新则跳过，避免无谓写入与 seq 膨胀
+    const local = touch.get(r.id);
     if (local && num(local.updated_at) >= ts) continue;
     apply.run(r.id, r.origin === 'local' ? 'local' : 'imported', r.data, ts, deviceId ?? null);
     changed++;
@@ -59,27 +49,12 @@ export function upsertPlugins(rows, deviceId) {
   return changed;
 }
 
-/**
- * 插件：集合式合并 + 显式删除
- *
- * 插件是「整机一份」的语义（不像书架可以有不同漫画），
- * 所以需要支持删除传播：某台设备删了插件，其他设备下次同步也要跟着删。
- * upsert 只能增不能删，所以补一个 removePlugin。
- */
-export function removePlugin(id, deviceId) {
-  const d = openDb();
-  const existing = d.prepare('SELECT id FROM plugins WHERE id = ?').get(id);
-  if (!existing) return false;
-  d.prepare('DELETE FROM plugins WHERE id = ?').run(id);
-  logChange('plugin', deviceId);
-  return true;
-}
-
 /* ── 书架 ─────────────────────────────────────────── */
 
 /** 集合式合并：按 (pluginId, slug) 取新 */
 export function upsertShelf(rows, deviceId) {
   const d = openDb();
+  const gone = goneStmt(d);
   const touch = d.prepare('SELECT updated_at FROM shelf WHERE plugin_id = ? AND slug = ?');
   const apply = d.prepare(
     `INSERT INTO shelf (plugin_id, slug, title, cover, added_at, updated_at, device_id)
@@ -92,8 +67,9 @@ export function upsertShelf(rows, deviceId) {
   let changed = 0;
   for (const r of rows ?? []) {
     if (!r?.pluginId || !r?.slug) continue;
-    const local = touch.get(r.pluginId, r.slug);
     const ts = num(r.updatedAt, Date.now());
+    if (goneBefore(gone, 'shelf', `${r.pluginId}/${r.slug}`, ts)) continue;
+    const local = touch.get(r.pluginId, r.slug);
     if (local && num(local.updated_at) >= ts) continue;
     apply.run(
       r.pluginId,
@@ -118,6 +94,7 @@ export function upsertShelf(rows, deviceId) {
  */
 export function upsertPositions(rows, deviceId) {
   const d = openDb();
+  const gone = goneStmt(d);
   const touch = d.prepare(
     'SELECT percent, updated_at FROM positions WHERE plugin_id = ? AND slug = ? AND chapter_id = ?',
   );
@@ -132,23 +109,18 @@ export function upsertPositions(rows, deviceId) {
   let changed = 0;
   for (const r of rows ?? []) {
     if (!r?.pluginId || !r?.slug || !r?.chapterId) continue;
+    const ts = num(r.updatedAt, Date.now());
+    if (goneBefore(gone, 'position', `${r.pluginId}/${r.slug}/${r.chapterId}`, ts)) continue;
+
     const local = touch.get(r.pluginId, r.slug, r.chapterId);
     if (!local) {
-      apply.run(
-        r.pluginId,
-        r.slug,
-        r.chapterId,
-        Math.round(num(r.percent)),
-        num(r.updatedAt, Date.now()),
-        deviceId ?? null,
-      );
+      apply.run(r.pluginId, r.slug, r.chapterId, Math.round(num(r.percent)), ts, deviceId ?? null);
       changed++;
       continue;
     }
 
     const remotePct = Math.round(num(r.percent));
     const localPct = num(local.percent);
-    const ts = num(r.updatedAt, Date.now());
 
     if (localPct === 100 && remotePct < 100) continue; // 已读完的别被拉回去
     if (num(local.updated_at) >= ts && localPct >= remotePct) continue;
@@ -163,9 +135,8 @@ export function upsertPositions(rows, deviceId) {
 /** 「读到哪一章」 */
 export function upsertLastChapter(rows, deviceId) {
   const d = openDb();
-  const touch = d.prepare(
-    'SELECT updated_at FROM last_chapter WHERE plugin_id = ? AND slug = ?',
-  );
+  const gone = goneStmt(d);
+  const touch = d.prepare('SELECT updated_at FROM last_chapter WHERE plugin_id = ? AND slug = ?');
   const apply = d.prepare(
     `INSERT INTO last_chapter (plugin_id, slug, chapter_id, updated_at, device_id)
      VALUES (?, ?, ?, ?, ?)
@@ -177,8 +148,9 @@ export function upsertLastChapter(rows, deviceId) {
   let changed = 0;
   for (const r of rows ?? []) {
     if (!r?.pluginId || !r?.slug || !r?.chapterId) continue;
-    const local = touch.get(r.pluginId, r.slug);
     const ts = num(r.updatedAt, Date.now());
+    if (goneBefore(gone, 'lastChapter', `${r.pluginId}/${r.slug}`, ts)) continue;
+    const local = touch.get(r.pluginId, r.slug);
     if (local && num(local.updated_at) >= ts) continue;
     apply.run(r.pluginId, r.slug, r.chapterId, ts, deviceId ?? null);
     changed++;
@@ -191,6 +163,7 @@ export function upsertLastChapter(rows, deviceId) {
 
 export function upsertBookmarks(rows, deviceId) {
   const d = openDb();
+  const gone = goneStmt(d);
   const touch = d.prepare('SELECT updated_at FROM bookmarks WHERE key = ?');
   const apply = d.prepare(
     `INSERT INTO bookmarks
@@ -204,8 +177,9 @@ export function upsertBookmarks(rows, deviceId) {
   let changed = 0;
   for (const r of rows ?? []) {
     if (!r?.key) continue;
-    const local = touch.get(r.key);
     const ts = num(r.updatedAt, Date.now());
+    if (goneBefore(gone, 'bookmark', r.key, ts)) continue;
+    const local = touch.get(r.key);
     if (local && num(local.updated_at) >= ts) continue;
     apply.run(
       r.key,
@@ -228,6 +202,7 @@ export function upsertBookmarks(rows, deviceId) {
 
 /* ── 设置（主题 / 阅读偏好 / 活动插件） ───────────── */
 
+/** 设置是标量 KV，没有级联关系，所以不看墓碑 */
 export function upsertSettings(rows, deviceId) {
   const d = openDb();
   const touch = d.prepare('SELECT updated_at FROM settings WHERE key = ?');
@@ -242,8 +217,8 @@ export function upsertSettings(rows, deviceId) {
   let changed = 0;
   for (const r of rows ?? []) {
     if (!r?.key) continue;
-    const local = touch.get(r.key);
     const ts = num(r.updatedAt, Date.now());
+    const local = touch.get(r.key);
     if (local && num(local.updated_at) >= ts) continue;
     apply.run(r.key, r.value, ts, deviceId ?? null);
     changed++;
@@ -266,6 +241,9 @@ export function pushAll(payload, deviceId) {
     lastChapter: upsertLastChapter(payload.lastChapter, deviceId),
     bookmarks: upsertBookmarks(payload.bookmarks, deviceId),
     settings: upsertSettings(payload.settings, deviceId),
+    // 删除必须最后应用，否则"先删了、又被同一批里的旧数据加回来"。
+    // 反过来的顺序也有坑，由 applyDeletes 里跟现存数据比时间戳兜住。
+    deletes: applyDeletes(payload.deletes, deviceId),
   };
   return {
     ...n,
