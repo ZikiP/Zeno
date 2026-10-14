@@ -54,6 +54,12 @@ export interface Bookmark {
   /** 图片地址，缩略图用。断网时可能加载不出来 */
   thumb?: string;
   createdAt: number;
+  /**
+   * 内容（笔记 / 缩略图）最近一次修改时间。
+   * 同步的 LWW 比的是它 —— 之前推上去的是 createdAt，
+   * 于是改了笔记也永远"不比服务端新"，编辑同步不过去。
+   */
+  updatedAt?: number;
   /** 有值则是笔记，没有就是纯书签 */
   note?: string;
 }
@@ -69,7 +75,7 @@ export interface ReaderDB extends DBSchema {
   shelf: {
     key: string; // `${pluginId}/${slug}`
     value: ShelfEntry;
-    indexes: { addedAt: number };
+    indexes: { addedAt: number; pluginId: string };
   };
   /** 离线缓存的章节图片 */
   chapters: {
@@ -80,7 +86,7 @@ export interface ReaderDB extends DBSchema {
   bookmarks: {
     key: string; // `${pluginId}/${slug}/${chapterId}/${page}`
     value: Bookmark;
-    indexes: { createdAt: number };
+    indexes: { createdAt: number; pluginId: string };
   };
   /** 章节表缓存 —— 避免每次进详情页都重新抓 */
   chapterCache: {
@@ -91,44 +97,85 @@ export interface ReaderDB extends DBSchema {
     key: string;
     value: { key: string; value: unknown };
   };
+  /**
+   * 删除墓碑。
+   *
+   * 没有它，删除只发生在本地：A 设备删了一本漫画，服务端那行还在，
+   * A 下次 pull 又被插回书架 —— 表现为"删不掉"。
+   * 墓碑让删除成为一种可传播的状态。
+   */
+  tombstones: {
+    key: string;
+    value: {
+      /** kind + ':' + 被删记录的主键。用 ':' 分隔是因为记录主键含 '/' 但不含 ':' */
+      key: string;
+      kind: DeleteKind;
+      /** 被删记录自己的主键，推给服务端时按它定位 */
+      id: string;
+      deletedAt: number;
+    };
+    indexes: { deletedAt: number };
+  };
 }
 
+/** 可被删除并需要传播的记录类型 */
+export type DeleteKind = 'shelf' | 'bookmark' | 'position' | 'lastChapter' | 'plugin';
+
 const DB_NAME = 'zeno-reader';
-const DB_VER = 3;
+const DB_VER = 4;
 
 let dbp: Promise<IDBPDatabase<ReaderDB>> | null = null;
 
 export function db(): Promise<IDBPDatabase<ReaderDB>> {
   if (!dbp) {
     dbp = openDB<ReaderDB>(DB_NAME, DB_VER, {
-      upgrade(d, old) {
-        // v1 用的是 sites 表，v2 改名 plugins，v3 加书签与章节缓存
-        // objectStoreNames 在 idb 的类型上只认新表名，转原生类型删旧表
+      upgrade(d, old, _new, t) {
+        // v1 用的是 sites 表，v2 改名 plugins，v3 加书签与章节缓存，
+        // v4 加删除墓碑 + 按 pluginId 的索引
         if (old < 2) {
           const native = d as unknown as IDBDatabase;
           if (native.objectStoreNames.contains('sites')) native.deleteObjectStore('sites');
         }
 
+        /*
+         * 已存在的表要走 versionchange 事务拿 store ——
+         * IDBDatabase 本身没有 objectStore()，直接在 d 上调会在运行时炸。
+         */
         if (!d.objectStoreNames.contains('plugins')) {
-          const s = d.createObjectStore('plugins', { keyPath: 'id' });
-          s.createIndex('installedAt', 'installedAt');
+          d.createObjectStore('plugins', { keyPath: 'id' }).createIndex('installedAt', 'installedAt');
         }
+
         if (!d.objectStoreNames.contains('shelf')) {
           const s = d.createObjectStore('shelf', { keyPath: 'key' });
           s.createIndex('addedAt', 'addedAt');
+          s.createIndex('pluginId', 'pluginId');
+        } else {
+          const s = t.objectStore('shelf');
+          if (!s.indexNames.contains('pluginId')) s.createIndex('pluginId', 'pluginId');
         }
+
         if (!d.objectStoreNames.contains('chapters')) {
           d.createObjectStore('chapters', { keyPath: 'key' });
         }
+
         if (!d.objectStoreNames.contains('bookmarks')) {
           const s = d.createObjectStore('bookmarks', { keyPath: 'key' });
           s.createIndex('createdAt', 'createdAt');
+          s.createIndex('pluginId', 'pluginId');
+        } else {
+          const s = t.objectStore('bookmarks');
+          if (!s.indexNames.contains('pluginId')) s.createIndex('pluginId', 'pluginId');
         }
+
         if (!d.objectStoreNames.contains('chapterCache')) {
           d.createObjectStore('chapterCache', { keyPath: 'key' });
         }
         if (!d.objectStoreNames.contains('settings')) {
           d.createObjectStore('settings', { keyPath: 'key' });
+        }
+        if (!d.objectStoreNames.contains('tombstones')) {
+          const s = d.createObjectStore('tombstones', { keyPath: 'key' });
+          s.createIndex('deletedAt', 'deletedAt');
         }
       },
     });
@@ -139,10 +186,15 @@ export function db(): Promise<IDBPDatabase<ReaderDB>> {
 /** 删掉某个插件名下的全部数据（书架、缓存、书签、章节表） */
 export async function deletePluginData(pluginId: string) {
   const d = await db();
+  /*
+   * 这几张表的主键都以 `${pluginId}/` 开头，所以用 key range 一次删完，
+   * 不用把整表捞进内存再逐条比前缀。
+   * \uffff 是 UTF-16 里可比的最大码元，任何同前缀的键都排在它前面。
+   */
+  const range = IDBKeyRange.bound(`${pluginId}/`, `${pluginId}/\uffff`);
   for (const store of ['shelf', 'chapters', 'bookmarks', 'chapterCache'] as const) {
-    const keys = (await d.getAllKeys(store)) as string[];
-    for (const k of keys) {
-      if (typeof k === 'string' && k.startsWith(`${pluginId}/`)) await d.delete(store, k);
-    }
+    const t = d.transaction(store, 'readwrite');
+    await t.store.delete(range);
+    await t.done;
   }
 }

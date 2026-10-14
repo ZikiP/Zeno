@@ -18,6 +18,7 @@ const BASE_PORT = Number(process.env.TEST_PORT_BASE || 8899);
 const ALL_SUITES = [
   'test-sync.mjs',
   'test-multidevice.mjs',
+  'test-deletes.mjs',
   'test-whitelist.mjs',
   'test-ssrf.mjs',
   'test-auth.mjs',

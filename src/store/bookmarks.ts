@@ -1,4 +1,5 @@
 import { db } from './db';
+import { recordDelete } from './tombstones';
 import type { Bookmark } from './db';
 
 /** 书签与笔记 */
@@ -7,8 +8,16 @@ const bmKey = (pluginId: string, slug: string, cid: string, page: number) =>
   `${pluginId}/${slug}/${cid}/${page}`;
 
 export async function getBookmarks(pluginId: string, slug?: string): Promise<Bookmark[]> {
-  const all = await (await db()).getAll('bookmarks');
-  const filtered = slug ? all.filter((b) => b.pluginId === pluginId && b.slug === slug) : all;
+  const d = await db();
+  /*
+   * 走 pluginId 索引，别全表捞进内存再筛。
+   * 空 pluginId 是「取全部」的调用约定（transfer.ts 同步时就这么传），
+   * 那种情况下索引查不到东西，必须回全表。
+   */
+  const all = pluginId
+    ? ((await d.getAllFromIndex('bookmarks', 'pluginId', pluginId)) as Bookmark[])
+    : ((await d.getAll('bookmarks')) as Bookmark[]);
+  const filtered = slug ? all.filter((b) => b.slug === slug) : all;
   return filtered.sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -23,6 +32,8 @@ export async function addBookmark(
     ...b,
     key,
     createdAt: existing?.createdAt ?? Date.now(),
+    // 覆盖旧值时 updatedAt 要前进，否则同步那边永远认为没变过
+    updatedAt: Date.now(),
   });
   return key;
 }
@@ -31,11 +42,13 @@ export async function updateBookmarkNote(key: string, note: string): Promise<voi
   const d = await db();
   const bm = await d.get('bookmarks', key);
   if (!bm) return;
-  await d.put('bookmarks', { ...bm, note });
+  await d.put('bookmarks', { ...bm, note, updatedAt: Date.now() });
 }
 
 export async function removeBookmark(key: string): Promise<void> {
-  await (await db()).delete('bookmarks', key);
+  const d = await db();
+  await d.delete('bookmarks', key);
+  await recordDelete('bookmark', key);
 }
 
 /** 找某一页的书签。切换书签状态时用 */

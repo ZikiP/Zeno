@@ -37,7 +37,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { resolve } from 'node:path';
 
 import { openDb, pull, saveClientState, stats, listClients, allowedHostsFromPlugins } from './db.mjs';
-import { pushAll, removePlugin } from './merge.mjs';
+import { pushAll } from './merge.mjs';
+import { removePlugin } from './deletes.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
 import { handleProxy } from './proxy.mjs';
 

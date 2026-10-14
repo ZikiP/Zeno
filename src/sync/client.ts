@@ -1,11 +1,13 @@
-import { applyRemote, collectLocal, type RemoteSnapshot } from './transfer';
+import { collectLocal, type RemoteSnapshot } from './transfer';
+import { applyRemote } from './applyRemote';
+import { pruneTombstones } from '@/store/tombstones';
 import { emitDataChange } from '@/store/dataEvents';
 
 /**
  * 同步管理器
  *
  * 职责只有三件事：定时触发、发请求、维护状态。
- * 数据搬运在 transfer.ts —— 这里不该出现 IndexedDB。
+ * 数据搬运在 transfer.ts（本地→服务端）和 applyRemote.ts（服务端→本地）。
  *
  * 设计要点：
  *   - 单飞：同步进行中再次调用复用同一次 Promise，不并发
@@ -186,6 +188,12 @@ class SyncManager {
 
       // 3. 落库
       await applyRemote(remote);
+
+      /*
+       * 删除已经落到服务端了，本地墓碑剩下的作用只是"下次 push 别把它当还存在的数据传回去"。
+       * 超过 90 天的那些不可能还有设备没同步到，回收掉，避免墓碑表无限增长。
+       */
+      await pruneTombstones();
 
       /*
        * 通知 UI 重读。
