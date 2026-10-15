@@ -44,13 +44,27 @@ const stat = renderCacheStats();
 check(stat.hits >= 1, `缓存命中计数 ${stat.hits}，容量 ${stat.size}/${stat.ttlMs}ms`);
 
 console.log('\n=== 3. 抓空时必须回落到 HTML，而不是返回空 JSON');
-const miss = await renderHtml(CHAPTER_URL + '?x=1', {
+const missUrl = CHAPTER_URL + '?x=1';
+const miss = await renderHtml(missUrl, {
   capture: '"thisKeyDoesNotExist"\\s*:\\s*"([^"]+)"',
   timeoutMs: 20_000,
 });
 check(miss.format === 'html', `返回格式 ${miss.format}`);
 check(miss.captured.length === 0, '捕获为空');
 check(miss.html.length > 2000, `HTML 有 ${miss.html.length} 字节可供老路径解析`);
+
+/*
+ * 抓空的那次不许进缓存 —— 之前它被当正常结果存了 90 秒，
+ * 于是重试永远拿到同一份空壳，一次抖动被钉死。
+ */
+const t2 = performance.now();
+const miss2 = await renderHtml(missUrl, {
+  capture: '"thisKeyDoesNotExist"\\s*:\\s*"([^"]+)"',
+  timeoutMs: 20_000,
+});
+const againMs = Math.round(performance.now() - t2);
+check(miss2.format === 'html', `重试仍然是"重新渲染"的形态（${againMs}ms）`);
+check(againMs > 3000, `重试没有命中空壳缓存（${againMs}ms，命中会 <100ms）`);
 
 console.log('\n=== 4. minCount：详情章节列表要等够数量才算稳定');
 const shallow = await renderHtml(DETAIL_URL, { waitFor: 'a[href*="/chapter/"]', timeoutMs: 20_000 });

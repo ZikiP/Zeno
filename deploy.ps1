@@ -46,6 +46,7 @@ param(
     [switch]$SkipTailscale,
     [switch]$SkipInstall,
     [switch]$RunAsUser,
+    [switch]$RenderDebug,
     [switch]$Uninstall
 )
 
@@ -187,6 +188,12 @@ Set-Location -LiteralPath '$InstallDir'
 & '$nodePath' '$InstallDir\server\index.mjs' *>> '$LogFile'
 "@
 Set-Content -Path $wrapper -Value $wrapperContent -Encoding UTF8
+if ($RenderDebug) {
+    # 服务会话里渲染不出内容时，靠这一行把页面自己的失败打到日志。
+    # 前台复现不出来 —— 因为差别就在会话环境，不在代码。
+    Add-Content -Path $wrapper -Value "`$env:ZENO_RENDER_DEBUG = '1'" -Encoding UTF8
+    Warn '渲染诊断已打开（ZENO_RENDER_DEBUG=1），日志里会有 [zeno][render] 行。排完记得去掉这个开关'
+}
 Ok ("启动包装已写入 " + $wrapper)
 
 # ── 常驻 ──────────────────────────────────────────

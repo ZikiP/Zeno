@@ -30,6 +30,8 @@ export { renderCacheStats } from './render-cache.mjs';
  */
 const IDLE_SHUTDOWN_MS = Number(process.env.BROWSER_IDLE_MS || 180_000);
 const MAX_PAGES = Number(process.env.BROWSER_MAX_PAGES || 3);
+/** 把页面自己的子资源失败/脚本报错打到 stdout，专门用来诊断部署实例 */
+const RENDER_DEBUG = process.env.ZENO_RENDER_DEBUG === '1';
 
 const DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -179,6 +181,21 @@ export async function renderHtml(url, opts = {}) {
 
   const ctx = await getContext(opts.userAgent);
   const page = await ctx.newPage();
+  /*
+   * 只有前台跑得好好的、部署实例里却拿不到内容时才知道需要这个：
+   * 页面自己的 XHR/子资源失败、脚本报错，在服务会话里看不见 ——
+   * 因为客户端只收到一份"渲染完但没数据"的 HTML。开了 ZENO_RENDER_DEBUG=1
+   * 就把这些打到 stdout（计划任务的日志里）。
+   */
+  if (RENDER_DEBUG) {
+    page.on('requestfailed', (r) =>
+      console.warn(`[zeno][render] 子资源失败 ${r.url().slice(0, 110)} ${r.failure()?.errorText ?? ''}`),
+    );
+    page.on('response', (r) => {
+      if (r.status() >= 400) console.warn(`[zeno][render] HTTP ${r.status()} ${r.url().slice(0, 110)}`);
+    });
+    page.on('pageerror', (e) => console.warn(`[zeno][render] 页面报错 ${String(e).slice(0, 150)}`));
+  }
   try {
     /** 必须在 goto 之前装：注入脚本要在站点的脚本跑到之前就把 JSON.parse 包住 */
     if (opts.capture) await page.addInitScript({ content: captureScript(opts.capture) });
@@ -225,7 +242,14 @@ export async function renderHtml(url, opts = {}) {
       ? { format: 'json', html: '', captured, status, contentType: 'application/json; charset=utf-8' }
       : { format: 'html', html, captured: [], status, contentType: 'text/html; charset=utf-8' };
 
-    cachePut(key, out);
+    /*
+     * 声明了 capture 却一条都没抓到 = 这次渲染是失败的，不能进缓存。
+     *
+     * 之前它被当成"状态 200 的正常结果"存了 90 秒，于是用户重试同一章
+     * 拿到的是那份缓存的空壳（实测：第一次 24s 没抓到，第二次 55ms 就"成功"
+     * 返回了同样的空壳）—— 一次抖动被钉死，重试永远无效。
+     */
+    if (!(opts.capture && !captured.length)) cachePut(key, out);
 
     return out;
   } finally {

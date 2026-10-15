@@ -388,6 +388,8 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
+| 需要渲染的插件**在服务里只拿到静态壳**，同一份代码在前台实例上正常 | 差别在会话，不在代码：服务会话里浏览器自己的 XHR/子资源可能失败，而客户端只会看到"渲染完了但没数据"的 HTML | `.\deploy.ps1 -RunAsUser -SkipInstall -SkipTailscale -RenderDebug` 重注册，让服务把页面自己的失败写进 `zeno.log`，再搜 `[zeno][render]` |
+| 一章反复拿不到内容，重试永远一样快 | 抓空的结果被缓存过（已修：声明了 `capture` 却一条没抓到就不进缓存）—— 但线上遇到时先确认代码版本 | `renderCacheStats()` / 重启服务 |
 | `MCP error` / 进程秒退 | 看日志 | `journalctl -u zeno -n 50` 或 `<安装目录>\zeno.log` |
 | 健康检查绿但页面是 `dist not found` | 服务 cwd 不是安装目录 | 包装脚本里 `Set-Location`，或看 `/api/health` 的 `dbPath` 落在哪 |
 | 端口占用 | 上次没退干净 | `ss -ltnp \| grep 8788`；Windows 用 `Get-NetTCPConnection -LocalPort 8788` |
