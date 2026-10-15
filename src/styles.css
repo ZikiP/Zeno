@@ -23,5 +23,4 @@
 @import './styles/drawer.css'; /* 抽屉（章节目录）与书签条目 */
 @import './styles/search.css'; /* 全局搜索页 */
 @import './styles/sync-bar.css'; /* 同步状态条 */
-@import './styles/transition.css'; /* 页面切换动效（View Transitions + 挂载兜底） */
 @import './styles/a11y.css'; /* 无障碍降级：减少透明 / 减少动效 / 增加对比 —— 必须在最后 */

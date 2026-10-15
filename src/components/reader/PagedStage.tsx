@@ -14,6 +14,7 @@ export default function PagedStage({
   filter,
   markedPages,
   rtl,
+  turnKey,
   hudVisible,
   onToggleHud,
   onZoom,
@@ -26,6 +27,8 @@ export default function PagedStage({
   filter?: string;
   markedPages: Set<number>;
   rtl: boolean;
+  /** 换章时变一下，翻页动画只在章内演 */
+  turnKey: string;
   /** 顶部菜单是否展开 */
   hudVisible: boolean;
   onToggleHud: () => void;
@@ -42,6 +45,7 @@ export default function PagedStage({
       markedPages={markedPages}
       filter={filter}
       rtl={rtl}
+      turnKey={turnKey}
       /*
        * 中间那块不翻页，只开关悬浮件（顶部条 + 章末胶囊）。
        * 分页模式没有滚动，bar 那套「向下滚隐藏、向上滚显示」永远不会被触发，

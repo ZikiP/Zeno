@@ -108,33 +108,102 @@
 }
 
 /*
- * 翻进来那一下：绕书脊那条边从 ±72° 折回 0，落位用 --e-settle（极轻的过冲）。
- * spread 每次换页都换 key 重挂，所以动画天然会重放，不用 JS 去摘 class。
+ * 掀页。两层，一次只有一张在动：
+ *
+ *   往前翻 —— 新页静静躺在下面（**完全不动**），旧页绕书脊抬起来转到侧立，
+ *             90° 时宽度收为零，消失得没有痕迹。
+ *   往后翻 —— 镜像：旧页躺在下面不动，新页从折痕里落下去盖住它。
+ *
+ * 之前只演"新页从 72° 甩进来"，旧页是瞬间被 React 换掉的 ——
+ * 屏幕等于先空一下再抖一张进来，那才是"闪"。动效要连续，就必须让
+ * 前后两页同时在场，谁在上面由方向决定。
+ *
+ * 时长 520ms、曲线不过冲：过冲会让纸面转过头再弹回来，又是一次闪。
  */
-.reader__spread.turn-in {
-  animation: page-turn var(--d-flip) var(--e-settle) both;
+.reader__spread.is-under {
+  z-index: 1;
+}
+.reader__spread.is-over {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   will-change: transform;
 }
-@keyframes page-turn {
+
+.reader__spread.turn-out {
+  animation: page-lift var(--d-flip) var(--e-turn) both;
+}
+.reader__spread.turn-in {
+  animation: page-lay var(--d-flip) var(--e-turn) both;
+}
+@keyframes page-lift {
   from {
-    transform: rotateY(var(--turn-from, 0deg));
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(var(--turn-to, -90deg));
+  }
+}
+@keyframes page-lay {
+  from {
+    transform: rotateY(var(--turn-to, -90deg));
   }
   to {
     transform: rotateY(0deg);
   }
 }
 
-/* 暗面：折起来的那一侧偏暗，靠 opacity 而不是 filter */
+/*
+ * 暗面在**动**的那一张上：纸面转离光源，本来就该越来越暗。
+ * 回翻时反过来 —— 落平的那一刻才重新吃到光。
+ * 用一层覆盖物的 opacity，不动图片 filter，否则每帧重绘整张高清图。
+ */
 .reader__turn-shade {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.5), transparent 55%);
-  animation: page-shade var(--d-flip) var(--e-out) both;
+  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.55), transparent 58%);
 }
-@keyframes page-shade {
+.turn-out .reader__turn-shade {
+  animation: shade-in var(--d-flip) var(--e-turn) both;
+}
+.turn-in .reader__turn-shade {
+  animation: shade-out var(--d-flip) var(--e-turn) both;
+}
+@keyframes shade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes shade-out {
   from {
     opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/*
+ * 抬起的那页在底下那页上投的影子。中段最重 —— 刚离纸没影子，
+ * 转到侧立时又几乎不挡光，所以两头收零、中间起峰。
+ */
+.reader__turn-cast {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.5), transparent 46%);
+  animation: cast-sweep var(--d-flip) var(--e-turn) both;
+}
+@keyframes cast-sweep {
+  from {
+    opacity: 0;
+  }
+  38% {
+    opacity: 0.9;
   }
   to {
     opacity: 0;

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { useVtNavigate } from '@/hooks/viewTransition';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import { cacheChapterList } from '@/store/chapters';
 import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf } from '@/store/shelf';
@@ -23,7 +22,7 @@ import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
 export default function ComicPage() {
   const { slug = '' } = useParams();
-  const nav = useVtNavigate();
+  const nav = useNavigate();
   const { plugin } = usePlugin();
 
   const [comic, setComic] = useState<Comic | null>(null);

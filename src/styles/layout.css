@@ -49,8 +49,20 @@
   background: color-mix(in oklab, var(--text) 8%, transparent);
   color: var(--text);
 }
+/* 按下去要真的按到底，松手带一点回弹 */
 .icon-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.86);
+}
+/*
+ * 回弹只写在 :not(:active) 上 —— 松手时元素离开 :active，用的就是这条的
+ * transition，于是"按下去"是快的、"弹回来"是带过冲的。
+ * 反过来配会让按压显得迟钝。
+ */
+.icon-btn:not(:active) {
+  transition:
+    background var(--d-press) var(--e-out),
+    color var(--d-press) var(--e-out),
+    transform var(--d-bounce) var(--e-bounce);
 }
 
 .main {
@@ -72,6 +84,7 @@
 .bottom-nav a {
   flex: 1 1 0;
   min-width: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -87,15 +100,47 @@
 }
 .bottom-nav a svg {
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
   transition: transform var(--d-micro) var(--e-settle);
 }
+
+/*
+ * 选中态不能只靠颜色差一档 —— 户外强光下、以及色觉障碍时全都分不出来。
+ * 这里同时改四件事：胶囊底、字重、图标描边加粗、图标放大。
+ * 未选中的图标另外压暗一档，让对比是"两档"而不是"一档半"。
+ */
 .bottom-nav a.active {
   color: var(--accent);
+  font-weight: 600;
+}
+.bottom-nav a.active::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 46px;
+  height: 27px;
+  transform: translateX(-50%);
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--accent) 15%, transparent);
 }
 .bottom-nav a.active svg {
-  transform: translateY(-1px);
+  stroke-width: 2.1;
+  transform: scale(1.08);
 }
+.bottom-nav a:not(.active) svg {
+  opacity: 0.72;
+}
+
+/* 按下去时连选中态的放大一起收掉，压感才连贯 */
 .bottom-nav a:active {
   background: color-mix(in oklab, var(--text) 7%, transparent);
+}
+.bottom-nav a:active svg {
+  transform: scale(0.84);
+}
+.bottom-nav a:not(:active) svg {
+  transition: transform var(--d-bounce) var(--e-bounce);
 }
 

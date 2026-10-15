@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { useVtNavigate } from '@/hooks/viewTransition';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, DEFAULT_PREFS, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
@@ -36,7 +35,7 @@ import { ErrorBox, Loading } from '@/components/UI';
  * 规模控制见 CODE-STYLE.md：页面只该有「谁依赖谁」这层信息。
  */
 export default function ReaderPage({ slug, chapterId }: { slug: string; chapterId: string }) {
-  const nav = useVtNavigate();
+  const nav = useNavigate();
   const { plugin } = usePlugin();
   const [searchParams] = useSearchParams();
 
@@ -187,6 +186,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           filter={filter}
           markedPages={bookmarks.markedPages}
           rtl={isRTL}
+          turnKey={chapterId}
           hudVisible={bar.visible}
           onToggleHud={bar.toggle}
           onZoom={(src, i) => setZoom({ src, i })}

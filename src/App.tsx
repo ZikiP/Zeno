@@ -8,7 +8,6 @@ import ReaderPage from '@/pages/reader/ReaderPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { useTheme } from '@/hooks/useTheme';
-import { useVtLinkInterception } from '@/hooks/viewTransition';
 import { OfflineBar } from '@/components/UI';
 import SyncBar from '@/sync/SyncBar';
 import { sync } from '@/sync/client';
@@ -150,9 +149,6 @@ export default function App() {
     sync.start();
     return () => sync.stop();
   }, []);
-
-  // 站内链接的点击接进 View Transition（不支持的浏览器里这是个空操作）
-  useVtLinkInterception();
 
   return (
     <PluginProvider>

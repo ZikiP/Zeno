@@ -26,47 +26,34 @@
   :root {
     --d-press: 1ms;
     --d-micro: 160ms;
-    --d-view: 160ms;
+    --d-bounce: 1ms;
     --d-flip: 160ms;
     --d-sheet: 160ms;
     --e-out: linear;
     --e-inout: linear;
     --e-drawer: linear;
     --e-settle: linear;
+    --e-bounce: linear;
+    --e-turn: linear;
   }
   .icon-btn:active,
   .theme-option:active,
-  .bottom-nav a.active svg {
+  .bottom-nav a.active svg,
+  .bottom-nav a:active svg {
     transform: none;
   }
-  /* 折页换成交叉淡入，暗面直接不要 */
+  /* 掀页换成交叉淡入：两页同时在场时只淡上面那张，暗面和投影都不要 */
+  .reader__spread.turn-out,
   .reader__spread.turn-in {
     animation: page-fade 160ms linear both;
   }
-  .reader__turn-shade {
+  .reader__turn-shade,
+  .reader__turn-cast {
     display: none;
-  }
-  /* 页面转场同理：只淡入淡出，不位移 */
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation-name: vt-fade;
-  }
-  .main,
-  .reader {
-    animation: none;
   }
   /* 章末胶囊只淡入淡出，不上滑下滑 */
   .reader__nav[data-hidden='true'] {
     transform: translateX(-50%);
-  }
-}
-
-@keyframes vt-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
   }
 }
 
