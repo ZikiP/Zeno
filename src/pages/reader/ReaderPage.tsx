@@ -164,17 +164,14 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
       ) : loading || !images ? (
         <Loading text="加载章节" />
       ) : mode === 'scroll' ? (
-        <>
-          <ScrollView
-            images={images}
-            markedPages={bookmarks.markedPages}
-            filter={filter}
-            onScroll={(el) => paging.onScroll(el, images.length, record)}
-            onTap={bar.toggle}
-            onZoom={(src, i) => setZoom({ src, i })}
-          />
-          <ChapterNav prevId={prevId} nextId={nextId} onGo={gotoChapter} />
-        </>
+        <ScrollView
+          images={images}
+          markedPages={bookmarks.markedPages}
+          filter={filter}
+          onScroll={(el) => paging.onScroll(el, images.length, record)}
+          onTap={bar.toggle}
+          onZoom={(src, i) => setZoom({ src, i })}
+        />
       ) : (
         <PagedView
           images={images.slice(paging.startIndex, paging.startIndex + paging.perPage)}
@@ -197,6 +194,19 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
               onGoNext={() => nextId && gotoChapter(nextId)}
             />
           }
+        />
+      )}
+
+      {/*
+        章末导航在两种模式下都要有，且跟着顶部菜单一起显隐：
+        常驻的话它一直压在漫画最后一屏上，那是阅读时最不该占用的位置。
+      */}
+      {images && (
+        <ChapterNav
+          prevId={prevId}
+          nextId={nextId}
+          visible={bar.visible}
+          onGo={gotoChapter}
         />
       )}
 

@@ -25,28 +25,23 @@ export default function EdgeHint({
   onGoNext: () => void;
 }) {
   if (totalPages <= 0) return null;
+  /*
+   * 菜单收起时才演这个。菜单展开时章末导航那颗悬浮胶囊已经在了，
+   * 两个都出现在同一个位置会叠在一起 —— 之前是"显示但禁用"，更糟。
+   */
+  if (armed) return null;
 
   if (page === 0) {
-    const canGo = hasPrevChapter && !armed;
     return (
-      <button
-        className="edge-hint"
-        disabled={!canGo}
-        onClick={canGo ? onGoPrev : undefined}
-      >
+      <button className="edge-hint" onClick={onGoPrev}>
         <IconChevronRight size={18} /> {hasPrevChapter ? '上一章' : '已是第一章'}
       </button>
     );
   }
 
   if (page === totalPages - 1) {
-    const canGo = hasNextChapter && !armed;
     return (
-      <button
-        className="edge-hint"
-        disabled={!canGo}
-        onClick={canGo ? onGoNext : undefined}
-      >
+      <button className="edge-hint" onClick={onGoNext}>
         {hasNextChapter ? '下一章' : '已是最后一章'} <IconChevronLeft size={18} />
       </button>
     );

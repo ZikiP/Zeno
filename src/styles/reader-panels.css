@@ -143,21 +143,60 @@
 .slider-reset:active {
   background: var(--bg-elev-2);
 }
-/* 章末导航 */
+/* 章末导航：悬浮的玻璃胶囊，跟顶部菜单一起显隐 */
 .reader__nav {
+  position: absolute;
+  left: 50%;
+  bottom: calc(26px + var(--safe-b));
+  z-index: 12;
   display: flex;
-  gap: 10px;
-  padding: 20px 16px calc(30px + env(safe-area-inset-bottom, 0px));
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--r-glass);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 0 0 1px var(--r-edge),
+    var(--shadow-2);
+  transform: translateX(-50%);
+  transition:
+    transform var(--d-sheet) var(--e-drawer),
+    opacity var(--d-micro) linear;
 }
-.reader__nav .btn {
-  flex: 1;
+.reader__nav[data-hidden='true'] {
+  transform: translate(-50%, 180%);
+  opacity: 0;
+  pointer-events: none;
+}
+.reader__nav button {
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--r-fg);
+  padding: 8px 18px;
+  border-radius: var(--radius-pill);
+  transition:
+    background var(--d-press) var(--e-out),
+    transform var(--d-press) var(--e-out);
+}
+.reader__nav button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.reader__nav button:active {
+  transform: scale(0.94);
 }
 .reader__nav-end {
-  flex: 1;
-  text-align: center;
-  padding: 12px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.32);
+  color: var(--r-dim);
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+.reader__nav-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--r-edge);
+  flex: none;
 }
 /* ── 阅读器：书签 / 目录 / 提示 ───────────────────── */
 

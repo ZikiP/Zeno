@@ -50,6 +50,10 @@
   .reader {
     animation: none;
   }
+  /* 章末胶囊只淡入淡出，不上滑下滑 */
+  .reader__nav[data-hidden='true'] {
+    transform: translateX(-50%);
+  }
 }
 
 @keyframes vt-fade {
