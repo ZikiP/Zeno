@@ -111,6 +111,23 @@ id 只是路径装饰）。停用的源只要还装着，凭地址照样打得�
 
 抓取白名单跟着**已安装**的插件走，不是跟着启用状态走：停用不收回域名，卸载才收。
 
+### 别拿 curl 探 browser 模式的 URL
+
+`/api/proxy?...&mode=browser` 会把请求方的 `User-Agent` 直接当渲染用的 UA（插件没声明
+`headers` 时）。用 curl 探就等于让站点看 `curl/8.x` 渲染 —— 包子漫画这类有 JS 质询的站
+一律停在质询壳里，看着像"线上抓不到内容"，其实换个真浏览器 UA 就正常。
+
+两个已修掉的坑，遇到类似现象别再往线上代码上猜：
+- 渲染缓存的键**含 UA**（`render-cache.mjs`）。不带 UA 时，一个 curl 探针能把质询壳
+  缓存住，接下来 90 秒真人拿到的都是它。
+- **判据没满足的结果不进缓存**（`render.mjs` 的 `gotIt`）：`waitFor` 等不到、或
+  `capture` 一条没抓到时，那次渲染不缓存。停在质询页的站点也会"安静下来"，
+  所以 `'idle'` 不算证据。
+
+要验渲染路径就用 Playwright 起真浏览器（`scripts/verify-capture.mjs` 是现成的），
+或者在客户端里点。临时探针写到 `%TEMP%`，别留在仓库里 —— `deploy.ps1` 见到任何
+未跟踪文件都会直接停。
+
 ### 从这台机器上的自动浏览器打 tailnet
 
 `*.ts.net` 在 Chromium 里会 `ERR_CONNECTION_CLOSED / ABORTED`：FlClash 写的系统代理

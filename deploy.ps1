@@ -347,7 +347,7 @@ Write-Host ("  数据目录  " + $InstallDir + "\data")
 Write-Host ("  日志      " + $LogFile)
 Write-Host ''
 Write-Host '下一步：装插件' -ForegroundColor Cyan
-Write-Host '  网页里进「设置 > 内容源插件 > 导入」，选一个 .json 插件文件。'
+Write-Host '  网页里进「设置 > 内容源 > 导入」，选一个 .json 插件文件。装完这个源就是启用状态。'
 Write-Host '  装完白名单自动生效，不需要改任何配置。'
 Write-Host ''
 Write-Host '常用命令' -ForegroundColor Cyan
