@@ -1499,6 +1499,14 @@ input {
   flex-shrink: 0;
 }
 
+/* 分批渲染的尾部提示，同时兼作 IntersectionObserver 的哨兵 */
+.drawer__more {
+  padding: 12px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
 /* ── 书签条目 ─────────────────────────────────────── */
 
 .bm-item {

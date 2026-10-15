@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { getChapterList } from '@/store/chapters';
 
 export interface ChapterRef {
@@ -6,6 +6,9 @@ export interface ChapterRef {
   index: number;
   title: string;
 }
+
+/** 抽屉一次只挂这么多行，剩下的滚到底再补。见下面分批渲染那段注释 */
+const BATCH = 80;
 
 /**
  * 阅读器内的章节列表。
@@ -58,6 +61,41 @@ export default function ChapterDrawer({
   const ordered = useMemo(() => (chapters ? [...chapters].reverse() : []), [chapters]);
   const currentPos = ordered.findIndex((c) => c.id === currentId);
 
+  /*
+   * 分批渲染。
+   *
+   * 起因是量到「打开目录要 1.5–2 秒」，但那个归因是错的：安静页面上一次挂 563 行
+   * 实测 20ms，章节图片正在加载时开也一样，那两次读数复现不出来。所以这里不写
+   * "因为一次渲染 563 行会卡"——那是没验证过的猜测。
+   *
+   * 分批本身仍然值得做，理由是可量化的那部分：列表高度从 25010px 降到 3612px，
+   * 首屏 20ms → 11ms，而长篇漫画上千章时两万多像素的滚动区在手机上
+   * 惯性滚动和内存都要吃满。
+   */
+  const [limit, setLimit] = useState(BATCH);
+  useEffect(() => {
+    setLimit(BATCH);
+  }, [pluginId, slug]);
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const rest = ordered.length - limit;
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || rest <= 0) return;
+    // 提前 400px 就开始补，滚到底时通常已经补好了，不会看到空档
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setLimit((n) => n + BATCH);
+      },
+      { root: listRef.current, rootMargin: '400px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [rest]);
+
+  const visible = useMemo(() => ordered.slice(0, limit), [ordered, limit]);
+
   return (
     <div className="drawer-mask" onClick={onClose}>
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
@@ -77,8 +115,8 @@ export default function ChapterDrawer({
             <div style={{ fontSize: 11.5 }}>从漫画详情页进入一次即可</div>
           </div>
         ) : (
-          <div className="drawer__list">
-            {ordered.map((c, i) => {
+          <div className="drawer__list" ref={listRef}>
+            {visible.map((c, i) => {
               const marks = bookmarks.get(c.id);
               return (
                 <button
@@ -99,6 +137,11 @@ export default function ChapterDrawer({
                 </button>
               );
             })}
+            {rest > 0 && (
+              <div className="drawer__more" ref={sentinelRef}>
+                继续下滑加载，还有 {rest} 章
+              </div>
+            )}
           </div>
         )}
       </div>
