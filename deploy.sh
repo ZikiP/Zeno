@@ -203,6 +203,18 @@ for i in 1 2 3 4 5; do
   sleep 1
 done
 
+# ── 插件仓库 ───────────────────────────────────────
+# 主仓库不附带内容源，插件在独立仓库里维护；配了就把它们灌进服务端。
+# 拉不动只警告，不算部署失败 —— 服务本身已经起来了。
+step "从插件仓库更新"
+if [[ -z "${ZENO_PLUGIN_REPO:-}" ]]; then
+  warn "没配 ZENO_PLUGIN_REPO，跳过（网页里手动导入也行）"
+  warn "  自动拉私有库：ZENO_PLUGIN_REPO=账号/库名 ZENO_PLUGIN_TOKEN=只读PAT ./deploy.sh"
+else
+  node --import tsx "$INSTALL_DIR/scripts/pull-plugins.mjs" \
+    || warn "插件没拉下来 —— 服务本身是好的，回头单独重跑 scripts/pull-plugins.mjs"
+fi
+
 # ── Tailscale HTTPS ────────────────────────────────
 if [[ "$DO_TAILSCALE" == "1" ]] && command -v tailscale >/dev/null; then
   step "配置 Tailscale HTTPS"

@@ -87,10 +87,18 @@ Windows 上脚本会**读注册表里的真实代理状态**并检查绕过列�
 | Windows | `-SkipTailscale` / `-Uninstall` | 跳过 HTTPS / 卸载（数据保留） |
 | Linux | `--port` / `--dir` / `--skip-tailscale` / `--uninstall` | 同上含义 |
 
-部署完的收尾：**装插件**。网页里「设置 → 内容源插件 → 导入」，或
-`node scripts/install-plugin.mjs <插件.json>`（默认读根目录的 `baozimh-plugin.json`，
-它不在仓库里 —— 插件放在独立的 zeno-plugins 仓库，根目录那份是本地文件）。
+部署完的收尾：**装插件**。三条路，按方便程度排：
+
+1. 配了 `ZENO_PLUGIN_REPO`（+ 私有库的 `ZENO_PLUGIN_TOKEN`），部署脚本末尾会自动
+   从插件仓库拉下来灌进服务端（`scripts/pull-plugins.mjs`，也可单独跑）。
+   没配就跳过并打印怎么配。
+2. 手上已有 JSON：`node scripts/install-plugin.mjs <插件.json>`（服务端设了
+   `SYNC_TOKEN` 时给它同名环境变量即可带上 Bearer）。
+3. 网页里「设置 → 内容源插件 → 导入」。
+
 白名单从装好的插件自动推导，不用配任何东西。
+**插件不在主仓库里**（根目录 `*.json` 被 gitignore，内容源与本仓库无关），
+所以生产机要么走 1，要么自己把文件带过去 —— 别指望 clone 完就有源。
 
 ### 手动（脚本跑不通时）
 

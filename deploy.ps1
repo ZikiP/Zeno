@@ -291,6 +291,21 @@ if (-not $healthy) {
     }
 }
 
+# ── 插件仓库 ──────────────────────────────────────
+# 主仓库不附带内容源，插件在独立仓库里维护；配了就把它们灌进服务端，
+# 免得每次部署完还要人肉拷 JSON。拉不动只警告，不算部署失败。
+Step '从插件仓库更新'
+if (-not $env:ZENO_PLUGIN_REPO) {
+    Warn '没配 ZENO_PLUGIN_REPO，跳过（网页里手动导入也行）'
+    Warn '  自动拉私有库：$env:ZENO_PLUGIN_REPO = "账号/库名"; $env:ZENO_PLUGIN_TOKEN = "只读 PAT"'
+} else {
+    & $nodePath --import tsx (Join-Path $InstallDir 'scripts\pull-plugins.mjs')
+    if ($LASTEXITCODE -ne 0) {
+        Warn '插件没拉下来 —— 服务本身是好的，回头单独重跑：'
+        Warn ("  node --import tsx '" + (Join-Path $InstallDir 'scripts\pull-plugins.mjs') + "'")
+    }
+}
+
 # ── Tailscale ─────────────────────────────────────
 if (-not $SkipTailscale) {
     . (Join-Path $InstallDir 'scripts\deploy-tailscale.ps1')

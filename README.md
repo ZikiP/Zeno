@@ -248,6 +248,34 @@ node --import tsx scripts/verify-plugin.ts 你的插件.json
 Node 里直连上游只会拿到质询页，这类插件在脚本里就永远验证不了。
 加 `--direct` 可以退回直连（只适合全 `fetch` 模式的插件）。
 
+## 从插件仓库自动更新
+
+插件放在独立仓库里维护（本仓库不附带任何内容源）。配好凭据后，部署脚本会在健康检查
+之后自动把它们灌进服务端；也可以单独跑：
+
+```bash
+ZENO_PLUGIN_REPO=你的账号/插件库 \
+ZENO_PLUGIN_TOKEN=ghp_xxx \
+node --import tsx scripts/pull-plugins.mjs
+```
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `ZENO_PLUGIN_REPO` | 空 = 跳过 | `owner/name`。**没有默认值** —— 框架不指向任何人的仓库 |
+| `ZENO_PLUGIN_TOKEN` | 空 | 私有库必须。用只对那一个仓库有只读权限的 fine-grained PAT |
+| `ZENO_PLUGIN_REF` | `main` | 分支或 tag |
+| `ZENO_PLUGIN_DIR` | `plugins` | 仓库里放插件 JSON 的目录 |
+| `BASE` | `http://127.0.0.1:8788` | 目标服务端 |
+| `SYNC_TOKEN` | 空 | 服务端设了它才需要带 |
+
+走 GitHub Contents API，零依赖。三件事值得知道：
+
+- 每个文件先过一遍导入期校验（`src/site/validate.ts`，引的是真源码不是脚本里另写一套），
+  不合格的直接跳过，不会装进去。
+- 和服务端已装的整份 JSON 比对，**没变就不推** —— 否则每次部署都把 LWW 时间戳
+  刷新一轮，所有设备白重同步一遍。
+- 仓库里没有的插件保持原样，这个脚本只增不删。
+
 ## 生产部署
 
 一条命令：`node server/index.mjs`。它同时提供静态文件、同步 API 和抓取代理，

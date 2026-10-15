@@ -13,7 +13,11 @@ console.log(`读取插件: ${plugin.meta.name} (${plugin.meta.id})`);
 
 const r = await fetch(BASE + '/api/sync/push', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  // 服务端设了 SYNC_TOKEN 的话，同步接口是要 Bearer 的
+  headers: {
+    'Content-Type': 'application/json',
+    ...(process.env.SYNC_TOKEN ? { Authorization: `Bearer ${process.env.SYNC_TOKEN}` } : {}),
+  },
   body: JSON.stringify({
     deviceId: 'setup-cli',
     seq: 0,
