@@ -1,7 +1,7 @@
 ﻿import { useState } from 'react';
 import type { Plugin } from '@/site/types';
 import { pluginHosts, validatePlugin } from '@/site/validate';
-import { savePlugin, setActivePlugin } from '@/store/plugins';
+import { savePlugin, togglePluginEnabled } from '@/store/plugins';
 import { notifyPluginChanged } from '@/store/PluginContext';
 import { Sheet } from '@/components/UI';
 import { Divider, Field, FieldGroup } from '@/components/FormKit';
@@ -199,7 +199,7 @@ export default function PluginEditor({
             disabled={errors.length > 0 || !draft.meta.name.trim()}
             onClick={async () => {
               await savePlugin({ plugin: draft, installedAt: Date.now(), origin });
-              await setActivePlugin(draft.meta.id);
+              await togglePluginEnabled(draft.meta.id, true);
               notifyPluginChanged();
               onSaved(draft.meta.name);
             }}

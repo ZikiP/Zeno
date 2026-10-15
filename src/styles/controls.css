@@ -38,6 +38,14 @@
   display: none;
 }
 
+/*
+ * 发现页的源切换器也是 filters 那一排 chip，但两排 chip 上下贴着会看不出
+ * 上面那排是"看哪个站"、下面那排是"站里怎么筛"。垫一层底色分开。
+ */
+.source-switch {
+  background: var(--bg-elev);
+}
+
 .chip {
   flex-shrink: 0;
   padding: 5px 12px;

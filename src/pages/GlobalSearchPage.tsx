@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
 import { listPlugins } from '@/store/plugins';
@@ -16,30 +16,36 @@ interface Hit {
 
 export default function GlobalSearchPage() {
   const nav = useNavigate();
-  const { plugin: activePlugin, loading: pluginLoading } = usePlugin();
+  const { enabled, loading: pluginLoading } = usePlugin();
   const [q, setQ] = useState('');
   const [submitted, setSubmitted] = useState('');
   const [plugins, setPlugins] = useState<InstalledPlugin[] | null>(null);
-  /** 勾选要搜哪些插件。不勾就用当前插件 */
+  /** 勾选要搜哪些插件。默认全选已启用的源 */
   const [scope, setScope] = useState<string[] | null>(null);
   const [hits, setHits] = useState<Hit[]>([]);
   const [searching, setSearching] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { recent, record: recordHit, clear: clearRecent } = useSearchHistory();
 
+  /*
+   * 搜索范围只列已启用的源，默认也全勾上它们。
+   * 停用的源不该出现在这里 —— 用户把它关掉就是不看了，跨源搜索还把它捞回来
+   * 等于关不掉。以前默认只搜"当前那一个"，得手动勾选才跨得开，
+   * 现在既然可以同时启用多个源，默认就该一起搜。
+   */
   useEffect(() => {
-    listPlugins().then((all) => {
-      setPlugins(all);
-      // 默认只搜当前插件，避免首次搜索就打一堆请求
-      setScope((s) => s ?? (activePlugin ? [activePlugin.meta.id] : []));
-    });
-  }, [activePlugin]);
+    const ids = new Set(enabled.map((p) => p.meta.id));
+    listPlugins().then((all) => setPlugins(all.filter((p) => ids.has(p.plugin.meta.id))));
+  }, [enabled]);
+
+  /** 没手动勾选过 = 全部已启用的源。把默认值算在这里，不在 effect 里补 setState */
+  const scopeIds = useMemo(() => scope ?? enabled.map((p) => p.meta.id), [scope, enabled]);
 
   const search = useCallback(async () => {
     const term = submitted.trim();
     if (!term || !plugins) return;
 
-    const targets = plugins.filter((p) => scope?.includes(p.plugin.meta.id));
+    const targets = plugins.filter((p) => scopeIds.includes(p.plugin.meta.id));
     if (targets.length === 0) {
       setHits([]);
       return;
@@ -78,17 +84,16 @@ export default function GlobalSearchPage() {
     setSearching(false);
 
     if (found.length) recordHit(term);
-  }, [submitted, plugins, scope, recordHit]);
+  }, [submitted, plugins, scopeIds, recordHit]);
 
   useEffect(() => {
     void search();
   }, [search]);
 
   const toggleScope = (id: string) => {
-    setScope((s) => {
-      const cur = s ?? [];
-      return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
-    });
+    // 从"当前生效的范围"增删，而不是从 null 起步：
+    // 默认是全选，第一次点某个源该是**取消**它，不是把它加进去
+    setScope(scopeIds.includes(id) ? scopeIds.filter((x) => x !== id) : [...scopeIds, id]);
   };
 
   return (
@@ -132,7 +137,7 @@ export default function GlobalSearchPage() {
           {plugins.map((p) => (
             <button
               key={p.plugin.meta.id}
-              className={`chip${scope?.includes(p.plugin.meta.id) ? ' on' : ''}`}
+              className={`chip${scopeIds.includes(p.plugin.meta.id) ? ' on' : ''}`}
               onClick={() => toggleScope(p.plugin.meta.id)}
             >
               {p.plugin.meta.icon ?? '📄'} {p.plugin.meta.name}
@@ -181,7 +186,7 @@ export default function GlobalSearchPage() {
         ) : err && hits.length === 0 ? (
           <ErrorBox message={err} onRetry={search} />
         ) : searching ? (
-          <Loading text={`搜索 ${scope?.length ?? 0} 个源`} />
+          <Loading text={`搜索 ${scopeIds.length} 个源`} />
         ) : hits.length === 0 ? (
           <div className="empty">
             <div>没有找到「{submitted}」</div>
@@ -203,9 +208,9 @@ export default function GlobalSearchPage() {
                 const pid = h.plugin.plugin.meta.id;
                 return (
                   /*
-                   * 结果可能来自非当前激活的源。详情页与阅读器都按地址里的
-                   * pluginId 解析，所以直接跳就行 —— 以前这里要先 setActivePlugin
-                   * 再跳（副作用是用户回不来原来那个源），现在不需要了。
+                   * 结果可能来自发现页没在看的源。详情页与阅读器都按地址里的
+                   * pluginId 解析，所以直接跳就行 —— 以前这里要先切一次激活源再跳
+                   * （副作用是用户回不来原来那个源），现在不需要了。
                    */
                   <button
                     key={`${pid}-${h.comic.slug}-${i}`}

@@ -4,6 +4,7 @@ import { listComics, coverUrl, type Comic } from '@/site/engine';
 import { usePlugin } from '@/store/PluginContext';
 import { IconEmpty, IconSearch } from '@/components/Icons';
 import BottomNav from '@/components/BottomNav';
+import SourceSwitcher from '@/components/SourceSwitcher';
 import { ErrorBox, Loading } from '@/components/UI';
 
 /**
@@ -75,6 +76,14 @@ export default function ExplorePage() {
     setExact(true);
   }, [submitted, region, state, plugin?.meta.id]);
 
+  /* 换源等于换了个站：搜索词和筛选值带过去只会是别的站的参数，清空重来 */
+  const resetForSource = useCallback(() => {
+    setQ('');
+    setSubmitted('');
+    setRegion('all');
+    setState('all');
+  }, []);
+
   if (!plugin?.meta.id) return null;
 
   return (
@@ -102,6 +111,8 @@ export default function ExplorePage() {
           )}
         </form>
       </header>
+
+      <SourceSwitcher onPick={resetForSource} />
 
       {!submitted && (
         <>

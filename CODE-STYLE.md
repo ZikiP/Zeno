@@ -196,19 +196,24 @@ interface Props {
 /* ✅ CSS 一律不带 BOM。要判断部署结果也别用"看着对"，读计算值 */
 ```
 
-## 现状（2026-10-15）
+## 现状（2026-10-16）
 
 全部在上限内。最大的几个：
 
 | 文件 | 行数 | 说明 |
 |---|---|---|
-| `sync/client.ts` | 298 | 贴着 300。设备身份与服务端地址（deviceId、显示名、endpoint、token）已拆到 `sync/device.ts`；状态条与配置弹层拆成 `SyncBar.tsx` / `SyncSheet.tsx` |
-| `server/proxy.mjs` | 295 | 三道闸 + 逐跳重定向。渲染池在 `render.mjs`，等待判据在 `render-wait.mjs`，白名单与插件头在 `allowlist.mjs` |
-| `site/fetch.ts` | 277 | 纯文本工具（decodeEntities / stripTags / escapeRe）拆到 `site/text.ts`，parse 与 fetch 共用同一份 |
+| `server/render.mjs` | 299 | 贴着 300。浏览器池与结果缓存；等内容到位的三个判据在 `render-wait.mjs`，页面内 JSON 捕获在 `capture.mjs`，缓存在 `render-cache.mjs` |
+| `sync/client.ts` | 298 | 贴着 300。设备身份与服务端地址（deviceId、显示名、endpoint、token）已拆到 `sync/device.ts`；状态条是 `SyncBar.tsx`，配置那一栏在 `pages/settings/SyncPanel.tsx` |
+| `site/fetch.ts` | 295 | 纯文本工具（decodeEntities / stripTags / escapeRe）拆到 `site/text.ts`，parse 与 fetch 共用同一份 |
+| `site/validate.ts` | 283 | 类型定义和校验规则各自演进；URL 模板的占位符表拆到 `site/url-template.ts` |
 | `server/cache-store.mjs` | 270 | 图片缓存的盘上机制。配置在 `cache-config.mjs`、对外的脸在 `cache.mjs` |
-| `site/validate.ts` | 263 | 类型定义和校验规则各自演进；URL 模板的占位符表拆到 `site/url-template.ts` |
+| `sync/applyRemote.ts` | 265 | 服务端 → 本地的单个 IndexedDB 事务 |
 | `pages/reader/ReaderPage.tsx` | 250 | 顶到上限。动作在 `useReaderActions`，副作用在 `useReaderEffects`，下一话预热在 `usePrefetch` |
-| `server/render.mjs` | 242 | 浏览器池与结果缓存。等内容到位的三个判据在 `render-wait.mjs`，页面内 JSON 捕获在 `capture.mjs`，缓存在 `render-cache.mjs` |
+| `pages/GlobalSearchPage.tsx` | 248 | 搜索范围跟着启用集合走；历史那一小块在 `useSearchHistory.ts` |
+| `pages/ComicPage.tsx` | 243 | 齿轮弹层拆到 `components/ComicSheet.tsx`，章节列表在 `components/ChapterList.tsx` |
+
+`server/proxy.mjs` 之前 295 行，把上游转发（重定向逐跳复检、重试、落盘）拆到
+`server/upstream.mjs` 之后只剩 180 行，读起来就是"三道闸 + 一个分支"。
 
 `server/db.mjs` 之前因为"连接/迁移"和"把插件 JSON 变成代理要用的域名与请求头"
 两件事挤在一个文件里冲到 311 行，后者已拆到 `server/plugins.mjs`。

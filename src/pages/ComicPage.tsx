@@ -9,6 +9,7 @@ import { useOfflineCache } from '@/store/useOfflineCache';
 import { usePlugin } from '@/store/PluginContext';
 import { onDataChange } from '@/store/dataEvents';
 import ChapterList from '@/components/ChapterList';
+import ComicSheet from '@/components/ComicSheet';
 import ProgressRing from '@/components/ProgressRing';
 import {
   IconBack,
@@ -18,7 +19,7 @@ import {
   IconSettings,
   IconShelf,
 } from '@/components/Icons';
-import { ErrorBox, Loading, Sheet } from '@/components/UI';
+import { ErrorBox, Loading } from '@/components/UI';
 
 export default function ComicPage() {
   const { slug = '' } = useParams();
@@ -227,31 +228,15 @@ export default function ComicPage() {
       </main>
 
       {showSettings && comic && (
-        <Sheet title="阅读设置" onClose={() => setShowSettings(false)}>
-          <div className="opt-row">
-            <div>
-              <div className="opt-row__label">当前插件</div>
-              <div className="opt-row__hint">{plugin.meta.name}</div>
-            </div>
-            <Link to="/settings" className="btn btn--ghost btn--sm">
-              切换
-            </Link>
-          </div>
-          <div className="opt-row">
-            <div>
-              <div className="opt-row__label">从书架移除</div>
-              <div className="opt-row__hint">同时清除该漫画的离线缓存</div>
-            </div>
-            <button
-              className="btn btn--ghost btn--sm"
-              onClick={async () => {
-                if (await dropEverything(comic.title)) nav('/shelf');
-              }}
-            >
-              移除
-            </button>
-          </div>
-        </Sheet>
+        <ComicSheet
+          sourceName={plugin.meta.name}
+          onClose={() => setShowSettings(false)}
+          onRemove={async (): Promise<boolean> => {
+            const gone = await dropEverything(comic.title);
+            if (gone) nav('/shelf');
+            return gone;
+          }}
+        />
       )}
     </>
   );

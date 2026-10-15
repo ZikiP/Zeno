@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react';
 import {
   deletePlugin,
-  getActivePlugin,
+  enabledIdsOf,
   listPlugins,
   newPluginTemplate,
   savePlugin,
-  setActivePlugin,
+  togglePluginEnabled,
 } from '@/store/plugins';
 import type { InstalledPlugin } from '@/store/db';
 import { notifyPluginChanged } from '@/store/PluginContext';
@@ -20,7 +20,8 @@ import { validatePlugin } from '@/site/validate';
  */
 export interface PluginManager {
   plugins: InstalledPlugin[] | null;
-  activeId: string | null;
+  /** 已启用的源 id，顺序跟安装顺序一致 */
+  enabledIds: string[];
   /** 正在编辑的插件（弹窗里） */
   editing: Plugin | null;
   /** 导入/保存后的提示 */
@@ -29,7 +30,7 @@ export interface PluginManager {
   startCreate: () => void;
   startEdit: (p: Plugin) => void;
   closeEditor: () => void;
-  switchTo: (id: string) => Promise<void>;
+  toggle: (id: string, on: boolean) => Promise<void>;
   remove: (p: Plugin) => Promise<void>;
   importFile: (file: File) => Promise<void>;
   exportPlugin: (p: Plugin) => void;
@@ -39,19 +40,24 @@ export interface PluginManager {
 
 export function usePluginManager(): PluginManager {
   const [plugins, setPlugins] = useState<InstalledPlugin[] | null>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [enabledIds, setEnabledIds] = useState<string[]>([]);
   const [editing, setEditing] = useState<Plugin | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const reload = useCallback(async () => {
-    const [all, active] = await Promise.all([listPlugins(), getActivePlugin()]);
+    const all = await listPlugins();
     setPlugins(all);
-    setActiveId(active?.meta.id ?? null);
+    setEnabledIds(enabledIdsOf(all.map((p) => p.plugin.meta.id)));
   }, []);
 
-  const switchTo = useCallback(
-    async (id: string) => {
-      await setActivePlugin(id);
+  /*
+   * 现读现算，不用组件里那份 plugins state ——
+   * 刚导入的插件还没进 state，照 state 算会把它的 id 过滤掉，开关点了没生效；
+   * 更糟的是这次写入会把启用集合「定死」成旧的那几本。
+   */
+  const toggle = useCallback(
+    async (id: string, on: boolean) => {
+      setEnabledIds(await togglePluginEnabled(id, on));
       await reload();
       notifyPluginChanged();
     },
@@ -95,16 +101,15 @@ export function usePluginManager(): PluginManager {
       const exists = plugins?.some((i) => i.plugin.meta.id === p.meta.id);
 
       await savePlugin({ plugin: p, installedAt: Date.now(), origin: 'imported' });
-      await switchTo(p.meta.id);
+      // 装完就用得上：显式写进启用集合，别让它停在"装了但没启用"
+      await toggle(p.meta.id, true);
 
       setMessage({
         kind: 'ok',
-        text: exists
-          ? `已更新插件「${p.meta.name}」并设为当前`
-          : `已导入插件「${p.meta.name}」并设为当前`,
+        text: exists ? `已更新插件「${p.meta.name}」` : `已导入插件「${p.meta.name}」`,
       });
     },
-    [plugins, switchTo],
+    [plugins, toggle],
   );
 
   const exportPlugin = useCallback((p: Plugin) => {
@@ -127,21 +132,21 @@ export function usePluginManager(): PluginManager {
       setEditing(null);
       await reload();
       notifyPluginChanged();
-      setMessage({ kind: 'ok', text: `插件「${name}」已保存并设为当前` });
+      setMessage({ kind: 'ok', text: `插件「${name}」已保存` });
     },
     [reload],
   );
 
   return {
     plugins,
-    activeId,
+    enabledIds,
     editing,
     message,
     reload,
     startCreate: () => setEditing(newPluginTemplate('新建插件')),
     startEdit: (p) => setEditing(p),
     closeEditor: () => setEditing(null),
-    switchTo,
+    toggle,
     remove,
     importFile,
     exportPlugin,

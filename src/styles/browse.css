@@ -366,6 +366,10 @@
 .plugin-row__name {
   text-align: left;
 }
+/* 停用的源压暗：一行灰下去比多挂一个「已停用」徽标省事，也不会和开关打架 */
+.plugin-row--off .chapter-row__name {
+  opacity: 0.45;
+}
 .plugin-row__meta {
   color: var(--text-faint);
   font-size: 12px;

@@ -62,43 +62,85 @@ export async function deletePlugin(id: string): Promise<void> {
   }
 }
 
-/** 取当前启用的插件；没有就用第一个；一个都没有返回 null（引导用户导入） */
-export async function getActivePlugin(): Promise<Plugin | null> {
-  const all = await listPlugins();
-  if (all.length === 0) return null;
+/* ── 启用 / 停用 ────────────────────────────────── */
 
-  const activeId = getActivePluginId();
-  if (activeId) {
-    const found = all.find((p) => p.plugin.meta.id === activeId);
-    if (found) return found.plugin;
+/**
+ * 启用集合。逗号拼接存在 localStorage —— 因为它在 SYNCED_KEYS 里，
+ * 而 collectSettings() 读的就是 localStorage；存成数组会变成 IndexedDB
+ * 那一份、两边不一致，结果这个键被声明为同步项却永远同步不出去。
+ * `__at` 后缀是同步层给每个键记的写入时间，LWW 要用它。
+ */
+const ENABLED_KEY = 'enabledPluginIds';
+/** 发现页当前在看哪个源。每台设备自己的浏览位置，刻意**不**同步 */
+const BROWSE_KEY = 'browsePluginId';
+/** 旧模型：同时只有一个"使用中"的源 */
+const LEGACY_ACTIVE_KEY = 'activePluginId';
+
+/**
+ * 已装插件里哪些算启用。
+ *
+ * 没写过这个键时按老数据推：
+ *  - 有 activePluginId（老版本用过）→ 只启用那一个，行为跟升级前一致；
+ *  - 什么都没有（刚导入第一个插件）→ 全部启用。装完就能用，
+ *    比"装完了发现页还是空的、得去设置里再点一下"合理。
+ *
+ * 允许返回空数组 —— 用户可以把所有源都停掉，那时候界面上就该是空的。
+ */
+export function enabledIdsOf(installedIds: string[]): string[] {
+  const raw = localStorage.getItem(ENABLED_KEY);
+  if (raw === null) {
+    const legacy = localStorage.getItem(LEGACY_ACTIVE_KEY);
+    if (legacy && installedIds.includes(legacy)) return [legacy];
+    return [...installedIds];
   }
-  setActivePlugin(all[0].plugin.meta.id);
-  return all[0].plugin;
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && installedIds.includes(s));
+}
+
+export function setEnabledIds(ids: string[]): void {
+  localStorage.setItem(ENABLED_KEY, ids.join(','));
+  localStorage.setItem(`${ENABLED_KEY}__at`, String(Date.now()));
+}
+
+/** 改一个源的启用状态，返回改完的启用集合 */
+export function setPluginEnabled(id: string, on: boolean, installedIds: string[]): string[] {
+  const now = new Set(enabledIdsOf(installedIds));
+  if (on) now.add(id);
+  else now.delete(id);
+  // 保持安装顺序，不然开关点一下列表就跳序
+  const next = installedIds.filter((i) => now.has(i));
+  setEnabledIds(next);
+  return next;
 }
 
 /**
- * 当前启用的插件 id。
+ * 就一个源改启用状态，已装列表自己读。
  *
- * 存在 localStorage 而不是 IndexedDB 的 settings 表 —— 因为它在 SYNCED_KEYS 里，
- * 而 collectSettings() 读的是 localStorage。之前两边不一致，
- * 结果这个键被声明为同步项却永远同步不出去（值恒为 null，被 filter 掉）。
- *
- * `__at` 后缀是同步层给每个键记的写入时间，LWW 要用它，
- * 缺了它每次同步所有设置都显得"刚刚更新过"。
+ * 调用方手上常常只有刚保存的插件（导入、编辑器保存），那份列表还是旧的 ——
+ * 让调用方传就会把新插件过滤掉，开关点了没生效。
  */
-const ACTIVE_KEY = 'activePluginId';
-
-export function getActivePluginId(): string | null {
-  return localStorage.getItem(ACTIVE_KEY);
+export async function togglePluginEnabled(id: string, on: boolean): Promise<string[]> {
+  const all = (await listPlugins()).map((p) => p.plugin.meta.id);
+  return setPluginEnabled(id, on, all);
 }
 
-export function setActivePlugin(id: string): void {
-  localStorage.setItem(ACTIVE_KEY, id);
-  localStorage.setItem(`${ACTIVE_KEY}__at`, String(Date.now()));
+/**
+ * 发现页在看的那个源。
+ *
+ * 上次看的源被停用了就退到启用集合的第一个 —— 宁可换个源显示，
+ * 也不要停在一个"这个源没启用"的死页上。
+ */
+export function browseIdOf(enabledIds: string[]): string | null {
+  const saved = localStorage.getItem(BROWSE_KEY);
+  if (saved && enabledIds.includes(saved)) return saved;
+  return enabledIds[0] ?? null;
 }
 
-/** @deprecated 用 setActivePlugin，保留是为了不破坏既有调用点 */
-export const setActivePluginId = setActivePlugin;
+export function setBrowseId(id: string): void {
+  localStorage.setItem(BROWSE_KEY, id);
+}
 
 /** 新建空白插件的模板 */
 export function newPluginTemplate(name: string): Plugin {

@@ -4,10 +4,9 @@
  * 为什么要用手机去跑：服务端渲染用的是插件声明的请求头，不是设备的头。
  * 这一层只有客户端真以手机 UA 发请求时才验得到，本机直连探针测不到。
  *
- * 为什么全程站内点击而不是直接 goto 章节地址：这个应用一次只跟一个激活内容源
- * （localStorage.activePluginId），而 /read/:pluginId/... 里的 pluginId 目前
- * 只是路径装饰 —— 直接深链进另一个源的章节，阅读器会拿当前激活的源去拼地址，
- * 结果是"这一章没有图片"。所以先激活，再点进去。
+ * 为什么全程站内点击而不是直接 goto 章节地址：这条是照着用户的真手走一遍
+ * 发现页 → 详情 → 阅读。深链本身已经能跨源（详情页与阅读器按地址里的 pluginId
+ * 取规则），所以第 3 步只需要把发现页切到这个源，不再需要"先激活才能读"。
  *
  * 用法：node scripts/verify-phone.mjs [base-url] [插件id] [作品slug]
  *      默认 https://ziki-minipc.tail565ef2.ts.net copymanga
@@ -110,10 +109,18 @@ const synced = await page
   .catch(() => false);
 check(synced, `设备上已有 ${PLUGIN_ID}（服务端装的，没人手动导入）`);
 
-console.log('\n=== 3. 像用户那样把这个源切成激活');
+console.log('\n=== 3. 确保这个源是启用的，并把发现页切到它');
 await page.evaluate((id) => {
-  localStorage.setItem('activePluginId', id);
-  localStorage.setItem('activePluginId__at', String(Date.now()));
+  /*
+   * enabledPluginIds 没写过 = 装上的源全启用，这时什么都不用做；
+   * 写过而不含这个 id = 它被关着，把它打开。browsePluginId 是本机的浏览位置，不同步。
+   */
+  const raw = localStorage.getItem('enabledPluginIds');
+  if (raw !== null && !raw.split(',').includes(id)) {
+    localStorage.setItem('enabledPluginIds', `${raw},${id}`);
+    localStorage.setItem('enabledPluginIds__at', String(Date.now()));
+  }
+  localStorage.setItem('browsePluginId', id);
 }, PLUGIN_ID);
 await page.goto(`${BASE}/explore`, { waitUntil: 'domcontentloaded' });
 await page
@@ -125,7 +132,7 @@ await page.screenshot({ path: join(shots, 'explore.png') });
 
 console.log('\n=== 4. 点进一部作品，再点进一章');
 const href = SLUG
-  ? `/comic/${SLUG}`
+  ? `/comic/${PLUGIN_ID}/${SLUG}`
   : await page.evaluate(() => document.querySelector('a.card')?.getAttribute('href') ?? '');
 check(!!href, `从卡片拿到详情地址 ${href}`);
 await page.goto(`${BASE}${href}`, { waitUntil: 'domcontentloaded' });

@@ -27,7 +27,7 @@ export interface RemoteSnapshot {
 }
 
 /** 会同步的 localStorage 键 */
-const SYNCED_KEYS = ['themeMode', 'readerPrefs', 'readerMode', 'activePluginId'] as const;
+const SYNCED_KEYS = ['themeMode', 'readerPrefs', 'readerMode', 'enabledPluginIds'] as const;
 
 /* ── 本地 → 服务端 ─────────────────────────────────── */
 

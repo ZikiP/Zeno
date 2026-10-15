@@ -1,29 +1,37 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import PluginList from './PluginList';
 import PluginEditor from './PluginEditor';
 import { usePluginManager } from './usePluginManager';
+import { useReloadOnChange } from '@/store/useDataVersion';
 
 /**
  * 内容源
  *
- * Zeno 不内置任何内容源：这一栏就是全部的来源管理 —— 导入、新建、切换激活、
+ * Zeno 不内置任何内容源：这一栏就是全部的来源管理 —— 导入、新建、启用开关、
  * 编辑、导出、删除。插件是一份 JSON 描述文件，说明去哪里、页面长什么样、怎么解析。
  */
 export default function SourcesPanel() {
   const pm = usePluginManager();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    void pm.reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /*
+   * 挂载时读一次，之后每次本地数据变更都重读。
+   *
+   * 只读一次不够：首轮同步可能在这栏已经打开着的时候才把插件写进 IndexedDB，
+   * 那样列表会一直停在「还没有安装任何插件」，而发现页明明已经有源可用了。
+   */
+  useReloadOnChange(pm.reload);
 
   return (
     <>
       <p className="settings-note">
         装好插件后，抓取白名单会自动包含它用到的域名，不用去改服务端配置。
         <br />
-        <em>发现页与搜索页用的是当前激活的那个源；书架和详情页跟着地址走，能同时读多个源。</em>
+        <em>
+          开关决定这个源要不要用，可以同时启用多个：书架把它们的书合在一起，
+          发现页用顶部的切换器换站，跨源搜索默认把所有已启用的源都搜一遍。
+          停用只是藏起来，书架和缓存都还在，重新打开就回来。
+        </em>
       </p>
 
       <div className="settings-actions" style={{ marginTop: 0, marginBottom: 12 }}>
