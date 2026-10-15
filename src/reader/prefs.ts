@@ -4,6 +4,7 @@
  * 独立成文件是因为这些设置会同时被阅读器和设置面板用到，
  * 且需要跨会话持久化。
  */
+import { setLocalPref } from '@/sync/localPrefs';
 
 /** 翻页方向：日漫习惯从右往左，韩漫/国漫从左往右 */
 export type Direction = 'ltr' | 'rtl';
@@ -49,7 +50,7 @@ export function loadPrefs(): ReaderPrefs {
 
 export function savePrefs(p: ReaderPrefs) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(p));
+    setLocalPref(KEY, JSON.stringify(p));
   } catch {
     /* 隐私模式下写不进去，忽略 */
   }

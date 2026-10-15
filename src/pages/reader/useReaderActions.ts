@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import type { Bookmark } from '@/store/db';
 import type { Plugin } from '@/site/types';
+import { setLocalPref } from '@/sync/localPrefs';
 import type { Bookmarks } from './useBookmarks';
 import type { Paging, ReaderMode } from './usePaging';
 
@@ -82,13 +83,14 @@ export function useReaderActions(a: Args) {
   /**
    * 切滚动 / 分页。
    *
-   * 模式要落 localStorage —— 它是"这台设备的阅读习惯"，不该每章重新问一遍；
+   * readerMode 是同步键（手机上切成分页，平板也跟着变），所以走 setLocalPref
+   * 把 `__at` 一起写上 —— 少了那个时间戳，本地这次切换在下次拉取时必输。
    * 同时把页码归零，否则分页模式下会带着滚动模式的偏移插进一个不存在的屏。
    */
   const switchMode = useCallback(
     (m: ReaderMode) => {
       a.setMode(m);
-      localStorage.setItem('readerMode', m);
+      setLocalPref('readerMode', m);
       a.paging.setPage(0);
     },
     [a.setMode, a.paging],

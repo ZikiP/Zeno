@@ -139,7 +139,25 @@ await push({ deviceId: 'dev-old', seq: 0, plugins: [{ ...P, updatedAt: T }] });
 snap = await pull();
 check(snap.plugins.length === 0, '旧数据没有复活插件');
 
-console.log('\n=== 9. 重新安装同一个插件（更新的写入）应当被接受 ===');
+console.log('\n=== 9. 旧设备把它名下的行推回来 —— 不能复活成孤儿行 ===');
+// forget-plugin 在服务端已经级联删过，但还没同步过的设备手里仍留着这些行。
+// 各 upsert 原本只查自己 kind 的墓碑（shelf/<id>/<slug>），插件那一层没人问，
+// 于是它们会重新插进主表，指向一个已经不存在的插件。
+// 时间戳刻意取 T+3000：比第 2 节那些行墓碑新（同 kind 的拦不住），
+// 但比 forget-plugin 打的插件墓碑（墙上时钟）旧。
+await push({
+  deviceId: 'dev-old',
+  seq: 0,
+  shelf: [{ ...row, updatedAt: T + 3000 }],
+  positions: [{ ...position, updatedAt: T + 3000 }],
+  bookmarks: [{ ...bookmark, updatedAt: T + 3000 }],
+});
+snap = await pull();
+check(snap.shelf.length === 0, `书架没被推回来（剩 ${snap.shelf.length}）`);
+check(snap.positions.length === 0, `进度没被推回来（剩 ${snap.positions.length}）`);
+check(snap.bookmarks.length === 0, `书签没被推回来（剩 ${snap.bookmarks.length}）`);
+
+console.log('\n=== 10. 重新安装同一个插件（更新的写入）应当被接受 ===');
 // 时间戳必须真的比墓碑新。forget-plugin 用的是墙上时钟，这里继续用固定基准 T
 // 就只是在验证脚本自己的假设，所以改用真实时钟 + 偏移。
 await push({ deviceId: 'dev-b', seq: 0, plugins: [{ ...P, updatedAt: Date.now() + 60_000 }] });

@@ -1,6 +1,6 @@
 import { logChange, openDb } from './db.mjs';
 import { applyDeletes } from './deletes.mjs';
-import { goneBefore, goneStmt, num } from './lww.mjs';
+import { goneBefore, goneStmt, num, pluginGone } from './lww.mjs';
 
 /**
  * 合并策略：增的一侧
@@ -69,6 +69,7 @@ export function upsertShelf(rows, deviceId) {
     if (!r?.pluginId || !r?.slug) continue;
     const ts = num(r.updatedAt, Date.now());
     if (goneBefore(gone, 'shelf', `${r.pluginId}/${r.slug}`, ts)) continue;
+    if (pluginGone(gone, r.pluginId, ts)) continue;
     const local = touch.get(r.pluginId, r.slug);
     if (local && num(local.updated_at) >= ts) continue;
     apply.run(
@@ -111,6 +112,7 @@ export function upsertPositions(rows, deviceId) {
     if (!r?.pluginId || !r?.slug || !r?.chapterId) continue;
     const ts = num(r.updatedAt, Date.now());
     if (goneBefore(gone, 'position', `${r.pluginId}/${r.slug}/${r.chapterId}`, ts)) continue;
+    if (pluginGone(gone, r.pluginId, ts)) continue;
 
     const local = touch.get(r.pluginId, r.slug, r.chapterId);
     if (!local) {
@@ -150,6 +152,7 @@ export function upsertLastChapter(rows, deviceId) {
     if (!r?.pluginId || !r?.slug || !r?.chapterId) continue;
     const ts = num(r.updatedAt, Date.now());
     if (goneBefore(gone, 'lastChapter', `${r.pluginId}/${r.slug}`, ts)) continue;
+    if (pluginGone(gone, r.pluginId, ts)) continue;
     const local = touch.get(r.pluginId, r.slug);
     if (local && num(local.updated_at) >= ts) continue;
     apply.run(r.pluginId, r.slug, r.chapterId, ts, deviceId ?? null);
@@ -179,6 +182,7 @@ export function upsertBookmarks(rows, deviceId) {
     if (!r?.key) continue;
     const ts = num(r.updatedAt, Date.now());
     if (goneBefore(gone, 'bookmark', r.key, ts)) continue;
+    if (pluginGone(gone, r.pluginId, ts)) continue;
     const local = touch.get(r.key);
     if (local && num(local.updated_at) >= ts) continue;
     apply.run(

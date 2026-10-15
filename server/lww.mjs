@@ -43,6 +43,18 @@ export function dropPluginRows(d, pluginId) {
   }
 }
 
+/**
+ * 这行数据所属的插件是不是已经被删掉了？
+ *
+ * dropPluginRows 只挡得住"删的那一刻"。同步是推全量，还没同步过的设备
+ * 手里仍留着那些行，下次 push 就把它们插回来了 —— 而墓碑记的是
+ * `plugin/<id>`，各 upsert 只查自己那个 kind 的墓碑（`shelf/<id>/<slug>`），
+ * 根本不会去问插件那一层，于是删除被复活成孤儿行。
+ */
+export function pluginGone(gone, pluginId, ts) {
+  return !!pluginId && goneBefore(gone, 'plugin', pluginId, ts);
+}
+
 /** 记一条墓碑（存在即覆盖为更新的那个时间戳） */
 export function stampDelete(d, kind, id, ts, deviceId) {
   d.prepare(

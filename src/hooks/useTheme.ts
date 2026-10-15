@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { onDataChange } from '@/store/dataEvents';
+import { setLocalPref } from '@/sync/localPrefs';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -67,7 +68,7 @@ export function useTheme() {
   }, []);
 
   const setTheme = useCallback((m: ThemeMode) => {
-    localStorage.setItem(KEY, m);
+    setLocalPref(KEY, m);
     setMode(m);
   }, []);
 
