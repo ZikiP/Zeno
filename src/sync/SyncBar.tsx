@@ -5,8 +5,8 @@ import { sync, type SyncState } from '@/sync/client';
 /**
  * 同步状态条。放在顶栏下方，让用户随时知道「数据同步了没」。
  *
- * 配置弹层在 SyncSheet.tsx —— 这两个只是同一件事的两面，不再放一个文件里，
- * 合起来早就过了组件的 250 行上限。
+ * 配置不在这里 —— 它是设置页的「同步」栏，点这里直接跳过去。
+ * 以前这里挂一个弹层，改配置和看状态于是变成两个入口、两套布局。
  */
 export default function SyncBar({ onConfigure }: { onConfigure?: () => void }) {
   const [s, setS] = useState<SyncState>(sync.getState());

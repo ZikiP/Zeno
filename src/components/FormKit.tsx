@@ -29,12 +29,15 @@ export function Field({
   value,
   onChange,
   placeholder,
+  type = 'text',
 }: {
   label: string;
   hint?: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  /** 令牌一类的敏感输入用 password，否则肩后有人就看见了 */
+  type?: 'text' | 'password';
 }) {
   return (
     <label style={{ display: 'block' }}>
@@ -45,6 +48,7 @@ export function Field({
         </div>
       )}
       <input
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

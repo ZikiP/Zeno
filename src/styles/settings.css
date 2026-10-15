@@ -1,0 +1,190 @@
+/* 设置页：分栏与面板 */
+
+/*
+ * 分栏条贴在顶栏下面。跟着页面滚走的话，用户改完一栏想换栏就得先滚回顶部 ——
+ * 设置页恰恰是来回换栏最频繁的页面。
+ */
+.tabs {
+  position: sticky;
+  top: calc(var(--header-h) + var(--safe-t));
+  z-index: 15;
+  display: flex;
+  gap: var(--s-1);
+  padding: 0 calc(var(--s-3) + var(--safe-r)) 0 calc(var(--s-3) + var(--safe-l));
+  overflow-x: auto;
+  background: var(--glass-bg-bar);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-bottom: 1px solid var(--border);
+  /* 手机上五个栏刚好挤满：能滑，但不许露出滚动条（它会顶起内容） */
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs__item {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 11px var(--s-3) 12px;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--d-micro) var(--e-out),
+    transform var(--d-press) var(--e-out);
+}
+.tabs__item:active {
+  transform: scale(0.96);
+}
+/*
+ * 选中态不能只换个颜色：这一栏是"我现在在哪"的唯一线索，
+ * 色弱或高对比模式下颜色那条会一起被压掉，所以下划线和字重也要一起变。
+ */
+.tabs__item::after {
+  content: '';
+  position: absolute;
+  left: var(--s-3);
+  right: var(--s-3);
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform var(--d-micro) var(--e-out);
+}
+.tabs__item.on {
+  color: var(--text);
+  font-weight: 600;
+}
+.tabs__item.on::after {
+  transform: scaleX(1);
+}
+
+.tab-panel {
+  padding: var(--s-4) calc(var(--s-3) + var(--safe-r)) var(--s-6) calc(var(--s-3) + var(--safe-l));
+}
+.tab-panel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+/* 面板顶上那句解释：说清楚这一栏管的是什么 */
+.settings-note {
+  margin: 0 0 var(--s-4);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+.settings-note em {
+  font-style: normal;
+  color: var(--text-faint);
+}
+
+.settings-h {
+  margin: var(--s-5) 0 var(--s-2);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.settings-h:first-child {
+  margin-top: 0;
+}
+
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--d-press) var(--e-out);
+}
+.settings-row:not(button) {
+  cursor: default;
+}
+.settings-row:active {
+  background: var(--bg-elev-2);
+}
+.settings-row__name {
+  flex: 1;
+  min-width: 0;
+}
+.settings-row__value {
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+.settings-row__value--accent {
+  color: var(--accent);
+}
+.settings-row__code {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.settings-actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+.settings-actions__spacer {
+  flex: 1;
+}
+
+.settings-progress {
+  height: 4px;
+  margin: var(--s-3) 0 var(--s-4);
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.settings-progress__bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--d-sheet) var(--e-out);
+}
+
+/* 地址点名了一个没装的源（App.tsx 的 MissingSource） */
+.missing-source {
+  padding: var(--s-8) var(--s-4);
+  max-width: 420px;
+  margin: 0 auto;
+  text-align: center;
+}
+.missing-source h2 {
+  margin: 0 0 var(--s-3);
+  font-size: 17px;
+}
+.missing-source p {
+  margin: 0 0 var(--s-5);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}

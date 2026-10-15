@@ -2,8 +2,14 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath, URL } from 'node:url';
+import pkg from './package.json';
 
 export default defineConfig({
+  /*
+   * 「关于」里那个版本号不能自己写一份 —— 上次发版忘了改，界面报了个不存在的版本。
+   * 构建期注入，唯一来源还是 package.json。
+   */
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [
     react(),
     VitePWA({
