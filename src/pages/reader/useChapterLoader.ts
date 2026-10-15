@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getChapter } from '@/site/engine';
 import type { Plugin } from '@/site/types';
 import { cacheChapterImages, getCachedChapter } from '@/store/chapters';
@@ -103,14 +103,23 @@ export function useChapterLoader(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plugin, pluginId, slug, chapterId, nonce]);
 
-  /** 进度写入做 600ms 节流，连续滚动时不会疯狂写 IndexedDB */
-  const record = (ratio: number) => {
-    if (!pluginId) return;
-    window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      void savePosition(pluginId, slug, chapterId, Math.round(ratio * 100));
-    }, 600);
-  };
+  /**
+   * 进度写入做 600ms 节流，连续滚动时不会疯狂写 IndexedDB。
+   *
+   * 用 useCallback 钉住引用：翻页模式也要上报进度，而 usePaging 要把
+   * 它放进翻页动作的依赖里 —— 每次渲染都换一个新函数的话，
+   * 键盘监听和 PagedView 每帧都在重挂。
+   */
+  const record = useCallback(
+    (ratio: number) => {
+      if (!pluginId) return;
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = window.setTimeout(() => {
+        void savePosition(pluginId, slug, chapterId, Math.round(ratio * 100));
+      }, 600);
+    },
+    [pluginId, slug, chapterId],
+  );
 
   /** 组件卸载时立即补写一次，避免 debounce 期间切页丢进度 */
   useEffect(() => {

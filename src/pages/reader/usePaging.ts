@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReaderPrefs } from '@/reader/prefs';
 
 export type ReaderMode = 'scroll' | 'paged';
@@ -41,6 +41,14 @@ export function usePaging(
   totalImages: number,
   mode: ReaderMode,
   pageMode: ReaderPrefs['pageMode'],
+  /**
+   * 翻页模式下的进度上报。
+   *
+   * 传进来才记。以前只有滚动视图的 onScroll 会记，于是用分页读的书
+   * 从来没写过 positions —— 书架的进度环和详情页的「继续阅读」
+   * 对分页读者是空的。
+   */
+  record?: (ratio: number) => void,
 ): Paging {
   const [page, setPage] = useState(0);
 
@@ -48,13 +56,43 @@ export function usePaging(
   const totalPages = totalImages > 0 ? Math.ceil(totalImages / perPage) : 0;
   const startIndex = page * perPage;
 
+  /*
+   * 页码的同步副本。连点/快滑时同一帧内会触发多次，
+   * 只读已渲染的 page 的话第二次算出同一个目标、setPage 被 React 跳过，
+   * 就少翻了一页。
+   */
+  const pageRef = useRef(page);
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  /**
+   * 翻到第 next 屏，并把它记成进度。
+   *
+   * 只有走这里的翻页才上报；setPage 留给程序定位（恢复上次读到的位置、
+   * 切模式时归零）—— 那条路也上报的话，一切换模式就把 0% 盖回真进度上。
+   *
+   * 比例取 next/(totalPages-1)：首屏 0、末屏 1，和滚动的
+   * scrollTop/可滚距离同构，所以恢复时 round 回去正好落回同一屏。
+   */
+  const turnTo = useCallback(
+    (next: number) => {
+      const clamped = Math.max(0, Math.min(totalPages - 1, next));
+      if (clamped === pageRef.current) return;
+      pageRef.current = clamped;
+      setPage(clamped);
+      if (record && mode === 'paged' && totalPages > 1) record(clamped / (totalPages - 1));
+    },
+    [totalPages, record, mode],
+  );
+
   const goForward = useCallback(() => {
-    setPage((p) => (p + 1 >= totalPages ? p : p + 1));
-  }, [totalPages]);
+    turnTo(pageRef.current + 1);
+  }, [turnTo]);
 
   const goBack = useCallback(() => {
-    setPage((p) => (p <= 0 ? p : p - 1));
-  }, []);
+    turnTo(pageRef.current - 1);
+  }, [turnTo]);
 
   /**
    * 点击区域。
@@ -74,9 +112,9 @@ export function usePaging(
 
   const seek = useCallback(
     (ratio: number) => {
-      setPage(Math.max(0, Math.min(totalPages - 1, Math.floor(ratio * totalPages))));
+      turnTo(Math.floor(ratio * totalPages));
     },
-    [totalPages],
+    [totalPages, turnTo],
   );
 
   /**

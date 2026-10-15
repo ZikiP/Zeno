@@ -37,6 +37,31 @@ export function useSavedPercent(
   return percent;
 }
 
+/**
+ * 分页模式的进度恢复。
+ *
+ * 每章进来定位一次，落在上次读到的百分比上。
+ * 这里不能像滚动那样「两端宽限」：ReaderPage 换章不重挂，
+ * page 是带着上一章的屏号过来的，所以哪怕进度是 0 也要显式归零，
+ * 否则新章一进来就在第 5 屏。
+ *
+ * 走 setPage 而不是 seek —— seek 是用户拖进度条，会写进度；
+ * 这条是程序定位，写回去只是把刚读出来的数再存一遍。
+ */
+export function useRestorePagedPosition(
+  enabled: boolean,
+  percent: number,
+  totalPages: number,
+  setPage: (n: number) => void,
+) {
+  useEffect(() => {
+    if (!enabled || totalPages < 1) return;
+    // usePaging 记的是 page/(totalPages-1)，这里取逆
+    const target = Math.round((percent / 100) * (totalPages - 1));
+    setPage(Math.max(0, Math.min(totalPages - 1, target)));
+  }, [enabled, percent, totalPages, setPage]);
+}
+
 /** 提示条 2.6 秒后自动消失 */
 export function useAutoDismiss(text: string | null, clear: () => void) {
   useEffect(() => {

@@ -11,6 +11,7 @@ import {
   useAutoDismiss,
   useImagePreload,
   useKeepAwake,
+  useRestorePagedPosition,
   useSavedPercent,
 } from './useReaderEffects';
 import { useReaderActions } from './useReaderActions';
@@ -63,7 +64,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     useChapterLoader(plugin, slug, chapterId);
 
   const imageCount = images?.length ?? 0;
-  const paging = usePaging(imageCount, mode, prefs.value.pageMode);
+  const paging = usePaging(imageCount, mode, prefs.value.pageMode, record);
 
   const bookmarks = useBookmarks(plugin, chapterId);
 
@@ -96,9 +97,21 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     setMode,
   });
 
-  /* ── 进度恢复（仅滚动模式） ── */
+  /*
+   * ── 进度 ──
+   * 滚动模式的进度由 ScrollView 的 onScroll 顺带上报，恢复只看滚动容器；
+   * 翻页模式的上报走 usePaging 的翻页动作（程序定位不算，否则切一下模式
+   * 就把 0% 盖回真进度上），恢复单独一条 —— 换章不重挂，page 是带着
+   * 上一章的屏号过来的。
+   */
   const savedPercent = useSavedPercent(plugin?.meta.id, slug, chapterId);
   useRestoreScrollPosition(mode === 'scroll' && !!images, savedPercent, scrollRef);
+  useRestorePagedPosition(
+    mode === 'paged' && !!images,
+    savedPercent,
+    paging.totalPages,
+    paging.setPage,
+  );
 
   /* ── 副作用 ── */
   useKeepAwake(prefs.value.keepAwake, !!images);
