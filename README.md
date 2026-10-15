@@ -149,6 +149,7 @@ npm run dev
 | `parse.slugFrom` | 提取漫画标识，需一个捕获组 |
 | `parse.title` | `{attr:"title"}` 按属性，或 `{tag:"h3"}` 按标签 |
 | `parse.cover` | 提取封面地址的正则 |
+| `parse.coverSizing` | 封面缩放模板，例 `"?w={w}&h={h}&q=85"`。**不填 = 不追加参数**（默认就该不填，见坑 8） |
 | `parse.chapterItem` | 章节条目在 `<a>` 上的 class（或 href 里的固定片段） |
 | `parse.chapterIdFrom` | 提取章节 id。**两组**=分区+序号（拼成 `0_562`、按序号排序）；**一组**=整段就是 id（UUID 之类，顺序按页面出现先后） |
 | `parse.imageAttr` | 图片真实地址所在的属性名 |
@@ -160,7 +161,7 @@ npm run dev
 | `fetch.timeoutMs` | 单次取源上限，默认 20000 |
 | `headers` | 站点要求看到的请求头。代理转发 `User-Agent`/`Accept`/`Accept-Language`/`Referer`（**刻意不转发 Cookie 与 Authorization**） |
 
-### 写插件时的七个坑
+### 写插件时的八个坑
 
 1. **`card` 不能填 CSS 选择器。** 它是字符串切分点。填 `.comic-card` 会把
    `<style>` 里同名的 CSS 规则一起切进来。必须填 `<div class="comic-card`。
@@ -198,6 +199,12 @@ npm run dev
    渲染的东西。**capture 与 waitFor 互斥**（声明了 capture 就以它为准，
    选择器先出现不算数——那张占位图总是先到），所以只能按页面类型分别写，
    通常只给 `chapter` 配。抓空了会自动回落取 HTML，`parse.imageAttr` 仍是兜底。
+
+8. **别指望封面 CDN 吃尺寸参数。** `parse.coverSizing` 不填就是原样取，
+   而**不填才是对的默认**：实测包子漫画与拷貝漫畫两家的封面 CDN 都不认
+   `?w=&h=&q=` —— 同一个地址原样 1.6 秒 200，带上参数挂 11 秒回 503。
+   以前框架一律追加这三个参数，等于每屏封面都在白等十几秒再画成"加载失败"。
+   只有确认某站真会按参数出小图，才值得写这一条。
 
 ## 取源方式：`fetch` 与 `browser`
 

@@ -165,10 +165,11 @@ const cardCover = await waitImage('.card__cover img');
 check(cardCover.ok, `发现页封面已加载 ${JSON.stringify(cardCover.info)}`);
 await visit('/search', 'search-390');
 /*
- * 设置页要等首轮同步把插件从服务端拉下来才有内容可看，
- * 所以这里给 .plugin-row 留足等待时间而不是固定睡 600ms。
+ * 设置页分栏之后，插件列表在「内容源」那一栏里（/settings 默认落在外观）。
+ * 要等首轮同步把插件从服务端拉下来才有内容可看，所以给 .plugin-row 留足
+ * 等待时间而不是固定睡 600ms。分栏本身由 verify-settings.mjs 逐栏走查。
  */
-await visit('/settings', 'settings-390', {
+await visit('/settings?tab=sources', 'settings-390', {
   waitFor: pluginId ? '.plugin-row' : '.empty',
   timeout: 30_000,
 });

@@ -66,26 +66,44 @@ function nodeProxyBase(): string {
 }
 
 /**
- * 封面地址：拼 CDN 的尺寸参数后过代理。
+ * 封面地址：按插件声明的缩放模板拼参数，然后过代理。
+ *
+ * **默认不追加任何参数。** 这不是偷懒，是实测：包子漫画与拷貝漫畫的封面 CDN
+ * 都不吃 `?w=&h=&q=` —— 同一个地址原样 1.6 秒 200，带上参数 11 秒回 503。
+ * 也就是说以前每一屏封面都在白等十几秒、然后画成"加载失败"。
+ * 真遇到支持原图缩放的站，插件里写 `parse.coverSizing` 声明模板即可。
  *
  * 不能无条件 `url + '?w=...'` —— 很多站的封面本来就带 query
- * （包子漫画是 `...jpg?w=285&h=375&q=100`），那样拼出来是
- * `...jpg?w=285&h=375&q=100?w=300&h=400&q=85`，第二个 ? 落在值里，
- * 参数全废。用 URL 设置参数才会正确合并。
+ * （包子漫画是 `...jpg?w=285&h=375&q=100`），那样拼出来是两个 `?`，参数全废。
+ * 用 URL 设置参数才会正确合并。
  */
-export function coverUrl(rawCover: string, w: number, h: number): string {
+export function coverUrl(plugin: Plugin | null | undefined, rawCover: string, w: number, h: number): string {
   if (!rawCover) return '';
+  const tpl = plugin?.parse.coverSizing;
+  if (!tpl) return proxied(rawCover);
   let url = rawCover;
   try {
     const u = new URL(rawCover);
-    u.searchParams.set('w', String(w));
-    u.searchParams.set('h', String(h));
-    u.searchParams.set('q', '85');
+    for (const [k, v] of paramsOf(tpl, w, h)) u.searchParams.set(k, v);
     url = u.toString();
   } catch {
-    url = `${rawCover}${rawCover.includes('?') ? '&' : '?'}w=${w}&h=${h}&q=85`;
+    url = `${rawCover}${rawCover.includes('?') ? '&' : '?'}${tpl
+      .replace('{w}', String(w))
+      .replace('{h}', String(h))
+      .replace('{q}', '85')}`;
   }
   return proxied(url);
+}
+
+/** 把 `w={w}&h={h}&q=85` 这种模板拆成键值对 */
+function paramsOf(tpl: string, w: number, h: number): [string, string][] {
+  const filled = tpl.replace(/^\?+/, '').replace(/\{w\}/g, String(w)).replace(/\{h\}/g, String(h));
+  const out: [string, string][] = [];
+  for (const pair of filled.split('&')) {
+    const i = pair.indexOf('=');
+    if (i > 0) out.push([pair.slice(0, i), pair.slice(i + 1)]);
+  }
+  return out;
 }
 
 /**

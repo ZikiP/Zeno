@@ -53,6 +53,26 @@ export function validatePlugin(p: unknown): string[] {
   if (!pl.parse?.chapterItem) errs.push('缺少 parse.chapterItem（章节条目标识）');
   if (!pl.parse?.imageAttr) errs.push('缺少 parse.imageAttr（图片属性名）');
 
+  /*
+   * 封面缩放模板：只有 {w} {h} 两个占位符是有意义的（尺寸由界面决定）。
+   * 写错成 {width} 的话 fillTemplate 不认，最后原样发给 CDN —— 参数就是个死字符串。
+   */
+  if (pl.parse?.coverSizing !== undefined) {
+    const tpl = pl.parse.coverSizing;
+    if (typeof tpl !== 'string' || !tpl.trim()) {
+      errs.push('parse.coverSizing 应为形如 "?w={w}&h={h}&q=85" 的模板，或干脆不填（不追加参数）');
+    } else {
+      for (const v of [...tpl.matchAll(/\{(\w+)\}/g)].map((m) => m[1])) {
+        if (v !== 'w' && v !== 'h') {
+          errs.push(`parse.coverSizing 里有不认识的占位符 {${v}}，可用的只有 {w} 和 {h}`);
+        }
+      }
+      if (!/[?&]/.test(tpl)) {
+        errs.push('parse.coverSizing 看着不像查询串（没有 ? 或 &），这样拼出来的参数是废的');
+      }
+    }
+  }
+
   /* 这几个字段会被直接喂给 new RegExp，写错一个括号就该在导入时拦住 */
   for (const field of ['slugFrom', 'cover', 'chapterIdFrom', 'noResultPattern'] as const) {
     const src = pl.parse?.[field];

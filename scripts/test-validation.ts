@@ -164,6 +164,25 @@ expectErr({ ...base, fetch: { minCount: 0 } }, 'minCount 为 0', '>= 1 的整数
 expectErr({ ...base, fetch: { minCount: { detail: 2.5 } } }, 'minCount 不是整数', '>= 1 的整数');
 expectErr({ ...base, fetch: { minCount: '20' as never } }, 'minCount 写成字符串', '正整数');
 
+console.log('\n=== 4c. parse.coverSizing ===');
+expectOk(
+  { ...base, parse: { ...base.parse, coverSizing: '?w={w}&h={h}&q=85' } },
+  '声明了缩放模板（CDN 真会出小图的站才该写）',
+);
+expectOk(base, '不填缩放模板 = 封面原样取（实测两家站的封面 CDN 带参数反而 503）');
+expectErr(
+  { ...base, parse: { ...base.parse, coverSizing: '?w={width}&h={h}' } },
+  'coverSizing 里出现不认识的占位符',
+  '不认识的占位符',
+);
+expectErr(
+  { ...base, parse: { ...base.parse, coverSizing: '?size={size}' } },
+  'coverSizing 用了 {size}',
+  '不认识的占位符',
+);
+expectErr({ ...base, parse: { ...base.parse, coverSizing: 'w300' } }, 'coverSizing 不像查询串', '不像查询串');
+expectErr({ ...base, parse: { ...base.parse, coverSizing: '' } }, 'coverSizing 空串', '或干脆不填');
+
 console.log('\n=== 5. 坏输入不能把校验本身弄崩 ===');
 
 for (const bad of [null, undefined, 42, 'string', [], {}]) {
