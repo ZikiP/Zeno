@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { RetryableImage } from '@/components/RetryableImage';
 import { IconBookmark } from '@/components/Icons';
 
@@ -42,6 +42,32 @@ export default function PagedView({
   /** 刚滑过就别再触发同一次的点击，否则一次手势翻两页 */
   const swiped = useRef(false);
 
+  /*
+   * 翻页方向。
+   *
+   * 比的是「上一次渲染时的 startIndex」—— 那个 ref 要到 effect 里才更新，
+   * 所以本次渲染拿到的仍是旧值，正好用来判这一跳是往前还是往后。
+   * 进度条拖拽、点目录切章都走同一条，不用每个入口各记一遍。
+   */
+  const prevStart = useRef(startIndex);
+  useEffect(() => {
+    prevStart.current = startIndex;
+  }, [startIndex]);
+  const forward = startIndex >= prevStart.current;
+
+  /*
+   * 3D 折页的参数。
+   *
+   * 书脊在哪边就绕哪条边折：左起阅读书脊在左，右起在右；回翻是镜像方向。
+   * 只给当前这一屏开 3D —— 章节里几十张高清图，全都提合成层会把手机打爆。
+   */
+  const deg = (forward ? -72 : 72) * (rtl ? -1 : 1);
+  const turnStyle = {
+    '--turn-origin': rtl ? 'right center' : 'left center',
+    '--turn-from': `${deg}deg`,
+    '--turn-shade-dir': rtl ? 'to right' : 'to left',
+  } as React.CSSProperties;
+
   const touchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
     start.current = { x: t.clientX, y: t.clientY };
@@ -80,9 +106,11 @@ export default function PagedView({
         startIndex + i 算出的绝对页号才不会错，书签标记和 alt 也就不会错位。
       */}
       <div
-        className={`reader__spread${perPage === 2 ? ' is-double' : ''}${
+        key={startIndex}
+        className={`reader__spread turn-in${perPage === 2 ? ' is-double' : ''}${
           rtl && perPage === 2 ? ' is-rtl' : ''
         }`}
+        style={turnStyle}
       >
         {images.map((src, i) => {
           const abs = startIndex + i;
@@ -105,6 +133,11 @@ export default function PagedView({
             </div>
           );
         })}
+        {/*
+          折页时的暗面。用一层覆盖物的 opacity 做，不动图片的 filter ——
+          brightness 会让整层每帧重绘，1200×1700 的图上就是稳定掉帧。
+        */}
+        <div className="reader__turn-shade" aria-hidden="true" />
       </div>
 
       {/*

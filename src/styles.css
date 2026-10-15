@@ -817,9 +817,12 @@ input {
   justify-content: center;
   overflow: hidden;
   position: relative;
+  /* 折页的透视给在这里，不是给每一页 —— 一屏只有一张 spread 在动 */
+  perspective: 1600px;
 }
 
 .reader__spread {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -827,6 +830,42 @@ input {
   width: 100%;
   height: 100%;
   padding: 0 env(safe-area-inset-left, 0) 0 env(safe-area-inset-right, 0);
+  transform-origin: var(--turn-origin, center);
+  backface-visibility: hidden;
+}
+
+/*
+ * 翻进来那一下：绕书脊那条边从 ±72° 折回 0，落位用 --e-settle（极轻的过冲）。
+ * spread 每次换页都换 key 重挂，所以动画天然会重放，不用 JS 去摘 class。
+ */
+.reader__spread.turn-in {
+  animation: page-turn var(--d-flip) var(--e-settle) both;
+  will-change: transform;
+}
+@keyframes page-turn {
+  from {
+    transform: rotateY(var(--turn-from, 0deg));
+  }
+  to {
+    transform: rotateY(0deg);
+  }
+}
+
+/* 暗面：折起来的那一侧偏暗，靠 opacity 而不是 filter */
+.reader__turn-shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.5), transparent 55%);
+  animation: page-shade var(--d-flip) var(--e-out) both;
+}
+@keyframes page-shade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 .reader__spread.is-rtl {
@@ -1706,6 +1745,22 @@ input {
   .theme-option:active,
   .bottom-nav a.active svg {
     transform: none;
+  }
+  /* 折页换成交叉淡入，暗面直接不要 */
+  .reader__spread.turn-in {
+    animation: page-fade 160ms linear both;
+  }
+  .reader__turn-shade {
+    display: none;
+  }
+}
+
+@keyframes page-fade {
+  from {
+    opacity: 0.25;
+  }
+  to {
+    opacity: 1;
   }
 }
 
