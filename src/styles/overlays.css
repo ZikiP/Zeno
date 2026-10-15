@@ -150,3 +150,27 @@
   line-height: 1.4;
 }
 
+
+/* ── 缓存目录浏览器 ───────────────────────────────
+   路径由服务端报，界面一层层点。列表复用 .chapters/.chapter-row，
+   只在这里把它改成可滚的（.chapters 本身是 overflow: hidden）。 */
+.dirpick {
+  margin-top: 12px;
+}
+.dirpick__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.dirpick__where {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  /* 路径可能很长，宁可断字符也别把面板撑破 */
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+.dirpick__list {
+  max-height: 260px;
+  overflow-y: auto;
+}

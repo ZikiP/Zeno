@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Field, FieldGroup } from '@/components/FormKit';
 import { Sheet } from '@/components/UI';
 import { formatBytes } from '@/store/utils';
+import DirPicker from './DirPicker';
 import { eraseCache, getCacheStatus, saveCacheConfig, type CacheStatus } from './cacheApi';
 
 const MB = 1024 * 1024;
@@ -20,6 +21,7 @@ export default function CacheSheet({ onClose }: { onClose: () => void }) {
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -117,7 +119,9 @@ export default function CacheSheet({ onClose }: { onClose: () => void }) {
       <FieldGroup>
         <Field
           label="缓存目录"
-          hint={`服务端机器上的绝对路径，比如 D:\\zeno-cache 或 /mnt/data/zeno-cache。留空回到默认（${st?.defaultDir ?? '数据库旁边'}）。不能指进应用自己的目录。`}
+          hint={`服务端机器上的绝对路径。不想手打就用下面的「浏览」一层层点。留空回到默认（${
+            st?.defaultDir ?? '数据库旁边'
+          }）。不能指进应用自己的目录。`}
           value={dir}
           onChange={setDir}
           placeholder={st?.defaultDir}
@@ -130,6 +134,25 @@ export default function CacheSheet({ onClose }: { onClose: () => void }) {
           placeholder="512"
         />
       </FieldGroup>
+
+      <button
+        className="btn btn--ghost btn--sm"
+        style={{ marginTop: 12 }}
+        onClick={() => setBrowsing((b) => !b)}
+      >
+        {browsing ? '收起浏览' : '浏览服务端目录…'}
+      </button>
+
+      {browsing && (
+        <DirPicker
+          onPick={(p) => {
+            setDir(p);
+            setBrowsing(false);
+            setNote('目录已填好，点保存才生效');
+          }}
+          onCancel={() => setBrowsing(false)}
+        />
+      )}
 
       {err && (
         <div className="notice-err" style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}>

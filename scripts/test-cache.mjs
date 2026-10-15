@@ -9,7 +9,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -207,6 +207,33 @@ try {
   await get('/img');
   check(hits['/img'] >= 3, '关掉后每次都回上游', `hits=${hits['/img']}`);
   check((await status()).files === 0, '关掉期间不落盘');
+
+  console.log('\n=== 8. 目录浏览（设置页那个选择器的后端）===');
+  const roots = await (await fetch(`${BASE}/api/cache/dirs`)).json();
+  check(
+    roots.roots === true && roots.entries.length > 0,
+    '不传 path 就报根（Windows 是盘符，POSIX 是 /）',
+    roots.entries.map((e) => e.name).join(' '),
+  );
+  const browsable = join(BASE_DIR, 'browse');
+  mkdirSync(join(browsable, 'in'), { recursive: true });
+  mkdirSync(join(browsable, 'z'), { recursive: true });
+  mkdirSync(join(browsable, '.hidden'), { recursive: true });
+  writeFileSync(join(browsable, 'afile.txt'), 'x');
+  const listed = await (await fetch(`${BASE}/api/cache/dirs?path=${encodeURIComponent(browsable)}`)).json();
+  check(
+    JSON.stringify(listed.entries.map((e) => e.name)) === '["in","z"]',
+    '只列子目录：文件跳过、点开头的跳过，并按名字排好',
+    JSON.stringify(listed.entries.map((e) => e.name)),
+  );
+  check(
+    listed.parent === BASE_DIR && listed.current === (await status()).dir,
+    '带上父级和服务端当前目录，界面才知道自己在哪',
+  );
+  const relBrowse = await fetch(`${BASE}/api/cache/dirs?path=relative/x`);
+  check(relBrowse.status === 400, '拒绝相对路径');
+  const gone = await fetch(`${BASE}/api/cache/dirs?path=${encodeURIComponent(join(BASE_DIR, 'not-there'))}`);
+  check(gone.status === 400, '不存在的目录报错，而不是给一个空列表让人以为盘是空的');
 } finally {
   srv.kill();
   upstream.close();

@@ -41,7 +41,22 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+export interface DirListing {
+  /** null = 这一层是"根列表"（盘符 / 挂载点） */
+  path: string | null;
+  parent: string | null;
+  roots: boolean;
+  truncated?: boolean;
+  freeBytes: number | null;
+  entries: { name: string; path: string }[];
+  /** 服务端当前用的目录，界面好知道自己在哪儿 */
+  current: string;
+}
+
 export const getCacheStatus = () => call<CacheStatus>('/api/cache');
+
+export const browseDirs = (path: string) =>
+  call<DirListing>(`/api/cache/dirs?path=${encodeURIComponent(path)}`);
 
 export const saveCacheConfig = (p: { dir?: string; maxMb?: number }) =>
   call<CacheStatus>('/api/cache/config', { method: 'POST', body: JSON.stringify(p) });

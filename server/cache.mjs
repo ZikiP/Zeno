@@ -21,6 +21,7 @@ import { statfs } from 'node:fs/promises';
 import { json, readBody } from './respond.mjs';
 import {
   assertCacheDir,
+  browseDirs,
   cacheDir,
   cacheMaxBytes,
   cacheOn,
@@ -124,6 +125,18 @@ export async function handleCacheApi(req, res, url, auth) {
   try {
     if (path === '/api/cache' && req.method === 'GET') {
       json(res, 200, await cacheStatus());
+      return true;
+    }
+    /*
+     * 目录浏览器。只有「选服务端目录」这一个用途：列子目录，不列文件。
+     * 和别的缓存端点一样过 auth —— 它把这台机器的目录结构暴露出去，
+     * 不设令牌时靠 tailnet 挡，跟整个服务的信任模型一致。
+     */
+    if (path === '/api/cache/dirs' && req.method === 'GET') {
+      json(res, 200, {
+        ...(await browseDirs(url.searchParams.get('path') ?? '')),
+        current: cacheDir(),
+      });
       return true;
     }
     if (path === '/api/cache/config' && req.method === 'POST') {
