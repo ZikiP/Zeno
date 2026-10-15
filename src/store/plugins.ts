@@ -73,26 +73,20 @@ export async function deletePlugin(id: string): Promise<void> {
 const ENABLED_KEY = 'enabledPluginIds';
 /** 发现页当前在看哪个源。每台设备自己的浏览位置，刻意**不**同步 */
 const BROWSE_KEY = 'browsePluginId';
-/** 旧模型：同时只有一个"使用中"的源 */
-const LEGACY_ACTIVE_KEY = 'activePluginId';
 
 /**
  * 已装插件里哪些算启用。
  *
- * 没写过这个键时按老数据推：
- *  - 有 activePluginId（老版本用过）→ 只启用那一个，行为跟升级前一致；
- *  - 什么都没有（刚导入第一个插件）→ 全部启用。装完就能用，
- *    比"装完了发现页还是空的、得去设置里再点一下"合理。
+ * 没写过这个键时**全部已装的都算启用**。老设备升级上来也是这个结果：
+ * 以前书架按"当前那一个源"过滤，看着像是只启用了那一个，其实只是没别的选择 ——
+ * 照 activePluginId 只启用一个，升级那一刻书架上别的产品源的书会凭空消失，
+ * 用户只会以为功能坏了。装了几个源就是想看几个源。
  *
  * 允许返回空数组 —— 用户可以把所有源都停掉，那时候界面上就该是空的。
  */
 export function enabledIdsOf(installedIds: string[]): string[] {
   const raw = localStorage.getItem(ENABLED_KEY);
-  if (raw === null) {
-    const legacy = localStorage.getItem(LEGACY_ACTIVE_KEY);
-    if (legacy && installedIds.includes(legacy)) return [legacy];
-    return [...installedIds];
-  }
+  if (raw === null) return [...installedIds];
   return raw
     .split(',')
     .map((s) => s.trim())

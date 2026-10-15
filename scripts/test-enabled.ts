@@ -2,14 +2,17 @@
  * 启用集合的读写行为
  *
  * 一个源只有启用/停用两种状态，而这件"看起来没什么好测"的事其实是升级路径上
- * 最容易出错的一环：老设备上存的是 `activePluginId`（同时只有一个），
- * 新设备是 `enabledPluginIds`（逗号拼接）。两种键都没写过的情况（刚导入第一个插件）
- * 必须能直接用，否则装完发现页是空的。
+ * 最容易出错的一环：老版本存的是 `activePluginId`（同时只有一个），新版本是
+ * `enabledPluginIds`（逗号拼接）。这里的判断是**老的键不参与**：没写过新键就按
+ * 已装的全体启用。照老键只启用一个的话，升级那一刻书架上另一个源的书会凭空少掉，
+ * 看着就像功能坏了。
  *
  * 跑的是 src/store/plugins.ts 里那份真实现，只把 localStorage 换成一个 Map。
  */
 
 const mem = new Map<string, string>();
+/** 这个套件没有导出，加一行空 export 让它成为模块（顶层 await 需要） */
+export {};
 (globalThis as unknown as { localStorage: unknown }).localStorage = {
   getItem: (k: string) => mem.get(k) ?? null,
   setItem: (k: string, v: string) => void mem.set(k, v),
@@ -36,13 +39,16 @@ check(eq(enabledIdsOf(BOTH), BOTH), '刚导入第一个插件的机器不该还�
 reset();
 check(eq(enabledIdsOf([]), []), '一个插件都没有时是空集合（不是 null、也不是崩溃）');
 
-console.log('\n=== 2. 老设备只有 activePluginId：只启用那一个');
+console.log('\n=== 2. 老设备升级：装过的源都还在');
 reset();
 mem.set('activePluginId', B);
-check(eq(enabledIdsOf(BOTH), [B]), '升级完行为不变，还在原来那个源上');
+check(
+  eq(enabledIdsOf(BOTH), BOTH),
+  '不照老的 activePluginId 只启用一个 —— 那样升级那一刻书架上另一个源的书会凭空消失',
+);
 reset();
 mem.set('activePluginId', 'uninstalled-site');
-check(eq(enabledIdsOf(BOTH), BOTH), '老的激活源已经卸载了 → 退回全启用，别升级完一个源都没有');
+check(eq(enabledIdsOf(BOTH), BOTH), '老键指向已卸载的源也一样全启用（这个键根本不参与判断）');
 
 console.log('\n=== 3. 写过 enabledPluginIds 就以它为准');
 reset();
