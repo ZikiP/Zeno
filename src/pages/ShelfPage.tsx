@@ -7,6 +7,7 @@ import { useReloadOnChange } from '@/store/useDataVersion';
 import { coverUrl } from '@/site/engine';
 import { IconEmpty, IconExplore, IconSettings } from '@/components/Icons';
 import BottomNav from '@/components/BottomNav';
+import ProgressRing from '@/components/ProgressRing';
 import { ErrorBox, Loading } from '@/components/UI';
 
 export default function ShelfPage() {
@@ -63,21 +64,29 @@ export default function ShelfPage() {
           </div>
         ) : (
           <div className="grid">
-            {items.map((it) => (
-              <Link key={it.key} to={`/comic/${it.slug}`} className="card">
-                <div className="card__cover">
-                  {it.cover && plugin && (
-                    <img
-                      src={coverUrl(it.cover, 300, 400)}
-                      alt={it.title}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  )}
-                </div>
-                <div className="card__name">{it.title}</div>
-              </Link>
-            ))}
+            {items.map((it) => {
+              /*
+               * 进度是"最近读的那一章读到几成"，不是整本完成度 ——
+               * 后者要遍历章节表，而这里只有书架记录，硬算出来也是个假数。
+               */
+              const pct = it.lastChapterId ? (it.positions[it.lastChapterId] ?? 0) : 0;
+              return (
+                <Link key={it.key} to={`/comic/${it.slug}`} className="card card--plate">
+                  <div className="card__cover">
+                    {it.cover && plugin && (
+                      <img
+                        src={coverUrl(it.cover, 300, 400)}
+                        alt={it.title}
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    )}
+                    {pct > 0 && <ProgressRing percent={pct} size={30} label={`上次读到本章 ${pct}%`} />}
+                  </div>
+                  <div className="card__name">{it.title}</div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </main>

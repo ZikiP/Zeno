@@ -9,8 +9,10 @@
  * 半径）、IconBack 与 IconChevronLeft 的 path 逐字节相同。
  */
 import {
+  ArrowDownWideNarrow,
   ArrowLeft,
   ArrowRight,
+  ArrowUpNarrowWide,
   Bookmark,
   Check,
   ChevronLeft,
@@ -26,6 +28,7 @@ import {
   Moon,
   NotebookText,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   Rows3,
@@ -98,3 +101,14 @@ export const IconBookmark = ({
 );
 
 export const IconSync = ({ size = 18, ...p }: P) => <RefreshCw size={size} strokeWidth={SW} {...p} />;
+
+/** 继续阅读 —— 三角形播放，没有比它更不容易认错的记号了 */
+export const IconPlay = ({ size = 16, ...p }: P) => <Play size={size} strokeWidth={SW} {...p} />;
+
+/**
+ * 章节顺序。两个都用「窄/宽」箭头而不是单纯的上下箭头：
+ * 上下箭头只表示方向，看不出是"从旧到新"还是"从新到旧"，
+ * 而窄在上、宽在下正好对应列表由短到长地排下去。
+ */
+export const IconOrderAsc = (p: P) => <ArrowDownWideNarrow strokeWidth={SW} {...p} />;
+export const IconOrderDesc = (p: P) => <ArrowUpNarrowWide strokeWidth={SW} {...p} />;

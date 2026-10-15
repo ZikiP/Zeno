@@ -23,6 +23,31 @@ body {
   overscroll-behavior-y: none;
 }
 
+/*
+ * 极淡的环境底色 —— 玻璃必须有东西可透。
+ * 在纯色背景上 blur 出来的还是那个纯色，顶栏和玻璃卡片只会看着像蒙了层灰。
+ * 这两团渐变就是给它们折的，强度压到只够让玻璃"活"起来，不抢内容。
+ * 负 z-index 让它落在 body 背景之上、所有内容之下。
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      62% 44% at 8% -4%,
+      color-mix(in oklab, var(--accent) 20%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      52% 36% at 96% 10%,
+      color-mix(in oklab, var(--accent) 11%, transparent),
+      transparent 74%
+    );
+}
+
 a {
   color: inherit;
   text-decoration: none;

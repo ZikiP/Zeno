@@ -20,6 +20,19 @@ export async function isInShelf(pluginId: string, slug: string): Promise<boolean
   return !!(await (await db()).get('shelf', shelfKey(pluginId, slug)));
 }
 
+/**
+ * 取单条书架记录（含进度）。
+ *
+ * 详情页要显示"上次读到哪"，光有 isInShelf 的布尔值不够 ——
+ * 但也不该为此把整个书架捞进内存，所以单独给一个按主键的读法。
+ */
+export async function getShelfEntry(
+  pluginId: string,
+  slug: string,
+): Promise<ShelfEntry | undefined> {
+  return (await (await db()).get('shelf', shelfKey(pluginId, slug))) as ShelfEntry | undefined;
+}
+
 export async function addToShelf(
   pluginId: string,
   comic: { slug: string; title: string; cover: string },

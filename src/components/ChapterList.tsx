@@ -2,6 +2,7 @@
 import { Link } from 'react-router-dom';
 import type { Chapter } from '@/site/engine';
 import { formatBytes } from '@/store/utils';
+import { IconOrderAsc, IconOrderDesc } from '@/components/Icons';
 
 /**
  * 章节列表
@@ -12,6 +13,9 @@ import { formatBytes } from '@/store/utils';
  * 默认从**最新章**开始 —— 用户来这个页面九成是为了追最新的一章。
  */
 const BATCH = 100;
+
+/** 章节顺序的本地偏好键。不进同步键：这是"这台设备怎么翻"的习惯，不是阅读偏好 */
+const ORDER_KEY = 'chapterOrder';
 
 export default function ChapterList({
   chapters,
@@ -24,8 +28,24 @@ export default function ChapterList({
   slug: string;
   cached: Record<string, { bytes: number }>;
 }) {
-  // parseChapters 按序号升序排好，这里倒过来让最新章排在最前
-  const ordered = useMemo(() => [...chapters].reverse(), [chapters]);
+  /*
+   * 顺序。默认倒序（最新在最前）—— 追更的人进来就是找最新那一章。
+   * 但补番的人要从第一话往下点，所以给一个开关，记住他的选择。
+   * 这是浏览习惯，不是跨设备偏好，所以只落本地、不进同步键。
+   */
+  const [asc, setAsc] = useState(() => localStorage.getItem(ORDER_KEY) === 'asc');
+  const toggleOrder = () => {
+    const next = !asc;
+    setAsc(next);
+    localStorage.setItem(ORDER_KEY, next ? 'asc' : 'desc');
+    setLimit(BATCH);
+  };
+
+  // parseChapters 按序号升序排好，倒序展示时翻一下
+  const ordered = useMemo(
+    () => (asc ? [...chapters] : [...chapters].reverse()),
+    [chapters, asc],
+  );
   const [limit, setLimit] = useState(BATCH);
 
   // 换漫画时重置
@@ -42,8 +62,17 @@ export default function ChapterList({
         <h2>章节</h2>
         <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
           共 {chapters.length} 章
-          {rest > 0 && ` · 显示最新 ${visible.length} 章`}
+          {rest > 0 && ` · 显示${asc ? '前' : '最新'} ${visible.length} 章`}
         </span>
+        <div className="topbar__spacer" />
+        <button
+          className="btn btn--ghost btn--sm"
+          onClick={toggleOrder}
+          aria-label={`切换章节顺序，当前${asc ? '正序' : '倒序'}`}
+        >
+          {asc ? <IconOrderAsc size={15} /> : <IconOrderDesc size={15} />}
+          {asc ? '正序' : '倒序'}
+        </button>
       </div>
 
       <div className="chapters">

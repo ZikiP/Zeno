@@ -3,13 +3,22 @@ import { useParams, Link } from 'react-router-dom';
 import { useVtNavigate } from '@/hooks/viewTransition';
 import { getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import { cacheChapterList } from '@/store/chapters';
-import { addToShelf, isInShelf, removeFromShelf } from '@/store/shelf';
+import { addToShelf, getShelfEntry, removeFromShelf } from '@/store/shelf';
+import type { ShelfEntry } from '@/store/types';
 import { formatBytes } from '@/store/utils';
 import { useOfflineCache } from '@/store/useOfflineCache';
 import { usePlugin } from '@/store/PluginContext';
 import { onDataChange } from '@/store/dataEvents';
 import ChapterList from '@/components/ChapterList';
-import { IconBack, IconCheck, IconDownload, IconSettings, IconShelf } from '@/components/Icons';
+import ProgressRing from '@/components/ProgressRing';
+import {
+  IconBack,
+  IconCheck,
+  IconDownload,
+  IconPlay,
+  IconSettings,
+  IconShelf,
+} from '@/components/Icons';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
 export default function ComicPage() {
@@ -20,8 +29,13 @@ export default function ComicPage() {
   const [comic, setComic] = useState<Comic | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [onShelf, setOnShelf] = useState(false);
+  /** 书架记录本身，不只是"在不在架"—— 继续阅读和进度提示都要用它 */
+  const [entry, setEntry] = useState<ShelfEntry | undefined>(undefined);
   const [showSettings, setShowSettings] = useState(false);
+
+  const onShelf = !!entry;
+  const lastChapter = chapters.find((c) => c.id === entry?.lastChapterId);
+  const lastPct = entry?.lastChapterId ? (entry.positions[entry.lastChapterId] ?? 0) : 0;
 
   const { cached, caching, cachedBytes, cacheAll, dropEverything } = useOfflineCache(
     plugin,
@@ -33,20 +47,20 @@ export default function ComicPage() {
     if (!plugin?.meta.id) return;
     setErr(null);
     try {
-      const [{ comic: c, chapters: ch }, inShelf] = await Promise.all([
+      const [c, e] = await Promise.all([
         getComic(plugin, slug),
-        isInShelf(plugin.meta.id, slug),
+        getShelfEntry(plugin.meta.id, slug),
       ]);
-      setComic(c);
-      setChapters(ch);
-      setOnShelf(inShelf);
+      setComic(c.comic);
+      setChapters(c.chapters);
+      setEntry(e);
 
       // 顺手缓存章节表，阅读器内打开目录就不用再抓一次
       void cacheChapterList(
         plugin.meta.id,
         slug,
-        c.title,
-        ch.map((x) => ({ id: x.id, index: x.index, title: x.title })),
+        c.comic.title,
+        c.chapters.map((x) => ({ id: x.id, index: x.index, title: x.title })),
       );
     } catch (e) {
       setErr((e as Error).message);
@@ -58,13 +72,13 @@ export default function ComicPage() {
   }, [load]);
 
   /*
-   * 同步把别处的「加入书架」变更拉回来时刷新在架状态。
+   * 同步把别处的「加入书架 / 阅读进度」变更拉回来时刷新。
    * 离线缓存那一侧由 useOfflineCache 自己订阅同一个事件，两边互不影响。
    */
   useEffect(() => {
     if (!plugin?.meta.id) return;
     return onDataChange(async () => {
-      setOnShelf(await isInShelf(plugin.meta.id, slug));
+      setEntry(await getShelfEntry(plugin.meta.id, slug));
     });
   }, [plugin?.meta.id, slug]);
 
@@ -72,10 +86,10 @@ export default function ComicPage() {
     if (!plugin || !comic) return;
     if (onShelf) {
       await removeFromShelf(plugin.meta.id, slug);
-      setOnShelf(false);
+      setEntry(undefined);
     } else {
       await addToShelf(plugin.meta.id, { slug, title: comic.title, cover: comic.cover });
-      setOnShelf(true);
+      setEntry(await getShelfEntry(plugin.meta.id, slug));
     }
   };
 
@@ -132,8 +146,30 @@ export default function ComicPage() {
                 </div>
                 {comic.description && <p className="detail__desc">{comic.description}</p>}
 
+                {lastChapter && (
+                  <div className="detail__reading">
+                    <ProgressRing percent={lastPct} size={22} label={`上次读到本章 ${lastPct}%`} />
+                    <span className="detail__reading-text">
+                      上次读到 {lastChapter.title}
+                      {lastPct > 0 ? ` · 本章 ${lastPct}%` : ''}
+                    </span>
+                  </div>
+                )}
+
                 <div className="detail__actions">
-                  <button className="btn" onClick={toggleShelf}>
+                  {entry?.lastChapterId && (
+                    <button
+                      className="btn"
+                      onClick={() => nav(`/read/${plugin.meta.id}/${slug}/${entry.lastChapterId}`)}
+                    >
+                      <IconPlay size={16} />
+                      继续阅读
+                    </button>
+                  )}
+                  <button
+                    className={entry?.lastChapterId ? 'btn btn--ghost' : 'btn'}
+                    onClick={toggleShelf}
+                  >
                     {onShelf ? <IconCheck size={16} /> : <IconShelf size={16} />}
                     {onShelf ? '已在书架' : '加入书架'}
                   </button>

@@ -48,6 +48,91 @@
   transform: scale(1.03);
 }
 
+/*
+ * 书架卡片：玻璃载板 + 封面 + 进度环。
+ *
+ * 玻璃是「载板」，封面本身完全不透明 —— 给画作蒙一层雾等于毁掉画作，
+ * 所以雾只在封面以外的那一圈边上。发现页的缩略图不用载板：
+ * 那是密集浏览，三列都垫一块厚玻璃会把画面压死。
+ */
+.card--plate {
+  position: relative;
+  padding: 6px 6px 8px;
+  border-radius: var(--radius-card);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    var(--shadow-2);
+  transition:
+    transform var(--d-press) var(--e-out),
+    box-shadow var(--d-micro) var(--e-out);
+}
+/* 斜向受光。玻璃之所以像玻璃，一半靠这道从左上角衰减掉的高光 */
+.card--plate::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(150deg, var(--edge-hi) 0%, transparent 34%);
+  opacity: 0.22;
+}
+.card--plate:active {
+  transform: scale(0.975);
+}
+.card--plate .card__cover {
+  border: none;
+  border-radius: calc(var(--radius-card) - 5px);
+  box-shadow: var(--shadow-1);
+}
+.card--plate .card__name {
+  position: relative;
+  padding: 0 2px;
+}
+
+/* 进度环：压在封面右上角 */
+.card__cover .ring {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+}
+/* 底盘：没有它，深色封面上那圈轨道会直接融进画面里 */
+.ring__bg {
+  fill: rgba(8, 10, 14, 0.58);
+}
+.ring__track {
+  stroke: rgba(255, 255, 255, 0.22);
+}
+.ring__arc {
+  stroke: var(--accent);
+  transition: stroke-dashoffset var(--d-micro) var(--e-out);
+}
+
+/* 详情页的"上次读到"提示条 */
+.detail__reading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 7px 10px;
+  border-radius: var(--radius-card);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.detail__reading-text {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .card__badge {
   position: absolute;
   top: 6px;
