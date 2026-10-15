@@ -7,6 +7,9 @@
  * 跑法（要用 tsx，校验器在 src 里，直接引真源码，不在脚本里另写一套规则）：
  *   node --import tsx scripts/pull-plugins.mjs
  *
+ * 语义是**仓库为准**：同名插件整份覆盖，包括在应用里手改过的。要留住改动就提交回
+ * 插件仓库。仓库里没有的插件不动（只增不删）。
+ *
  * 环境变量：
  *   ZENO_PLUGIN_REPO   owner/name，必填。没配就跳过（框架不该默认指向任何人的仓库）
  *   ZENO_PLUGIN_TOKEN  私有库要。fine-grained PAT，只给那一个仓库的只读权限即可
