@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useVtNavigate } from '@/hooks/viewTransition';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
 import { listPlugins, setActivePlugin } from '@/store/plugins';
 import type { InstalledPlugin } from '@/store/db';
@@ -15,7 +15,7 @@ interface Hit {
 }
 
 export default function GlobalSearchPage() {
-  const nav = useNavigate();
+  const nav = useVtNavigate();
   const { plugin: activePlugin, loading: pluginLoading } = usePlugin();
   const [q, setQ] = useState('');
   const [submitted, setSubmitted] = useState('');

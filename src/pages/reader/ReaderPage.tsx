@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { useVtNavigate } from '@/hooks/viewTransition';
 import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, DEFAULT_PREFS, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
@@ -35,7 +36,7 @@ import { ErrorBox, Loading } from '@/components/UI';
  * 规模控制见 CODE-STYLE.md：页面只该有「谁依赖谁」这层信息。
  */
 export default function ReaderPage({ slug, chapterId }: { slug: string; chapterId: string }) {
-  const nav = useNavigate();
+  const nav = useVtNavigate();
   const { plugin } = usePlugin();
   const [searchParams] = useSearchParams();
 

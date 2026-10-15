@@ -41,6 +41,24 @@
   .reader__turn-shade {
     display: none;
   }
+  /* 页面转场同理：只淡入淡出，不位移 */
+  ::view-transition-old(zeno-page),
+  ::view-transition-new(zeno-page) {
+    animation-name: vt-fade;
+  }
+  .main,
+  .reader {
+    animation: none;
+  }
+}
+
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes page-fade {
