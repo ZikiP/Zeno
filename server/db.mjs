@@ -127,6 +127,23 @@ export function openDb() {
       last_push_at   INTEGER NOT NULL DEFAULT 0,
       user_agent     TEXT
     );
+
+    -- 只属于这台机器的配置。
+    -- 和 settings 的区别是故意的：settings 参与多端同步，
+    -- 而缓存目录这类东西同步过去就是垃圾 —— 手机拿到一个 D:\\ 开头的路径。
+    CREATE TABLE IF NOT EXISTS kv_local (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    -- 图片磁盘缓存的账本。文件本身在缓存目录里，这里记谁占了多少、上次碰是什么时候
+    CREATE TABLE IF NOT EXISTS cache_index (
+      key    TEXT PRIMARY KEY,   -- 上游 URL 的 sha256
+      bytes  INTEGER NOT NULL,
+      at     INTEGER NOT NULL,   -- 最后访问时间，淘汰按它排
+      ctype  TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_cache_index_at ON cache_index(at);
   `);
 
   return db;

@@ -15,6 +15,7 @@ import { assertPublicTarget } from './ssrf.mjs';
 import { renderHtml } from './render.mjs';
 import { hostAllowed } from './allowlist.mjs';
 import { json } from './respond.mjs';
+import { collector, IMG_CACHE_CONTROL, isImage, lookup, serveCached } from './cache.mjs';
 
 const MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
@@ -75,6 +76,22 @@ export async function handleProxy(req, res, url) {
   }
 
   const mode = url.searchParams.get('mode') === 'browser' ? 'browser' : 'fetch';
+  const cacheKey = parsed.toString();
+
+  /*
+   * 图片先问本地盘，命中就不回上游 —— 这才是这个缓存的意义：
+   * 重读一章几十张图，一张都不用再去 CDN 排队。
+   *
+   * 放在三道闸之后：白名单撤掉（卸了插件）的站点，不该还能从盘上把内容端出来。
+   * 也只有当初按 image/* 存进去的 URL 可能命中，列表页和详情页的 HTML 不会被误伤。
+   */
+  if (mode === 'fetch') {
+    const hit = lookup(cacheKey);
+    if (hit) {
+      serveCached(res, hit, req.method, CORS);
+      return;
+    }
+  }
 
   /*
    * 并发闸只给 fetch 模式用。
@@ -184,6 +201,11 @@ export async function handleProxy(req, res, url) {
     };
     const ct = upstream.headers.get('content-type');
     if (ct) headers['Content-Type'] = ct;
+    /*
+     * 图片给一天（本地还有盘上的副本兜着），HTML 保持十分钟：
+     * 章节列表放一天，用户会以为上游没更新。
+     */
+    if (isImage(ct)) headers['Cache-Control'] = IMG_CACHE_CONTROL;
 
     res.writeHead(upstream.status, headers);
     if (!upstream.body || req.method === 'HEAD') {
@@ -198,6 +220,17 @@ export async function handleProxy(req, res, url) {
      * 实测踩过：代理跑着跑着整个消失，所有请求变 502。
      */
     const src = Readable.fromWeb(upstream.body);
+    /*
+     * 顺手攒一份进磁盘缓存。攒在内存里而不是同时写文件：
+     * 双写要自己管两个下游的背压，谁慢都会饿着另一个，出错时还容易只清掉一半。
+     * 单张上限 8MB、并发 6，最坏占 48MB，换掉的是那一整类 bug。
+     * 客户端中途断开时 'end' 不会触发，于是半张图不会被存进去。
+     */
+    const sink = upstream.ok && isImage(ct) ? collector(cacheKey, ct) : null;
+    if (sink) {
+      src.on('data', (c) => sink.push(c));
+      src.on('end', () => void sink.commit());
+    }
     src.on('error', (err) => {
       console.warn(`[zeno] upstream aborted: ${err.message}`);
       if (!res.headersSent) res.writeHead(502).end('upstream aborted');

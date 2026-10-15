@@ -349,12 +349,17 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 ## 数据
 
 ```
-data/zeno.db         主库（WAL 模式）
-data/zeno.db-wal     WAL 日志
-data/zeno.db-shm     共享内存
+data/zeno.db            主库（WAL 模式）
+data/zeno.db-wal        WAL 日志
+data/zeno.db-shm        共享内存
+data/cache/             图片磁盘缓存（可用 ZENO_CACHE_DIR 或设置页改到别的盘）
 ```
 
-**插件配置也在里面。** 换机器时拷 `data/` 目录即可。
+**插件配置也在里面。** 换机器时拷 `data/` 目录即可 —— 但 `cache/` 不用拷，
+那只是省流量的副本，丢了自动重取；拷过去反而可能带到一个不存在的盘路径上。
+缓存目录和上限存在库里的 `kv_local` 表（**故意不参与多端同步**），
+所以只拷 `zeno.db*` 三个文件时，新机器会沿用那台机器的旧路径 —— 服务端会在第一次
+写不进去时打印一行「图片缓存已停用」并继续正常跑，去设置页改一下就好。
 
 运行中备份要用 `.backup`，直接拷文件可能拿到不一致快照：
 

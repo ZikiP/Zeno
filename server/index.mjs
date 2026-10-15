@@ -30,6 +30,7 @@ import { openDb } from './db.mjs';
 import { allowedHosts, refreshAllowed } from './allowlist.mjs';
 import { handleSyncApi } from './sync-api.mjs';
 import { handleProxy } from './proxy.mjs';
+import { cacheDir, cacheMaxBytes, handleCacheApi, reconcile } from './cache.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
 import { json, makeAuth } from './respond.mjs';
 
@@ -56,6 +57,9 @@ const server = createServer(async (req, res) => {
 
     /* ── 同步与状态 API ── */
     if (await handleSyncApi(req, res, url, auth)) return;
+
+    /* ── 图片缓存的管理 API ── */
+    if (await handleCacheApi(req, res, url, auth)) return;
 
     /* ── 抓取代理 ── */
     if (path === '/api/proxy') {
@@ -134,6 +138,12 @@ server.on('error', (err) => {
 
 openDb();
 refreshAllowed();
+/*
+ * 账本和盘对一遍（用户可能自己清了目录、换了盘、上次写一半断电）。
+ * 不 await：启动不该被一次目录扫描拖住。对账跑完之前命不中的那些，
+ * 无非是多回一趟上游，等它跑完自然就补上了。
+ */
+void reconcile().catch((e) => console.warn('[zeno] 缓存对账失败：', e.message));
 
 const token = process.env.SYNC_TOKEN || '';
 
@@ -145,6 +155,10 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  ├─ 局域网    http://<本机IP>:${PORT}`);
   console.log(`  ├─ 静态目录  ${DIST_DIR}`);
   console.log(`  ├─ 数据库    ${process.env.DB_PATH || './data/zeno.db'}`);
+  const cdir = cacheDir();
+  console.log(
+    `  ├─ 图片缓存  ${cdir ? `${cdir}（上限 ${Math.round(cacheMaxBytes() / 1048576)}MB）` : '已关闭'}`,
+  );
   console.log(
     `  ├─ 抓取白名单 ${n ? `${n} 个（来自已安装的插件）` : '空 — 装个插件就会自动放行对应站点'}`,
   );

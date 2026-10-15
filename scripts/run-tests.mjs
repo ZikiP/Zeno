@@ -22,6 +22,7 @@ const ALL_SUITES = [
   'test-whitelist.mjs',
   'test-ssrf.mjs',
   'test-auth.mjs',
+  'test-cache.mjs',
   // 直接测 src/ 里的纯逻辑（不碰 DOM、不碰网络），所以用 tsx 跑而不是编译产物
   'test-validation.ts',
 ];
@@ -76,7 +77,7 @@ async function stopServer(child, dbPath) {
 
 let failed = 0;
 /** 自己管理服务端生命周期的套件（需要特殊 env，跑器再套一层反而干扰） */
-const SELF_HOSTED = new Set(['test-ssrf.mjs', 'test-auth.mjs']);
+const SELF_HOSTED = new Set(['test-ssrf.mjs', 'test-auth.mjs', 'test-cache.mjs']);
 
 for (const [i, suite] of suites.entries()) {
   const port = BASE_PORT + i;

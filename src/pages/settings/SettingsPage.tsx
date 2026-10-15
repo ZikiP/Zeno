@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePluginManager } from './usePluginManager';
 import PluginEditor from './PluginEditor';
 import LegalSheet from './LegalSheet';
+import CacheSheet from './CacheSheet';
 import PluginList from './PluginList';
 import { SyncSheet } from '@/sync/SyncUI';
 import { useTheme, THEMES } from '@/hooks/useTheme';
@@ -27,6 +28,7 @@ export default function SettingsPage() {
   const [showLegal, setShowLegal] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [cacheOpen, setCacheOpen] = useState(false);
   const { resolved } = useTheme();
 
   return (
@@ -87,6 +89,10 @@ export default function SettingsPage() {
               <span className="chapter-row__name">多端同步</span>
               <span style={{ color: 'var(--text-faint)' }}>›</span>
             </button>
+            <button className="chapter-row" onClick={() => setCacheOpen(true)}>
+              <span className="chapter-row__name">图片缓存</span>
+              <span style={{ color: 'var(--text-faint)' }}>服务端目录与上限 ›</span>
+            </button>
             <button className="chapter-row" onClick={() => setShowLegal(true)}>
               <span className="chapter-row__name">使用须知与免责声明</span>
               <span style={{ color: 'var(--text-faint)' }}>›</span>
@@ -124,6 +130,8 @@ export default function SettingsPage() {
       {showLegal && <LegalSheet onClose={() => setShowLegal(false)} />}
 
       {syncOpen && <SyncSheet onClose={() => setSyncOpen(false)} />}
+
+      {cacheOpen && <CacheSheet onClose={() => setCacheOpen(false)} />}
 
       {themeOpen && (
         <Sheet title="外观" onClose={() => setThemeOpen(false)}>
