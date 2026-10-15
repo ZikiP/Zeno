@@ -30,7 +30,9 @@ import { openDb } from './db.mjs';
 import { allowedHosts, refreshAllowed } from './allowlist.mjs';
 import { handleSyncApi } from './sync-api.mjs';
 import { handleProxy } from './proxy.mjs';
-import { cacheDir, cacheMaxBytes, handleCacheApi, reconcile } from './cache.mjs';
+import { handleCacheApi } from './cache.mjs';
+import { cacheDir, cacheMaxBytes } from './cache-config.mjs';
+import { reconcile } from './cache-store.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
 import { json, makeAuth } from './respond.mjs';
 

@@ -203,6 +203,7 @@ interface Props {
 | 文件 | 行数 | 说明 |
 |---|---|---|
 | `sync/client.ts` | 296 | 逼近 300。再加东西就该把"网络层"和"状态机"分开 |
+| `server/cache-store.mjs` | 252 | 图片缓存的盘上机制。配置在 `cache-config.mjs`、对外的脸在 `cache.mjs` |
 | `pages/GlobalSearchPage.tsx` | 249 | 逼近 250。搜索历史已抽成 `useSearchHistory` |
 | `pages/reader/ReaderPage.tsx` | 238 | 动作抽到 `useReaderActions`，副作用抽到 `useReaderEffects` |
 | `site/validate.ts` | 220 | 从 types.ts 拆出：类型定义和校验规则各自演进 |

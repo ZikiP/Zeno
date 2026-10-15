@@ -15,7 +15,8 @@ import { assertPublicTarget } from './ssrf.mjs';
 import { renderHtml } from './render.mjs';
 import { hostAllowed } from './allowlist.mjs';
 import { json } from './respond.mjs';
-import { collector, IMG_CACHE_CONTROL, isImage, lookup, serveCached } from './cache.mjs';
+import { collector, isImage, lookup } from './cache-store.mjs';
+import { IMG_CACHE_CONTROL, serveCached } from './cache.mjs';
 
 const MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
