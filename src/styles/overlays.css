@@ -151,11 +151,84 @@
 }
 
 
-/* ── 缓存目录浏览器 ───────────────────────────────
+/* ── 能点的一行字段 ─────────────────────────────
+   有些值不该让用户打字（路径在另一台机器上），点整行开弹窗。
+   做成和 Field 一样的观感，否则两种控件并排会像两个系统的界面。 */
+.field-btn {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 34px 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  transition: background var(--d-press) var(--e-out);
+}
+.field-btn:active {
+  background: var(--bg-elev-2);
+}
+.field-btn__label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.field-btn__value {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+.field-btn__hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+.field-btn__reset {
+  align-self: flex-start;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  padding: 2px 0;
+}
+.field-btn__go {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+}
+
+/* ── 缓存目录浏览器（弹窗） ─────────────────────
    路径由服务端报，界面一层层点。列表复用 .chapters/.chapter-row，
    只在这里把它改成可滚的（.chapters 本身是 overflow: hidden）。 */
-.dirpick {
-  margin-top: 12px;
+.dirpick__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.dirpick__head h3 {
+  flex: 1;
+  margin: 0;
+}
+.dirpick__path {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.dirpick__path input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
 }
 .dirpick__bar {
   display: flex;
@@ -164,13 +237,15 @@
   margin-bottom: 8px;
 }
 .dirpick__where {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
   font-size: 11.5px;
   color: var(--text-faint);
-  /* 路径可能很长，宁可断字符也别把面板撑破 */
   word-break: break-all;
-  margin-bottom: 8px;
 }
 .dirpick__list {
-  max-height: 260px;
+  /* 弹窗里列表按视口高度给，别把「取消 / 选这里」挤出屏幕 */
+  max-height: 42vh;
   overflow-y: auto;
 }
