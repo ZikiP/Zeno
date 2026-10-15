@@ -114,7 +114,26 @@ async function getBrowser() {
     );
   }
   const { chromium } = await import('playwright-core');
-  launching = chromium.launch({ headless: true, executablePath: found.exe });
+  launching = chromium.launch({
+    headless: true,
+    executablePath: found.exe,
+    /*
+     * 计划任务的会话里没有真桌面。Windows 上 Chromium 会去算"这个窗口是不是被
+     * 挡住了"（CalculateNativeWinOcclusion），算不出来就当它被挡，于是把渲染进程
+     * 的计时器和 requestAnimationFrame 降到约 1% —— 表现恰好是：页面结构在、脚本
+     * 不报错、子资源没有失败，但需要几个计时周期才能完成的数据永远不到。
+     * 前台跑同一个代码就没这事，因为有交互会话的桌面可参考。
+     *
+     * 这四条只是"别把看不见的窗口当后台"，不改变站点看到的东西：
+     * 请求、UA、指纹全都不动。
+     */
+    args: [
+      '--disable-features=CalculateNativeWinOcclusion',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-background-timer-throttling',
+    ],
+  });
   try {
     browser = await launching;
     console.log(`[zeno] 渲染浏览器已启动（${found.from}）`);
@@ -190,7 +209,10 @@ export async function renderHtml(url, opts = {}) {
   if (RENDER_DEBUG) {
     /** 发出去了但还没回来的请求 → 发出时刻。挂着的请求两边都不报错，只能这样抓 */
     page.__pending = new Map();
-    page.on('request', (r) => page.__pending.set(r.url(), Date.now()));
+    page.on('request', (r) => {
+      page.__pending.set(r.url(), Date.now());
+      console.warn(`[zeno][render] → ${r.resourceType()} ${r.url().slice(0, 120)}`);
+    });
     page.on('requestfinished', (r) => page.__pending.delete(r.url()));
     page.on('requestfailed', (r) => {
       page.__pending.delete(r.url());
