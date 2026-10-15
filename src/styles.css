@@ -1,89 +1,103 @@
-﻿/* ── 主题变量 ───────────────────────────────────────
-   浅色与深色各一套，通过 <html data-theme="light|dark"> 切换。
-   跟随系统时 html 上不带 data-theme，由下面的 media query 决定。
-   新增主题只需在这里加一组，不动组件。 */
+﻿/* ── 设计令牌 ───────────────────────────────────────
+   一套值只写一次。深浅色用 light-dark()，由元素实际生效的 color-scheme 决定，
+   而 color-scheme 是 useTheme 显式写到 <html> 上的（选「跟随系统」时取系统值）。
+   以前浅色盘要在 [data-theme=light] 和 prefers-color-scheme 两处各抄一遍，
+   改一处漏一处 —— 现在不存在第二个地方。
 
-:root,
-[data-theme='dark'] {
-  color-scheme: dark;
-
-  --bg: #0f1115;
-  --bg-elev: #171a21;
-  --bg-elev-2: #1f232c;
-  --border: #2a2f3a;
-  --border-strong: #3a4150;
-
-  --text: #e8eaf0;
-  --text-dim: #9aa3b2;
-  --text-faint: #6b7484;
-
-  --accent: #5b9cf8;
-  --accent-dim: #2d5a9e;
-  --on-accent: #ffffff;
-  --danger: #f87171;
-
-  --reader-bg: #000000;
-  --topbar-bg: rgba(15, 17, 21, 0.92);
-  --nav-bg: rgba(23, 26, 33, 0.96);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-[data-theme='light'] {
-  color-scheme: light;
-
-  --bg: #f6f7f9;
-  --bg-elev: #ffffff;
-  --bg-elev-2: #eef0f4;
-  --border: #dde1e7;
-  --border-strong: #c3c9d4;
-
-  --text: #1a1d23;
-  --text-dim: #5a6270;
-  --text-faint: #8b94a3;
-
-  --accent: #2563eb;
-  --accent-dim: #1d4ed8;
-  --on-accent: #ffffff;
-  --danger: #dc2626;
-
-  --reader-bg: #f0f1f3;
-  --topbar-bg: rgba(255, 255, 255, 0.92);
-  --nav-bg: rgba(255, 255, 255, 0.96);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-}
-
-/* 跟随系统：用户选「跟随」时 html 不带 data-theme，这里兜底 */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme]) {
-    color-scheme: light;
-
-    --bg: #f6f7f9;
-    --bg-elev: #ffffff;
-    --bg-elev-2: #eef0f4;
-    --border: #dde1e7;
-    --border-strong: #c3c9d4;
-
-    --text: #1a1d23;
-    --text-dim: #5a6270;
-    --text-faint: #8b94a3;
-
-    --accent: #2563eb;
-    --accent-dim: #1d4ed8;
-    --on-accent: #ffffff;
-    --danger: #dc2626;
-
-    --reader-bg: #f0f1f3;
-    --topbar-bg: rgba(255, 255, 255, 0.92);
-    --nav-bg: rgba(255, 255, 255, 0.96);
-    --shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  }
-}
+   三条规矩：
+   1. 玻璃只用在骨架上（顶栏、底栏、HUD、抽屉、弹窗）。内容层永远实心 ——
+      封面就是内容，给它蒙一层雾等于毁掉它。
+   2. blur 永远和 saturate 成对出现。只 blur 会发灰发闷，那是廉价毛玻璃的通病。
+   3. 动效一律 ease-out 起步，UI 时长不超过 400ms。ease-in 进场禁用：
+      它慢启动，正好延迟用户正盯着看的那一刻。 */
 
 :root {
-  --radius: 10px;
-  --radius-sm: 6px;
-  --gap: 12px;
+  color-scheme: light dark;
 
+  /* 表面与文字 */
+  --bg: light-dark(#f4f5f8, #0d0f14);
+  --bg-elev: light-dark(#ffffff, #171b23);
+  --bg-elev-2: light-dark(#eceef3, #21262f);
+  --text: light-dark(#12151b, #eef1f6);
+  --text-dim: light-dark(#5b6472, #9aa4b5);
+  --text-faint: light-dark(#8a92a1, #6b7484);
+
+  --accent: light-dark(#2563eb, #6ba6ff);
+  --accent-dim: light-dark(#1d4ed8, #2d5a9e);
+  --on-accent: light-dark(#ffffff, #0b1220);
+  --danger: light-dark(#dc2626, #f87171);
+  --warn: light-dark(#b45309, #f59e0b);
+  --ok: light-dark(#059669, #10b981);
+  --mark: light-dark(#b45309, #ffc857);
+
+  /* 分隔线：实心表面之间用。玻璃上不用它，用 --edge */
+  --border: light-dark(#dfe3ea, #262c37);
+  --border-strong: light-dark(#c3c9d4, #3a4150);
+
+  /* ── 材质 ──
+     --glass-bg 给骨架，--glass-bg-thick 给浮层（抽屉/弹窗要更压得住）。
+     浅色下饱和只给 1.4：再高会往青里偏。 */
+  --glass-bg: light-dark(rgba(255, 255, 255, 0.72), rgba(20, 23, 30, 0.62));
+  --glass-bg-thick: light-dark(rgba(255, 255, 255, 0.86), rgba(18, 21, 27, 0.8));
+  /* 常驻条要压得住文字：底下永远有内容在滚，比通用玻璃更实一点。
+     实测 0.62 那档在底部导航上，未选中的标签已经快读不出来了。 */
+  --glass-bg-bar: light-dark(rgba(255, 255, 255, 0.82), rgba(15, 18, 24, 0.78));
+  --glass-blur: 20px;
+  /* 深色下提饱和更有通透感；浅色压到 1.4，再高会往青里偏。
+     注意 light-dark() 只能用在**颜色**值上 —— 拿它包 saturate() 的数字参数，
+     整条 backdrop-filter 会静默失效成 none，玻璃直接没了。所以数字只能按主题写。 */
+  --glass-sat: 1.8;
+  /* 滤镜也做成令牌：不支持 backdrop-filter 的浏览器、以及"减少透明"
+     这两种情况，只需要在这里把值换成 none，组件那边一行都不用动。 */
+  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  --glass-filter-thick: blur(calc(var(--glass-blur) * 1.35)) saturate(var(--glass-sat));
+  /* 边光。玻璃的"厚度"全靠这一圈，不是装饰 */
+  --edge: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
+  --edge-hi: light-dark(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.14));
+  --scrim: light-dark(rgba(15, 18, 24, 0.34), rgba(0, 0, 0, 0.55));
+
+  /* 高度：三档，对应"贴在纸上 / 浮起来 / 盖住整屏"。
+     阴影只能把 light-dark() 用在**颜色**那一段上 —— 直接写
+     `--shadow-3: light-dark(0 18px 50px …, 0 18px 50px …)` 会让整条声明在
+     计算值阶段失效成 box-shadow:none，玻璃的边光也跟着一起没了。 */
+  --shadow-ambient: light-dark(rgba(16, 20, 28, 0.1), rgba(0, 0, 0, 0.5));
+  --shadow-lift: light-dark(rgba(16, 20, 28, 0.2), rgba(0, 0, 0, 0.62));
+  --shadow-1: 0 1px 2px var(--shadow-ambient);
+  --shadow-2: 0 6px 18px var(--shadow-ambient);
+  --shadow-3: 0 18px 50px var(--shadow-lift);
+
+  /* 圆角：三档，不许出现第四个数 */
+  --radius: 10px; /* 控件 */
+  --radius-sm: 8px;
+  --radius-card: 14px; /* 封面、输入框、卡片 */
+  --radius-sheet: 22px; /* 抽屉、弹窗 */
+  --radius-pill: 999px;
+
+  /* 间距：4px 基准 */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --gap: var(--s-3);
+
+  /* ── 动效 ──
+     按压 120 · 微反馈 180 · 转场 260 · 翻页 340 · 抽屉 380。UI 一律压在 400ms 内。 */
+  --d-press: 120ms;
+  --d-micro: 180ms;
+  --d-view: 260ms;
+  --d-flip: 340ms;
+  --d-sheet: 380ms;
+  /* 内置的 ease 太软，这几个是从 iOS/常见规范里挑的强曲线 */
+  --e-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --e-inout: cubic-bezier(0.77, 0, 0.175, 1);
+  --e-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  /* 只给翻页落位用：极轻的过冲。不要拿去做弹跳 */
+  --e-settle: cubic-bezier(0.3, 1.28, 0.56, 1);
+
+  --reader-bg: #000000;
   --header-h: 52px;
   --bottom-nav-h: 56px;
 
@@ -91,6 +105,115 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
+}
+
+/* 手动选浅色/深色时只需要改 color-scheme，palette 由 light-dark() 自己切换 */
+[data-theme='light'] {
+  color-scheme: light;
+  --glass-sat: 1.4;
+}
+[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* 选「跟随系统」时 html 上没有 data-theme，浅色的饱和要另走一条媒体查询 */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --glass-sat: 1.4;
+  }
+}
+
+/* ── 玻璃工具类 ─────────────────────────────────────
+   边光走 inset 阴影而不是真边框：真边框和 backdrop-filter 会打架，
+   边缘发虚甚至重影（Safari 尤其明显）。分隔线用渐隐的 ::after，
+   比一条 1px 实线轻，也不会把玻璃切成两块板。 */
+
+/* ── 玻璃表面 ───────────────────────────────────────
+   列在这里的都是「界面骨架」，共用一份配方；内容层（封面、正文、章节行）
+   永远实心 —— 给照片蒙一层雾等于毁掉照片。
+   边光走 inset 阴影而不是真边框：真边框和 backdrop-filter 会打架，
+   边缘发虚甚至重影（Safari 尤其明显）。 */
+
+.glass,
+.topbar,
+.bottom-nav,
+.sync-bar,
+.sheet,
+.drawer,
+.reader__bar,
+.edge-hint {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+/* 常驻条：底下永远有内容在滚，用更实的那一档 */
+.topbar,
+.bottom-nav,
+.sync-bar {
+  background: var(--glass-bg-bar);
+}
+
+/* 浮层要更压得住：更厚的模糊 + 外阴影。
+   两个阴影写在一条里 —— 组件那边再写一次 box-shadow 会把边光顶掉。 */
+.sheet,
+.drawer {
+  background: var(--glass-bg-thick);
+  -webkit-backdrop-filter: var(--glass-filter-thick);
+  backdrop-filter: var(--glass-filter-thick);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    var(--shadow-3);
+}
+
+/* 阅读器自成一套：底色由阅读偏好决定，跟 App 主题无关 */
+.reader__bar,
+.edge-hint {
+  background: var(--r-glass);
+  box-shadow: inset 0 0 0 1px var(--r-edge);
+}
+
+/* 不支持 backdrop-filter：退成实心，但边光留着，否则层级关系直接消失 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-bg: var(--bg-elev);
+    --glass-bg-thick: var(--bg-elev);
+    --glass-bg-bar: var(--bg-elev);
+    --glass-filter: none;
+    --glass-filter-thick: none;
+  }
+}
+
+.hairline-b,
+.hairline-t {
+  position: relative;
+}
+.hairline-b::after,
+.hairline-t::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--edge) 14%, var(--edge) 86%, transparent);
+}
+.hairline-b::after {
+  bottom: 0;
+}
+.hairline-t::after {
+  top: 0;
+}
+
+/* 顶部那道斜向高光：玻璃受光的暗示，只在深色下看得见 */
+.glass-sheen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(150deg, var(--edge-hi) 0%, transparent 38%);
+  opacity: 0.35;
 }
 
 * {
@@ -164,18 +287,16 @@ input {
   top: 0;
   z-index: 20;
   height: calc(var(--header-h) + var(--safe-t));
-  padding: var(--safe-t) calc(12px + var(--safe-r)) 0 calc(12px + var(--safe-l));
+  padding: var(--safe-t) calc(var(--s-3) + var(--safe-r)) 0 calc(var(--s-3) + var(--safe-l));
   display: flex;
   align-items: center;
   gap: var(--gap);
-  background: var(--topbar-bg);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
 }
 
 .topbar__title {
   font-size: 16px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -190,16 +311,20 @@ input {
   height: 38px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   color: var(--text-dim);
   flex-shrink: 0;
+  transition:
+    background var(--d-press) var(--e-out),
+    color var(--d-press) var(--e-out),
+    transform var(--d-press) var(--e-out);
 }
 .icon-btn:hover {
-  background: var(--bg-elev-2);
+  background: color-mix(in oklab, var(--text) 8%, transparent);
   color: var(--text);
 }
 .icon-btn:active {
-  transform: scale(0.94);
+  transform: scale(0.92);
 }
 
 .main {
@@ -216,9 +341,6 @@ input {
   height: calc(var(--bottom-nav-h) + var(--safe-b));
   padding-bottom: var(--safe-b);
   display: flex;
-  background: var(--nav-bg);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid var(--border);
 }
 
 .bottom-nav a {
@@ -232,17 +354,23 @@ input {
   font-size: 11px;
   line-height: 1.2;
   white-space: nowrap;
-  color: var(--text-faint);
-  transition: color 0.15s;
+  color: var(--text-dim);
+  transition:
+    color var(--d-micro) var(--e-out),
+    background var(--d-press) var(--e-out);
 }
 .bottom-nav a svg {
   flex-shrink: 0;
+  transition: transform var(--d-micro) var(--e-settle);
 }
 .bottom-nav a.active {
   color: var(--accent);
 }
+.bottom-nav a.active svg {
+  transform: translateY(-1px);
+}
 .bottom-nav a:active {
-  background: var(--bg-elev);
+  background: color-mix(in oklab, var(--text) 7%, transparent);
 }
 
 /* ── 搜索框 ─────────────────────────────────────── */
@@ -604,6 +732,13 @@ input {
   background: var(--reader-bg);
   display: flex;
   flex-direction: column;
+
+  /* 阅读器的底色由阅读偏好决定（纯黑/深灰/护眼/中性），跟 App 主题无关。
+     所以这里自成一套前景与玻璃色 —— 否则浅色主题下深色页面上文字会反成看不见。 */
+  --r-fg: #f2f4f8;
+  --r-dim: rgba(242, 244, 248, 0.62);
+  --r-glass: rgba(14, 16, 20, 0.6);
+  --r-edge: rgba(255, 255, 255, 0.1);
 }
 
 .reader__bar {
@@ -613,28 +748,37 @@ input {
   right: 0;
   z-index: 10;
   height: calc(48px + var(--safe-t));
-  padding: var(--safe-t) 8px 0;
+  padding: var(--safe-t) var(--s-2) 0;
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), transparent);
-  transition: opacity 0.2s, transform 0.2s;
+  gap: var(--s-1);
+  transition:
+    opacity var(--d-sheet) var(--e-drawer),
+    transform var(--d-sheet) var(--e-drawer);
 }
 .reader__bar.hide {
   opacity: 0;
   transform: translateY(-100%);
   pointer-events: none;
 }
+/* 工具栏里的图标也归阅读器配色，不能跟 App 主题走 */
+.reader .icon-btn {
+  color: var(--r-dim);
+}
+.reader .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--r-fg);
+}
 
 .reader__title {
   flex: 1;
   text-align: center;
   font-size: 13px;
-  color: #ddd;
+  color: var(--r-fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 4px;
+  padding: 0 var(--s-1);
 }
 
 .reader__scroll {
@@ -739,18 +883,16 @@ input {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  border-radius: 999px;
+  padding: var(--s-2) 14px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(8px);
-  animation: edgeFade 0.18s;
+  color: var(--r-fg);
+  animation: edgeFade var(--d-micro) var(--e-out);
 }
 @keyframes edgeFade {
   from {
     opacity: 0;
-    transform: translate(-50%, 6px);
+    transform: translate(-50%, 8px);
   }
 }
 
@@ -843,12 +985,12 @@ input {
 }
 
 .error-box {
-  margin: 16px;
-  padding: 16px;
-  border-radius: var(--radius);
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.3);
-  color: #fca5a5;
+  margin: var(--s-4);
+  padding: var(--s-4);
+  border-radius: var(--radius-card);
+  background: color-mix(in oklab, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger) 32%, transparent);
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -858,11 +1000,11 @@ input {
   left: 0;
   right: 0;
   z-index: 200;
-  padding: 4px;
+  padding: var(--s-1);
   text-align: center;
   font-size: 12px;
-  background: rgba(180, 83, 9, 0.95);
-  color: var(--on-accent);
+  background: var(--warn);
+  color: #fff;
 }
 
 /* ── 弹层 ───────────────────────────────────────── */
@@ -871,11 +1013,11 @@ input {
   position: fixed;
   inset: 0;
   z-index: 150;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  animation: fade 0.15s;
+  animation: fade var(--d-micro) var(--e-out);
 }
 @keyframes fade {
   from {
@@ -888,11 +1030,9 @@ input {
   max-width: 480px;
   max-height: 82vh;
   overflow-y: auto;
-  padding: 18px 16px calc(18px + var(--safe-b));
-  background: var(--bg-elev);
-  border-radius: 18px 18px 0 0;
-  border-top: 1px solid var(--border);
-  animation: rise 0.2s;
+  padding: var(--s-4) var(--s-4) calc(var(--s-4) + var(--safe-b));
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  animation: rise var(--d-sheet) var(--e-drawer);
 }
 @keyframes rise {
   from {
@@ -929,11 +1069,11 @@ input {
 .switch {
   width: 44px;
   height: 25px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--border-strong);
   position: relative;
   flex-shrink: 0;
-  transition: background 0.2s;
+  transition: background var(--d-micro) var(--e-out);
 }
 .switch.on {
   background: var(--accent);
@@ -947,7 +1087,8 @@ input {
   height: 20px;
   border-radius: 50%;
   background: #fff;
-  transition: transform 0.2s;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--d-micro) var(--e-settle);
 }
 .switch.on::after {
   transform: translateX(19px);
@@ -962,7 +1103,7 @@ input {
 .progress__bar {
   height: 100%;
   background: var(--accent);
-  transition: width 0.2s;
+  transition: width var(--d-micro) var(--e-out);
 }
 
 /* ── 主题选择 ───────────────────────────────────── */
@@ -978,18 +1119,24 @@ input {
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  padding: 14px 8px;
-  border-radius: var(--radius);
+  padding: 14px var(--s-2);
+  border-radius: var(--radius-card);
   background: var(--bg-elev);
   border: 1.5px solid var(--border);
-  transition: all 0.15s;
+  transition:
+    border-color var(--d-micro) var(--e-out),
+    background var(--d-micro) var(--e-out),
+    transform var(--d-press) var(--e-out);
 }
 .theme-option:hover {
   border-color: var(--border-strong);
 }
+.theme-option:active {
+  transform: scale(0.97);
+}
 .theme-option.on {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev));
+  background: color-mix(in oklab, var(--accent) 10%, var(--bg-elev));
 }
 
 .theme-option__icon {
@@ -1266,14 +1413,11 @@ input {
   position: fixed;
   inset: 0;
   z-index: 150;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--scrim);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  animation: fade 0.15s;
-}
-@keyframes fade {
-  from { opacity: 0; }
+  animation: fade var(--d-micro) var(--e-out);
 }
 
 .drawer {
@@ -1282,21 +1426,16 @@ input {
   max-height: 78vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-elev);
-  border-radius: 18px 18px 0 0;
-  border-top: 1px solid var(--border);
-  animation: rise 0.2s;
-}
-@keyframes rise {
-  from { transform: translateY(100%); }
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  animation: rise var(--d-sheet) var(--e-drawer);
 }
 
 .drawer__head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 12px 12px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: var(--s-4) var(--s-3) var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--edge);
   flex-shrink: 0;
 }
 .drawer__title {
@@ -1483,8 +1622,6 @@ input {
   padding: 5px 12px;
   font-size: 11.5px;
   color: var(--text-faint);
-  background: var(--bg-elev);
-  border-bottom: 1px solid var(--border);
   position: relative;
 }
 /* 整条都可点（打开同步面板），但只有 29px 高，手机上很难点中。
@@ -1506,12 +1643,12 @@ input {
 }
 
 .sync-bar__dot--ok {
-  background: #10b981;
+  background: var(--ok);
 }
 
 .sync-bar--busy .sync-bar__dot {
   background: var(--accent);
-  animation: pulse 1.2s ease-in-out infinite;
+  animation: pulse 1.2s var(--e-inout) infinite;
 }
 @keyframes pulse {
   50% {
@@ -1520,9 +1657,59 @@ input {
 }
 
 .sync-bar--error {
-  color: #dc2626;
-  background: color-mix(in srgb, #dc2626 8%, var(--bg-elev));
+  color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
 }
 .sync-bar--error .sync-bar__dot {
-  background: #dc2626;
+  background: var(--danger);
+}
+
+/* ── 无障碍降级（跟材质和动效同等地位，不是可选项）───── */
+
+/* 减少透明：玻璃退成实心，但边光和阴影留着 —— 不然层级关系跟着一起没了，
+   用户只会觉得界面"糊成一片"。 */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-bg: var(--bg-elev);
+    --glass-bg-thick: var(--bg-elev);
+    --glass-bg-bar: var(--bg-elev);
+    --glass-filter: none;
+    --glass-filter-thick: none;
+    --r-glass: #191c22;
+    --r-edge: rgba(255, 255, 255, 0.16);
+  }
+}
+
+/* 减少动效：位移和弹性全部去掉，只留交叉淡入。
+   时长压到 160ms —— 又慢又不动是最差的组合。 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --d-press: 1ms;
+    --d-micro: 160ms;
+    --d-view: 160ms;
+    --d-flip: 160ms;
+    --d-sheet: 160ms;
+    --e-out: linear;
+    --e-inout: linear;
+    --e-drawer: linear;
+    --e-settle: linear;
+  }
+  .icon-btn:active,
+  .theme-option:active,
+  .bottom-nav a.active svg {
+    transform: none;
+  }
+}
+
+/* 增加对比：边光、分隔线、次要文字各加深一档。玻璃本身变实是透明度的事，
+   这里只管对比，两件事不要混着改。 */
+@media (prefers-contrast: more) {
+  :root {
+    --edge: light-dark(rgba(0, 0, 0, 0.24), rgba(255, 255, 255, 0.28));
+    --r-edge: rgba(255, 255, 255, 0.32);
+    --border: light-dark(#a9b1bd, #525c6b);
+    --border-strong: light-dark(#7d8794, #798393);
+    --text-dim: light-dark(#3c4350, #b6bfcd);
+    --text-faint: light-dark(#5b6472, #98a2b2);
+  }
 }
