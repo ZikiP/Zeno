@@ -1,64 +1,101 @@
 /* ── 页面切换动效 ─────────────────────────────────────
-   只有内容区参与转场。顶栏和底部导航是骨架，跟着一起推会显得很廉价 ——
-   它们留在 root 组里做一次交叉淡入，内容相同的那部分基本看不出来。
+   整屏（root）来演，不给任何元素挂 view-transition-name。
 
-   两条路径都得顾到：
-     - 走 View Transition 的（点站内链接、页内返回按钮）：由 ::view-transition-* 演。
-       同时用 html[data-vt-active] 压掉挂载动画，否则新页面会在转场里再动一遍。
-     - 拦不到的（浏览器/系统的返回手势）：没有 VT，退化成挂载动画。 */
+   用具名组踩过两个坑，都写在这里免得有人再试回去：
+     1. 具名组只演内容区，顶栏和底栏留在 root 组里演 UA 默认的交叉淡入 ——
+        一边滑一边淡，两个动画互相打架。
+     2. 具名组的快照矩形不含顶栏和底栏，于是"滑动"是一块内缩的区域，
+        看着就是错位，而不是整屏在动。
 
-.main,
-.reader {
-  view-transition-name: zeno-page;
-}
+   mix-blend-mode 必须显式设成 normal：UA 默认是 plus-darker，
+   整屏快照互相叠加会在中途闪一下黑。
 
-::view-transition-group(zeno-page) {
+   三种语义分开：
+     push —— 进更深的页（列表 → 详情 → 阅读器），整屏从右边推进来
+     pop  —— 退回来，镜像方向
+     tab  —— 底栏四个入口之间，底栏本来就该稳住，只做交叉淡入
+   切标签页时顶栏/底栏在前后两张快照里像素几乎一致，淡入淡出看不出来，
+   于是效果就是"只有内容换了" —— 这正是想要的。
+
+   拦不到的那条路（浏览器/系统的返回手势）没有 VT，由挂载动画兜底；
+   走 VT 时用 html[data-vt-active] 把挂载动画压掉，否则会演两遍。 */
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  mix-blend-mode: normal;
   animation-duration: var(--d-view);
-  animation-timing-function: var(--e-out);
-}
-::view-transition-old(zeno-page),
-::view-transition-new(zeno-page) {
-  height: 100%;
-  animation-duration: var(--d-view);
-  animation-timing-function: var(--e-out);
+  animation-timing-function: var(--e-push);
   animation-fill-mode: both;
 }
 
-/* 前进：新页从右边推进来，旧页往左退并淡出 */
-::view-transition-old(zeno-page) {
-  animation-name: vt-old-forward;
+::view-transition-old(root) {
+  animation-name: vt-out-push;
 }
-::view-transition-new(zeno-page) {
-  animation-name: vt-new-forward;
+::view-transition-new(root) {
+  animation-name: vt-in-push;
 }
-/* 后退：整个镜像过来 */
-html[data-vt-dir='back'] ::view-transition-old(zeno-page) {
-  animation-name: vt-old-back;
+html[data-vt-mode='pop'] ::view-transition-old(root) {
+  animation-name: vt-out-pop;
 }
-html[data-vt-dir='back'] ::view-transition-new(zeno-page) {
-  animation-name: vt-new-back;
+html[data-vt-mode='pop'] ::view-transition-new(root) {
+  animation-name: vt-in-pop;
+}
+html[data-vt-mode='tab'] ::view-transition-old(root) {
+  animation-name: vt-fade-out;
+}
+html[data-vt-mode='tab'] ::view-transition-new(root) {
+  animation-name: vt-fade-in;
 }
 
-@keyframes vt-old-forward {
+/*
+ * 推入时旧页只退 26%、不退出屏幕。
+ * 关键是新页走满 100%，所以任意时刻两张快照的并集都盖住 0–100%：
+ * 中途不会露出底色（露底就是"闪一下"的来源）。
+ * 旧页用 opacity 压暗而不是 filter: brightness —— 后者每帧重绘整屏。
+ */
+@keyframes vt-out-push {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
   to {
-    transform: translateX(-24%);
+    transform: translateX(-26%);
+    opacity: 0.55;
+  }
+}
+@keyframes vt-in-push {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes vt-out-pop {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes vt-in-pop {
+  from {
+    transform: translateX(-26%);
+    opacity: 0.55;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes vt-fade-out {
+  to {
     opacity: 0;
   }
 }
-@keyframes vt-new-forward {
+@keyframes vt-fade-in {
   from {
-    transform: translateX(100%);
-  }
-}
-@keyframes vt-old-back {
-  to {
-    transform: translateX(100%);
-    opacity: 0.4;
-  }
-}
-@keyframes vt-new-back {
-  from {
-    transform: translateX(-24%);
     opacity: 0;
   }
 }

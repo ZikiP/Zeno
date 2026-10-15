@@ -22,24 +22,33 @@ import { flushSync } from 'react-dom';
  */
 
 type Nav = ReturnType<typeof useNavigate>;
-type Dir = 'forward' | 'back';
+/**
+ * 三种语义，别混成一种：
+ *   push —— 进更深的页面（列表 → 详情 → 阅读器），整屏从右边推进来
+ *   pop  —— 退回来，镜像方向
+ *   tab  —— 底栏四个入口之间切换，底栏本身不该动，只做交叉淡入
+ */
+type Mode = 'push' | 'pop' | 'tab';
+
+/** 底栏的那四个路由 */
+const TAB_ROUTES = ['/shelf', '/explore', '/search', '/settings'];
 
 /** TS 自带 ViewTransition 类型，但运行环境不一定有，所以只能探测不能假定 */
 const vtSupported = () => typeof document !== 'undefined' && 'startViewTransition' in document;
 
-/** 方向要在发起前定：快照拍完再改属性就来不及了 */
-function markTransition(dir: Dir) {
+/** 模式要在发起前定：快照拍完再改属性就来不及了 */
+function markTransition(mode: Mode) {
   const el = document.documentElement;
-  el.dataset.vtDir = dir;
+  el.dataset.vtMode = mode;
   el.dataset.vtActive = '1';
 }
 
-function runVt(dir: Dir, commit: () => void) {
+function runVt(mode: Mode, commit: () => void) {
   if (!vtSupported()) {
     commit();
     return;
   }
-  markTransition(dir);
+  markTransition(mode);
   const vt = document.startViewTransition(() => flushSync(commit));
   // 转场结束后再摘掉标记，否则新页面的挂载动画会在转场里再演一遍
   void vt.finished.finally(() => {
@@ -49,14 +58,13 @@ function runVt(dir: Dir, commit: () => void) {
 
 /**
  * 替代 useNavigate 的那个版本。
- * `navigate(-1)` 这类数字目标是"回退"，方向要和点链接相反。
+ * `navigate(-1)` 这类数字目标是"退回来"，方向要和推入相反。
  */
 export function useVtNavigate() {
   const navigate = useNavigate();
   return useCallback(
     (to: To | number, opts?: NavigateOptions) => {
-      const dir: Dir = typeof to === 'number' && to < 0 ? 'back' : 'forward';
-      runVt(dir, () => (navigate as Nav)(to as To, opts));
+      runVt(typeof to === 'number' && to < 0 ? 'pop' : 'push', () => (navigate as Nav)(to as To, opts));
     },
     [navigate],
   );
@@ -89,7 +97,9 @@ export function useVtLinkInterception() {
       // 先掐掉 react-router 自己的处理，否则它会 push 第二次
       e.preventDefault();
       e.stopPropagation();
-      runVt('forward', () => navigate(url.pathname + url.search));
+      const isTab = (p: string) => TAB_ROUTES.includes(p);
+      const mode: Mode = isTab(location.pathname) && isTab(url.pathname) ? 'tab' : 'push';
+      runVt(mode, () => navigate(url.pathname + url.search));
     };
     document.addEventListener('click', onClick, true);
     return () => document.removeEventListener('click', onClick, true);

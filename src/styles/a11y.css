@@ -42,8 +42,8 @@
     display: none;
   }
   /* 页面转场同理：只淡入淡出，不位移 */
-  ::view-transition-old(zeno-page),
-  ::view-transition-new(zeno-page) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
     animation-name: vt-fade;
   }
   .main,
