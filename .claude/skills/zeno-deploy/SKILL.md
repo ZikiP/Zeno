@@ -342,6 +342,8 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 | `ERR_CONNECTION_ABORTED` | 代理劫持（**不是**证书没签下来） | 在代理软件的绕过列表里加 `*.ts.net`，改注册表会被覆盖 |
 | `*.ts.net` 解析失败（安卓） | 私人 DNS 冲突 | 设置 → 网络 → 私人 DNS 设为「自动」或「关闭」 |
 | Chrome 里解析不了 | Chrome 安全 DNS 绕过 MagicDNS | `chrome://settings/security` 关掉「使用安全 DNS」 |
+| 部署完手机上看到的还是旧界面 | PWA 的 Service Worker 还在供 precache 里的旧包（`vite-plugin-pwa` 是 `autoUpdate`，要等它自己换） | **别用刷新判断部署结果。** 比对构建产物名：`curl -s http://127.0.0.1:<端口>/` 里引到的 `index-*.js` 和 `ls dist/assets/` 一致才算新包到位。不一致就是 SW 还没换 —— 等一次冷启动，或在客户端清一次站点数据 |
+| 改了 `data/zeno.db` 但界面没变 | 服务端只在启动时读库；另外客户端 IndexedDB 是主数据，服务端只是同步枢纽 | 重启服务；再看客户端是否已把本地那份推上去 |
 | 数据丢了 | 删了 `data/` | 数据全在 `data/zeno.db`，备份就是拷这个文件 |
 
 ## 数据
