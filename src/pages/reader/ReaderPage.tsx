@@ -4,6 +4,7 @@ import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, DEFAULT_PREFS, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
 import { useChapterLoader, useRestoreScrollPosition } from './useChapterLoader';
+import { useChapterNeighbors } from './useChapterNeighbors';
 import { useBookmarks } from './useBookmarks';
 import {
   useAutoDismiss,
@@ -38,9 +39,11 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const { plugin } = usePlugin();
   const [searchParams] = useSearchParams();
 
-  /* 前后章节由详情页写在 URL 查询参数里，刷新不丢 */
-  const prevId = searchParams.get('p');
-  const nextId = searchParams.get('n');
+  /* 前后章按缓存的章节表现算；URL 上的 p/n 只在没缓存时兜底 */
+  const { prevId, nextId } = useChapterNeighbors(plugin?.meta.id, slug, chapterId, {
+    prev: searchParams.get('p'),
+    next: searchParams.get('n'),
+  });
 
   const prefs = usePrefs(DEFAULT_PREFS);
   const [mode, setMode] = useState<ReaderMode>(

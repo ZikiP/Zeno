@@ -24,7 +24,7 @@ export default function ChapterList({
   slug: string;
   cached: Record<string, { bytes: number }>;
 }) {
-  // 站点给的顺序通常是「新 → 旧」，倒过来让最新章排在最前
+  // parseChapters 按序号升序排好，这里倒过来让最新章排在最前
   const ordered = useMemo(() => [...chapters].reverse(), [chapters]);
   const [limit, setLimit] = useState(BATCH);
 
@@ -53,13 +53,14 @@ export default function ChapterList({
            * 把前后章节 id 一起带进阅读器。
            * 路由 state 传不过刷新（刷新就没了），所以同时写进 URL 查询参数 ——
            * 阅读器读不到 state 时还能从 query 兜底。
+           *
+           * 必须按 chapters（升序 = 阅读顺序）取相邻项，不能按上面那个倒序展示数组：
+           * 从倒序数组里取 i+1，「下一章」会指回上一话。
            */
-          const posInOrdered = ordered.indexOf(ch);
-          const prev = posInOrdered > 0 ? ordered[posInOrdered - 1] : undefined;
+          const pos = chapters.indexOf(ch);
+          const prev = pos > 0 ? chapters[pos - 1] : undefined;
           const next =
-            posInOrdered >= 0 && posInOrdered < ordered.length - 1
-              ? ordered[posInOrdered + 1]
-              : undefined;
+            pos >= 0 && pos < chapters.length - 1 ? chapters[pos + 1] : undefined;
 
           const query = new URLSearchParams();
           if (prev) query.set('p', prev.id);

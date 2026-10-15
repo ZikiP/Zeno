@@ -30,8 +30,8 @@ export function useReaderActions(a: Args) {
   /**
    * 换章。
    *
-   * 不带 p/n：换了章就不知道新的前后关系了，带着旧的过去会指错章。
-   * 前后章由详情页写在 URL 查询参数里，所以只有详情页跳进来时才可能有。
+   * 不用带 p/n：阅读器会按缓存的章节表重新算前后关系，
+   * 带着旧的过去反而会指错章（换了章之后前后各挪一格）。
    */
   const gotoChapter = useCallback(
     (id: string) => {

@@ -54,7 +54,7 @@ export default function ChapterDrawer({
     };
   }, [pluginId, slug]);
 
-  /** 站点给的是「新 → 旧」，这里倒序成「最新在上」并标出当前 */
+  /** 缓存里是升序（旧 → 新），倒过来让最新章排在最前 */
   const ordered = useMemo(() => (chapters ? [...chapters].reverse() : []), [chapters]);
   const currentPos = ordered.findIndex((c) => c.id === currentId);
 
