@@ -125,7 +125,11 @@ export function openDb() {
       device_id      TEXT PRIMARY KEY,
       last_pulled_seq INTEGER NOT NULL DEFAULT 0,
       last_push_at   INTEGER NOT NULL DEFAULT 0,
-      user_agent     TEXT
+      user_agent     TEXT,
+      -- 用户给这台起的显示名
+      label          TEXT,
+      -- 'server' = 就是跑服务的那台机器开的浏览器，'client' = 别的设备
+      role           TEXT
     );
 
     -- 只属于这台机器的配置。
@@ -145,6 +149,21 @@ export function openDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_cache_index_at ON cache_index(at);
   `);
+
+  /*
+   * 老库补列。CREATE TABLE IF NOT EXISTS 对已经存在的表什么都不做，
+   * 所以已有的 client_state 不会凭空长出 label/role —— 不补的话
+   * 部署过一版的机器升级后，设备列表一直是空的，而且没有任何报错。
+   */
+  for (const [col, type] of [
+    ['label', 'TEXT'],
+    ['role', 'TEXT'],
+  ]) {
+    const has = db
+      .prepare("SELECT 1 FROM pragma_table_info('client_state') WHERE name = ?")
+      .get(col);
+    if (!has) db.exec(`ALTER TABLE client_state ADD COLUMN ${col} ${type}`);
+  }
 
   return db;
 }
@@ -196,17 +215,25 @@ export function pull(sinceSeq = 0) {
 
 /* ── 客户端上报状态 ───────────────────────────────── */
 
-export function saveClientState(deviceId, seq, ua) {
+/**
+ * 记一次这台设备的活动。
+ *
+ * label / role 用 COALESCE：设备不一定每次都带得上（老版本客户端、
+ * 或者只发了一次探测），带了才覆盖，别把已有的名字抹成空的。
+ */
+export function saveClientState(deviceId, seq, ua, label, role) {
   openDb()
     .prepare(
-      `INSERT INTO client_state (device_id, last_pulled_seq, last_push_at, user_agent)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO client_state (device_id, last_pulled_seq, last_push_at, user_agent, label, role)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(device_id) DO UPDATE SET
          last_pulled_seq = excluded.last_pulled_seq,
          last_push_at    = excluded.last_push_at,
-         user_agent      = excluded.user_agent`,
+         user_agent      = excluded.user_agent,
+         label           = COALESCE(excluded.label, client_state.label),
+         role            = COALESCE(excluded.role, client_state.role)`,
     )
-    .run(deviceId, seq, Date.now(), ua ?? null);
+    .run(deviceId, seq, Date.now(), ua ?? null, label ?? null, role ?? null);
 }
 
 export function listClients() {

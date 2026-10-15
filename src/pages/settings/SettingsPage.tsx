@@ -4,7 +4,7 @@ import PluginEditor from './PluginEditor';
 import LegalSheet from './LegalSheet';
 import CacheSheet from './CacheSheet';
 import PluginList from './PluginList';
-import { SyncSheet } from '@/sync/SyncUI';
+import SyncSheet from '@/sync/SyncSheet';
 import { useTheme, THEMES } from '@/hooks/useTheme';
 import { IconSun, IconMoon, IconSystem, IconSync } from '@/components/Icons';
 import BottomNav from '@/components/BottomNav';

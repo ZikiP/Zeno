@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { listClients, pull, saveClientState, stats } from './db.mjs';
 import { pushAll } from './merge.mjs';
 import { removePlugin } from './deletes.mjs';
@@ -42,7 +43,7 @@ export async function handleSyncApi(req, res, url, auth) {
     const since = Number(url.searchParams.get('since') ?? 0);
     const deviceId = url.searchParams.get('deviceId') ?? 'unknown';
     const data = pull(Number.isFinite(since) ? since : 0);
-    saveClientState(deviceId, data.seq, ua(req));
+    saveClientState(deviceId, data.seq, ua(req), clientLabel(req), clientRole(req));
     json(res, 200, data);
     return true;
   }
@@ -52,7 +53,7 @@ export async function handleSyncApi(req, res, url, auth) {
     const body = await readBody(req);
     const deviceId = body.deviceId ?? req.headers['x-device-id'] ?? 'unknown';
     const result = pushAll(body, deviceId);
-    saveClientState(deviceId, body.seq ?? 0, ua(req));
+    saveClientState(deviceId, body.seq ?? 0, ua(req), clientLabel(req), clientRole(req));
 
     /*
      * 插件变了，白名单跟着变。
@@ -89,4 +90,37 @@ export async function handleSyncApi(req, res, url, auth) {
 /** 设备表里记的 UA 只是排查用，截断即可，别把整条存进库 */
 function ua(req) {
   return req.headers['user-agent']?.slice(0, 200) ?? null;
+}
+
+/**
+ * 这台设备是「跑服务的那台机器」还是「别的客户端」。
+ *
+ * 判据只有两条，两条都对不上就老实说客户端 —— 标错角色比不标更误导人。
+ *   1. 连接本身来自回环地址：在那台机器上开浏览器访问 localhost:8788；
+ *   2. 浏览器上报的 hostname 就是服务端自己的主机名（含 MiniPC 上
+ *      用 http://minipc:8788 这种本机名，或 magicDNS 的 minipc.xxx.ts.net
+ *      —— 第一段就等于 os.hostname()）。
+ *
+ * 注意这跟"哪个浏览器在用"无关，说的是**物理机器**：手机、平板都是客户端，
+ * 哪怕它们是同一个人手上那几台。
+ */
+function clientRole(req) {
+  const peer = req.socket.remoteAddress ?? '';
+  if (peer === '127.0.0.1' || peer === '::1' || peer.startsWith('::ffff:127.')) return 'server';
+  const host = String(req.headers['x-client-host'] ?? '').toLowerCase().trim();
+  const self = (hostname() || '').toLowerCase();
+  if (host && self && (host === self || host.startsWith(`${self}.`))) return 'server';
+  return 'client';
+}
+
+/** 设备显示名。客户端编码过（头的值只能是 latin1），中文名字得解码回来 */
+function clientLabel(req) {
+  const raw = req.headers['x-device-label'];
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(String(raw)).slice(0, 60) || null;
+  } catch {
+    // 半截的百分号转义：宁可不改名，也别让一次同步 500
+    return null;
+  }
 }

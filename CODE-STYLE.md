@@ -202,7 +202,7 @@ interface Props {
 
 | 文件 | 行数 | 说明 |
 |---|---|---|
-| `sync/client.ts` | 296 | 逼近 300。再加东西就该把"网络层"和"状态机"分开 |
+| `sync/client.ts` | 298 | 贴着 300。设备身份与服务端地址（deviceId、显示名、endpoint、token）已拆到 `sync/device.ts`；状态条与配置弹层拆成 `SyncBar.tsx` / `SyncSheet.tsx` |
 | `server/cache-store.mjs` | 252 | 图片缓存的盘上机制。配置在 `cache-config.mjs`、对外的脸在 `cache.mjs` |
 | `pages/GlobalSearchPage.tsx` | 249 | 逼近 250。搜索历史已抽成 `useSearchHistory` |
 | `pages/reader/ReaderPage.tsx` | 238 | 动作抽到 `useReaderActions`，副作用抽到 `useReaderEffects` |

@@ -1,71 +1,54 @@
 import { useEffect, useState } from 'react';
+import { Divider, Field } from '@/components/FormKit';
+import { formatAgo } from '@/store/utils';
+import type { PeerInfo } from '@/sync/device';
 import { sync, type SyncState } from '@/sync/client';
 
-/** 同步状态条。放在顶栏下方，让用户随时知道「数据同步了没」 */
-export default function SyncBar({ onConfigure }: { onConfigure?: () => void }) {
-  const [s, setS] = useState<SyncState>(sync.getState());
-
-  useEffect(() => sync.subscribe(setS), []);
-
-  // 没配置服务端就不显示 —— 不打扰只用本地的用户
-  if (!s.endpoint) return null;
-
-  if (s.syncing) {
-    return (
-      <button className="sync-bar sync-bar--busy" onClick={onConfigure}>
-        <span className="sync-bar__dot" />
-        同步中…
-      </button>
-    );
-  }
-
-  if (!s.online) {
-    return (
-      <button className="sync-bar sync-bar--error" onClick={onConfigure}>
-        <span className="sync-bar__dot" />
-        离线 · 连不上同步服务
-      </button>
-    );
-  }
-
-  return (
-    <button className="sync-bar" onClick={onConfigure} title="点击查看同步设置">
-      <span className="sync-bar__dot sync-bar__dot--ok" />
-      已同步
-      {s.lastSyncAt && ` · ${relativeTime(s.lastSyncAt)}`}
-    </button>
-  );
-}
-
-function relativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  const m = Math.floor(diff / 60_000);
-  if (m < 1) return '刚刚';
-  if (m < 60) return `${m} 分钟前`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} 小时前`;
-  return `${Math.floor(h / 24)} 天前`;
-}
-
-/** 同步配置弹层 */
-export function SyncSheet({ onClose }: { onClose: () => void }) {
+/**
+ * 同步配置弹层：服务端地址与令牌、这台的显示名、服务端记下的设备列表。
+ * 状态条在 SyncBar.tsx，那份"我同步了没"的读数不需要跟着打开面板。
+ */
+export default function SyncSheet({ onClose }: { onClose: () => void }) {
   const [s, setS] = useState<SyncState>(sync.getState());
   const [endpoint, setEndpoint] = useState(s.endpoint);
   const [token, setToken] = useState('');
+  const [label, setLabel] = useState(s.deviceLabel);
+  const [peers, setPeers] = useState<PeerInfo[]>([]);
 
   useEffect(() => sync.subscribe(setS), []);
+
+  const loadPeers = async () => setPeers(await sync.peers());
+  // 打开面板就捞一次设备列表：角色是服务端判的，本地无从得知
+  useEffect(() => {
+    void loadPeers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** 立即同步：先保存配置（否则改动不生效），再探测、推送 */
   const syncNow = async () => {
     sync.applyConfig({ endpoint: endpoint.trim(), token: token.trim() || undefined });
+    sync.setLabel(label);
     await sync.probe();
     await sync.sync();
+    await loadPeers();
   };
 
   const save = async () => {
     await syncNow();
     onClose();
   };
+
+  /** 服务端判出来的角色。它没上报过时为 null，这时候宁可什么都不标 */
+  const roleLabel = (p: PeerInfo) =>
+    p.role === 'server' ? '服务端本机' : p.role === 'client' ? '客户端' : null;
+  const me = peers.find((p) => p.device_id === s.deviceId);
+  /*
+   * 只列最近还在同步的设备。
+   * client_state 一行代表一个出现过的 deviceId，而它永远不会自己消失 ——
+   * 开发库里就攒了二十来行，里头还有 pull-plugins、check 这种脚本留下的。
+   * 按"上次推送"筛一下，列表才还是那几台真在用的机器。
+   */
+  const recent = peers.filter((p) => Date.now() - p.last_push_at < 30 * 86_400_000);
 
   return (
     <div className="drawer-mask" onClick={onClose}>
@@ -87,7 +70,15 @@ export function SyncSheet({ onClose }: { onClose: () => void }) {
             </span>
           </p>
 
-          <label style={{ display: 'block', marginBottom: 12 }}>
+          <Field
+            label="这台设备的名字"
+            hint="出现在设备列表里的是它，不是那串 dev-xxx 标识。默认按浏览器猜，可以随便改。"
+            value={label}
+            onChange={setLabel}
+            placeholder="比如：手机 / 平板 / 客厅那台"
+          />
+
+          <label style={{ display: 'block', marginTop: 12, marginBottom: 12 }}>
             <div style={{ fontSize: 13, marginBottom: 4 }}>服务端地址</div>
             <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 4, lineHeight: 1.5 }}>
               默认用当前地址。前后端分开部署时改成服务端的地址。
@@ -149,6 +140,13 @@ export function SyncSheet({ onClose }: { onClose: () => void }) {
                 {s.online ? '已连接' : s.endpoint ? '连不上' : '未配置'}
               </span>
             </div>
+            {/* 角色由服务端判（它才知道自己是谁），所以刚从没同步过时是"未知" */}
+            <div className="chapter-row" style={{ fontSize: 13 }}>
+              <span className="chapter-row__name">这台设备</span>
+              <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+                {me ? (roleLabel(me) ?? '角色未知') : '还没同步过'}
+              </span>
+            </div>
             <div className="chapter-row" style={{ fontSize: 13 }}>
               <span className="chapter-row__name">本机标识</span>
               <code style={{ fontSize: 11, color: 'var(--text-faint)' }}>{s.deviceId}</code>
@@ -156,7 +154,7 @@ export function SyncSheet({ onClose }: { onClose: () => void }) {
             <div className="chapter-row" style={{ fontSize: 13 }}>
               <span className="chapter-row__name">上次同步</span>
               <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-                {s.lastSyncAt ? relativeTime(s.lastSyncAt) : '从未'}
+                {s.lastSyncAt ? formatAgo(s.lastSyncAt) : '从未'}
                 {s.lastResult > 0 && ` · 同步 ${s.lastResult} 项`}
               </span>
             </div>
@@ -179,6 +177,37 @@ export function SyncSheet({ onClose }: { onClose: () => void }) {
               </div>
             )}
           </div>
+
+          {recent.length > 0 && (
+            <>
+              <Divider text={`同步过的设备（最近 30 天，${recent.length}）`} />
+              <div className="chapters" style={{ margin: '8px 0 16px' }}>
+                {recent.map((p) => {
+                  const self = p.device_id === s.deviceId;
+                  const role = roleLabel(p);
+                  return (
+                    <div key={p.device_id} className="chapter-row" style={{ fontSize: 13 }}>
+                      <span className="chapter-row__name">
+                        {p.label || p.device_id}
+                        {self && ' （本机）'}
+                      </span>
+                      {/* 服务端那台机器单独标出来：它同时也是别人的服务端 */}
+                      {role && (
+                        <span
+                          className={`chapter-row__badge ${role === '服务端本机' ? 'badge-done' : 'badge-cache'}`}
+                        >
+                          {role}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+                        {formatAgo(p.last_push_at)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn--ghost" onClick={() => void syncNow()} disabled={s.syncing}>

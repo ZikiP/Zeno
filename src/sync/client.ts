@@ -2,6 +2,15 @@ import { collectLocal, type RemoteSnapshot } from './transfer';
 import { applyRemote } from './applyRemote';
 import { pruneTombstones } from '@/store/tombstones';
 import { emitDataChange } from '@/store/dataEvents';
+import {
+  getDeviceId,
+  getDeviceLabel,
+  getEndpoint,
+  getSyncToken,
+  setDeviceLabel,
+  setSyncConfig,
+  type PeerInfo,
+} from './device';
 
 /**
  * 同步管理器
@@ -25,15 +34,14 @@ export interface SyncState {
   lastResult: number;
   error: string | null;
   deviceId: string;
+  /** 这台设备的显示名（可改）。只有它出现在设备列表里，deviceId 是内部的键 */
+  deviceLabel: string;
   /** 服务端地址，空表示未配置 */
   endpoint: string;
 }
 
 export type SyncListener = (s: SyncState) => void;
 
-const DEVICE_KEY = 'syncDeviceId';
-const ENDPOINT_KEY = 'syncEndpoint';
-const TOKEN_KEY = 'syncToken';
 const SYNC_INTERVAL = 5 * 60 * 1000;
 /**
  * 单次同步请求的上限。
@@ -43,45 +51,6 @@ const SYNC_INTERVAL = 5 * 60 * 1000;
  */
 const SYNC_FETCH_MS = 15_000;
 
-/**
- * 设备标识。
- * 持久化到 localStorage —— 同一台设备重启后标识不变，
- * 否则服务端会把它当成新设备。用随机串而不是 UA（同型号手机 UA 会撞）。
- */
-function getDeviceId(): string {
-  let id = localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    id = `dev-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`;
-    localStorage.setItem(DEVICE_KEY, id);
-  }
-  return id;
-}
-
-/**
- * 服务端地址。
- *
- * 默认同源 —— 部署时前后端在同一域名下（/api/sync/*），
- * 用户什么都不用填就能同步。这是绝大多数情况。
- * 只有「前后端分开部署」才需要在设置里显式填地址。
- */
-function getEndpoint(): string {
-  const saved = localStorage.getItem(ENDPOINT_KEY);
-  if (saved !== null) return saved; // '' 表示用户显式关掉了同步
-  return typeof location === 'undefined' ? '' : location.origin;
-}
-
-export function getSyncToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? '';
-}
-
-export function setSyncConfig(opts: { endpoint?: string; token?: string }) {
-  if (opts.endpoint !== undefined) localStorage.setItem(ENDPOINT_KEY, opts.endpoint);
-  if (opts.token !== undefined) {
-    if (opts.token) localStorage.setItem(TOKEN_KEY, opts.token);
-    else localStorage.removeItem(TOKEN_KEY);
-  }
-}
-
 class SyncManager {
   private state: SyncState = {
     online: false,
@@ -90,6 +59,7 @@ class SyncManager {
     lastResult: 0,
     error: null,
     deviceId: getDeviceId(),
+    deviceLabel: getDeviceLabel(),
     endpoint: getEndpoint(),
   };
 
@@ -160,6 +130,10 @@ class SyncManager {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = getSyncToken();
     if (token) h.Authorization = `Bearer ${token}`;
+    /* 头的值只允许 latin1，中文名要先编码，服务端再解回来 */
+    h['X-Device-Label'] = encodeURIComponent(this.state.deviceLabel);
+    // 服务端用它判断这台是不是它自己那台机器（见 sync-api 的 clientRole）
+    h['X-Client-Host'] = typeof location === 'undefined' ? '' : location.hostname;
     return h;
   }
 
@@ -178,6 +152,34 @@ class SyncManager {
     } catch (e) {
       this.update({ online: false, error: (e as Error).message });
       return false;
+    }
+  }
+
+  /** 改这台设备的显示名。改名不单独同步 —— 下一次 push/pull 就带过去了 */
+  setLabel(value: string) {
+    this.update({ deviceLabel: setDeviceLabel(value) });
+  }
+
+  /**
+   * 服务端记的设备列表。
+   *
+   * 「这台是不是跑服务的那台机器」只有服务端判得出来（它知道自己的主机名，
+   * 也看得见连接来自哪儿），所以本机角色也是从这里读回来的，不在本地猜。
+   * 拉不到就当没有 —— 离线时同步面板照常能用。
+   */
+  async peers(): Promise<PeerInfo[]> {
+    const ep = this.state.endpoint;
+    if (!ep) return [];
+    try {
+      const r = await fetch(`${ep}/api/sync/clients`, {
+        headers: this.headers(),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return [];
+      const body = (await r.json()) as { clients?: PeerInfo[] };
+      return body.clients ?? [];
+    } catch {
+      return [];
     }
   }
 

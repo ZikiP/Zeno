@@ -1,4 +1,5 @@
-import { getSyncToken, sync } from '@/sync/client';
+import { sync } from '@/sync/client';
+import { getSyncToken } from '@/sync/device';
 
 /**
  * 服务端图片缓存的配置接口

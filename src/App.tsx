@@ -10,7 +10,7 @@ import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { useTheme } from '@/hooks/useTheme';
 import { useVtLinkInterception } from '@/hooks/viewTransition';
 import { OfflineBar } from '@/components/UI';
-import SyncBar from '@/sync/SyncUI';
+import SyncBar from '@/sync/SyncBar';
 import { sync } from '@/sync/client';
 
 function useOnline() {

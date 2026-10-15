@@ -31,3 +31,13 @@ export function formatRelative(ts: number): string {
   if (mins >= 1) return `${mins} 分钟前`;
   return '刚刚';
 }
+
+/** 时间戳 → 「刚刚 / 12 分钟前 / 3 小时前 / 5 天前」。同步相关的界面共用 */
+export function formatAgo(ts: number): string {
+  const m = Math.floor((Date.now() - ts) / 60_000);
+  if (m < 1) return '刚刚';
+  if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
