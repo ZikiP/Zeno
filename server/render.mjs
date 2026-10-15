@@ -267,8 +267,9 @@ export async function renderHtml(url, opts = {}) {
      * 'idle'（"不再吐新内容了"）不算证据：一个停在质询页的站点同样很安静。
      * 所以它不走这条直接判 200 的路，只留给下面"页面确实有内容"那条兜底。
      */
-    if (settled === 'capture' || settled === 'selector' || settled === 'load' || captured.length)
-      status = 200;
+    const gotIt =
+      settled === 'capture' || settled === 'selector' || settled === 'load' || captured.length > 0;
+    if (gotIt) status = 200;
     else if (status >= 400 && html.length > 2000) status = 200;
 
     const out = captured.length
@@ -276,13 +277,12 @@ export async function renderHtml(url, opts = {}) {
       : { format: 'html', html, captured: [], status, contentType: 'text/html; charset=utf-8' };
 
     /*
-     * 声明了 capture 却一条都没抓到 = 这次渲染是失败的，不能进缓存。
-     *
-     * 之前它被当成"状态 200 的正常结果"存了 90 秒，于是用户重试同一章
-     * 拿到的是那份缓存的空壳（实测：第一次 24s 没抓到，第二次 55ms 就"成功"
-     * 返回了同样的空壳）—— 一次抖动被钉死，重试永远无效。
+     * 判据没满足的结果不进缓存。之前只有"声明了 capture 却一条没抓到"被挡住
+     * （那次实测：第一次 24s 没抓到，第二次 55ms 就"成功"返回同一份空壳 ——
+     * 一次抖动被钉死，重试永远无效）。只声明 waitFor 的页是同一个坑：停在质询页的
+     * 站点也会安静下来，'idle' 赢了就把那份壳缓存 90 秒，用户刷新几次拿到的都是它。
      */
-    if (!(opts.capture && !captured.length)) cachePut(key, out);
+    if (gotIt) cachePut(key, out);
 
     return out;
   } finally {

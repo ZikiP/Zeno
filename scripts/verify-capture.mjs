@@ -1,12 +1,14 @@
 /**
  * 捕获路径探针（直连真站，不经过 Zeno 服务）
  *
- * 验三件事：整章图片地址能不能一次拿全、拿全后是不是真的省掉了 DOM 序列化、
- * 抓空时能不能老实回落到 HTML。
+ * 验的是"坏结果不许留在缓存里"：整章能不能一次拿全、抓空时会不会老实回落到
+ * HTML 并且不缓存、waitFor 等不到时同样不缓存、缓存键分得开 UA。
+ * 这几条每一条都对应一次"一次抖动被钉死 90 秒"的实际故障。
  *
  * 用法：node scripts/verify-capture.mjs
  */
 import { renderHtml, renderCacheStats, shutdownBrowser } from '../server/render.mjs';
+import { keyFor } from '../server/render-cache.mjs';
 
 const CHAPTER_URL =
   'https://www.mangacopy.com/comic/buxihuannverfanerxihuanmamawoma/chapter/46f6f7ce-f45c-11ea-8ec5-00163e0ca5bd';
@@ -84,6 +86,30 @@ const OTHER =
 const warm = await timed('热浏览器首章', () => renderHtml(OTHER, { capture: PATTERN, timeoutMs: 30_000 }));
 check(warm.captured.length === 57, `另一部作品的长章节：捕获 ${warm.captured.length} 个（指示器 1 / 57）`);
 check(warm.status === 200, `状态 ${warm.status}`);
+
+console.log('\n=== 6. waitFor 等不到的那次，同样不许进缓存');
+/*
+ * 停在质询页的站点也会"安静下来"，'idle' 因此不算证据。以前只要状态是 200
+ * 就缓存，于是那份壳被存 90 秒，用户刷新几次拿到的都是它 —— 和当年 capture
+ * 抓空被钉死是同一个坑，只是这次是只声明 waitFor 的那类页。
+ */
+const ghostOpts = { waitFor: 'div.thisSelectorNeverExists', timeoutMs: 8000 };
+const hitsBefore = renderCacheStats().hits;
+await renderHtml(DETAIL_URL + '?x=ghost', ghostOpts);
+const t3 = performance.now();
+await renderHtml(DETAIL_URL + '?x=ghost', ghostOpts);
+const ghostMs = Math.round(performance.now() - t3);
+check(ghostMs > 3000, `第二次是真的重渲染（${ghostMs}ms，命中缓存会 <100ms）`);
+check(
+  renderCacheStats().hits === hitsBefore,
+  `命中计数没涨（${hitsBefore} → ${renderCacheStats().hits}）`,
+);
+
+console.log('\n=== 7. 缓存键带 UA：别的 UA 渲染出来的壳不该给这个 UA');
+const k = (o) => keyFor('https://example/a', o);
+check(k({ userAgent: 'A' }) !== k({ userAgent: 'B' }), 'UA 不同 → 键不同');
+check(k({ waitFor: 'p' }) !== k({ waitFor: 'q' }), '判据不同 → 键不同');
+check(k({}) === k({}), '同样的 URL 与判据仍是同一个键（该命中的还要命中）');
 
 await shutdownBrowser();
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);

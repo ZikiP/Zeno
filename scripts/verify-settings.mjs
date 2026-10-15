@@ -235,6 +235,27 @@ if (BOTH) {
   const aInfo = await cardsInfo();
   check(aInfo.first.startsWith(`/comic/${A.id}/`), `${A.name} 的详情地址带着自己的源：${aInfo.first}`);
 
+  /*
+   * 用户的手势是**点封面**，不是把地址粘进地址栏。这一条盯的是导航那一瞬的竞态：
+   * 路径已经换成详情页、上下文手上还是发现页那份解析结果，RequirePlugin 一旦照它
+   * 判断就以为"一个源都没有"，把人弹到设置页 —— 之前 goto 测不出这种问题。
+   */
+  await page.click('a.card');
+  await page
+    .waitForFunction(() => location.pathname.startsWith('/comic/'), null, { timeout: 8000 })
+    .catch(() => {});
+  const landed = new URL(page.url()).pathname;
+  check(landed === aInfo.first, `点封面落在详情页 ${landed}（不是被弹去设置页）`);
+  const tappedChapters = await page
+    .waitForFunction(() => document.querySelectorAll('a[href*="/read/"]').length > 0, null, { timeout: 90_000 })
+    .then(() => page.evaluate(() => document.querySelectorAll('a[href*="/read/"]').length))
+    .catch(() => 0);
+  check(tappedChapters > 0, `从这次点进去的详情页拿到 ${tappedChapters} 条章节`);
+  await page.screenshot({ path: join(shots, 'tap-into-detail.png'), fullPage: true });
+
+  await page.goto(`${BASE}/explore`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1200);
+
   await page.click(`.source-switch .chip:has-text("${B.name}")`);
   await page.waitForTimeout(400);
   check(await waitCards(), `${B.name} 的列表出结果（切过去是真的换了源，不是换个标签）`);

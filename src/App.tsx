@@ -17,6 +17,7 @@ import SettingsPage from '@/pages/settings/SettingsPage';
 import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { useTheme } from '@/hooks/useTheme';
 import { Loading, OfflineBar } from '@/components/UI';
+import { IconEmpty } from '@/components/Icons';
 import SyncBar from '@/sync/SyncBar';
 import { sync } from '@/sync/client';
 
@@ -70,15 +71,36 @@ function useFirstSyncSettled(): boolean {
  * 两种缺法要分开：路径里点名了一个本机没装的源（别人的分享链接、书架里那本
  * 换了设备）—— 这种**不能**把用户弹到设置页了事，他会不知道为什么，而且
  * 地址栏里那本书还在，装了源就该回得来。
- * 另一种是压根一个源都没装，那才该引导去导入。
+ *
+ * 一个源都没有时也不弹走：弹到设置页等于把用户刚才那一下（点封面、点开书架里
+ * 的书）整个吞掉，而且首轮同步晚一步落库时，"本地没有源"是个假结论 ——
+ * 插件到了人却留在设置页。就地说明 + 给个入口，数据一到这一页自己就活了。
  */
 function RequirePlugin({ children }: { children: ReactNode }) {
   const { plugin, missingId, loading } = usePlugin();
   const synced = useFirstSyncSettled();
   if (loading || !synced) return <Loading />;
   if (missingId) return <MissingSource id={missingId} />;
-  if (!plugin) return <Navigate to="/settings?tab=sources" replace />;
+  if (!plugin) return <NoSource />;
   return <>{children}</>;
+}
+
+function NoSource() {
+  return (
+    <main className="main">
+      <div className="empty">
+        <IconEmpty size={40} />
+        <div>还没有启用任何内容源</div>
+        <div style={{ fontSize: 12 }}>
+          Zeno 不内置内容，装一个插件 JSON 并打开它的开关就能用；
+          全都停用了也只要再打开一个。
+        </div>
+        <Link className="btn" to="/settings?tab=sources">
+          去内容源
+        </Link>
+      </div>
+    </main>
+  );
 }
 
 function MissingSource({ id }: { id: string }) {
