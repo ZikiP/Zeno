@@ -66,8 +66,12 @@ description: 在 Windows / Linux / macOS 上部署 Zeno（干净的网页阅读�
 | Linux / macOS | `./deploy.sh` |
 | Windows | `.\deploy.ps1` |
 
-脚本做的事：环境检查 → `npm ci` → `npm run build` → 注册开机自启 →
-健康检查 → 配 Tailscale HTTPS。
+脚本做的事：环境检查 → `git pull --ff-only` → `npm ci` → `npm run build` →
+注册开机自启 → 健康检查 → 配 Tailscale HTTPS。
+
+拉代码那一步**遇到脏工作副本或分叉会硬停**，不替人决定要不要丢改动。
+生产机上临时手改过文件的话，先 `git stash` 或干脆别改 —— 插件、端口这些都该走
+配置和数据库，不是改源码。
 
 Windows 上脚本会**读注册表里的真实代理状态**并检查绕过列表，缺 `*.ts.net`
 就明确报出来。它不会去清 `$env:http_proxy` —— 那是空操作，见下文。

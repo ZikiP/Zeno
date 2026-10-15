@@ -109,6 +109,29 @@ if ("$browserCheck" -like 'FOUND|*') {
     Warn '  装一个 Chrome 或 Edge，或设 ZENO_BROWSER 指向可执行文件。'
 }
 
+# ── 更新代码 ──────────────────────────────────────
+# 用 git -C 而不是先 Set-Location：Task Scheduler 之类的上下文里 cwd 不一定保持得住。
+# 分叉或脏工作副本一律硬停 —— 部署脚本不该替人做"要不要丢改动"这个决定。
+Step '更新代码'
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Warn '没装 git，跳过拉取（沿用当前工作副本）'
+} elseif (-not (Test-Path (Join-Path $InstallDir '.git'))) {
+    Warn '这里不是 git 仓库（大概是解压装的），跳过拉取'
+} else {
+    if (@(git -C "$InstallDir" status --porcelain).Count -gt 0) {
+        Die '工作副本有未提交的改动，不动它。先 commit 或 stash，再部署（git status 看是什么）'
+    }
+    $before = (git -C "$InstallDir" rev-parse HEAD)
+    git -C "$InstallDir" pull --ff-only
+    if ($LASTEXITCODE -ne 0) { Die 'git pull --ff-only 没成功（本地和远端分叉了？）。手动处理完再部署' }
+    $after = (git -C "$InstallDir" rev-parse HEAD)
+    if ($before -ne $after) {
+        Ok ("代码已更新 " + $before.Substring(0, 7) + " → " + $after.Substring(0, 7))
+    } else {
+        Ok '代码已是最新'
+    }
+}
+
 # ── 依赖与构建 ────────────────────────────────────
 Set-Location $InstallDir
 if ($SkipInstall) {

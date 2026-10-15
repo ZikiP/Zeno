@@ -94,6 +94,25 @@ if [[ "$DO_TAILSCALE" == "1" ]]; then
   command -v tailscale >/dev/null || warn "没装 Tailscale，HTTPS 步骤会跳过"
 fi
 
+# ── 更新代码 ───────────────────────────────────────
+step "更新代码"
+if ! command -v git >/dev/null; then
+  warn "没装 git，跳过拉取（沿用当前工作副本）"
+elif [[ ! -d "$INSTALL_DIR/.git" ]]; then
+  warn "这里不是 git 仓库（大概是解压装的），跳过拉取"
+elif [[ -n "$(git -C "$INSTALL_DIR" status --porcelain)" ]]; then
+  die "工作副本有未提交的改动，不动它。先 commit 或 stash，再部署（git status 看是什么）"
+else
+  BEFORE="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
+  git -C "$INSTALL_DIR" pull --ff-only || die "git pull --ff-only 没成功（本地和远端分叉了？）。手动处理完再部署"
+  AFTER="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
+  if [[ "$BEFORE" != "$AFTER" ]]; then
+    ok "代码已更新 ${BEFORE:0:7} → ${AFTER:0:7}"
+  else
+    ok "代码已是最新"
+  fi
+fi
+
 # ── 依赖与构建 ─────────────────────────────────────
 step "安装依赖"
 cd "$INSTALL_DIR"
