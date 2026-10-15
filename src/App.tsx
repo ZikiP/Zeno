@@ -1,5 +1,13 @@
 ﻿import { useEffect, useState, type ReactNode } from 'react';
-import { Navigate, Route, Routes, useParams } from 'react-router-dom';
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useParams,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom';
 import ShelfPage from '@/pages/ShelfPage';
 import ExplorePage from '@/pages/ExplorePage';
 import GlobalSearchPage from '@/pages/GlobalSearchPage';
@@ -8,7 +16,7 @@ import ReaderPage from '@/pages/reader/ReaderPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { useTheme } from '@/hooks/useTheme';
-import { OfflineBar } from '@/components/UI';
+import { Loading, OfflineBar } from '@/components/UI';
 import SyncBar from '@/sync/SyncBar';
 import { sync } from '@/sync/client';
 
@@ -56,13 +64,38 @@ function useFirstSyncSettled(): boolean {
   return settled;
 }
 
-/** 没有已安装的插件时，除设置页外一律拦到设置页 */
+/**
+ * 内容源齐不齐。
+ *
+ * 两种缺法要分开：路径里点名了一个本机没装的源（别人的分享链接、书架里那本
+ * 换了设备）—— 这种**不能**把用户弹到设置页了事，他会不知道为什么，而且
+ * 地址栏里那本书还在，装了源就该回得来。
+ * 另一种是压根一个源都没装，那才该引导去导入。
+ */
 function RequirePlugin({ children }: { children: ReactNode }) {
-  const { plugin, loading } = usePlugin();
+  const { plugin, missingId, loading } = usePlugin();
   const synced = useFirstSyncSettled();
-  if (loading || !synced) return <div className="loading">加载中</div>;
-  if (!plugin) return <Navigate to="/settings" replace />;
+  if (loading || !synced) return <Loading />;
+  if (missingId) return <MissingSource id={missingId} />;
+  if (!plugin) return <Navigate to="/settings?tab=sources" replace />;
   return <>{children}</>;
+}
+
+function MissingSource({ id }: { id: string }) {
+  return (
+    <main className="main">
+      <div className="missing-source">
+        <h2>这台设备上没有「{id}」这个内容源</h2>
+        <p>
+          这个地址里的漫画属于一个没装过的来源。同一串 slug 在不同站上指向完全不同的作品，
+          所以 Zeno 不会拿别的源去凑 —— 装好那个源再回来，这个地址就能打开。
+        </p>
+        <Link className="btn" to="/settings?tab=sources">
+          去内容源里导入
+        </Link>
+      </div>
+    </main>
+  );
 }
 
 /**
@@ -83,10 +116,12 @@ function ThemeApplier() {
 
 function Shell() {
   const online = useOnline();
+  const nav = useNavigate();
   return (
     <div className="app">
       <OfflineBar online={online} />
-      <SyncBar />
+      {/* 状态条一直点不动是没意义的：它报的就是同步的事，点进去就该到那一栏 */}
+      <SyncBar onConfigure={() => nav('/settings?tab=sync')} />
       <Routes>
         <Route path="/" element={<Navigate to="/shelf" replace />} />
         <Route path="/shelf" element={<ShelfPage />} />
@@ -107,7 +142,7 @@ function Shell() {
           }
         />
         <Route
-          path="/comic/:slug"
+          path="/comic/:pluginId/:slug"
           element={
             <RequirePlugin>
               <ComicPage />
@@ -122,7 +157,7 @@ function Shell() {
             </RequirePlugin>
           }
         />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings" element={<SettingsRoute />} />
         <Route path="*" element={<Navigate to="/shelf" replace />} />
       </Routes>
     </div>
@@ -137,6 +172,21 @@ function Shell() {
 function ReaderRoute() {
   const { slug = '', chapterId = '' } = useParams();
   return <ReaderPage slug={slug} chapterId={chapterId} />;
+}
+
+/** 设置页当前哪一栏写在地址里，换栏就是替换查询参数 —— 返回键因此还能用 */
+function SettingsRoute() {
+  const [params, setParams] = useSearchParams();
+  return (
+    <SettingsPage
+      tab={params.get('tab')}
+      onTabChange={(key) => {
+        const next = new URLSearchParams(params);
+        next.set('tab', key);
+        setParams(next, { replace: true });
+      }}
+    />
+  );
 }
 
 export default function App() {

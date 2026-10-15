@@ -27,6 +27,8 @@ const STATES = [
 
 export default function ExplorePage() {
   const { plugin } = usePlugin();
+  /** 详情页的地址要带内容源：同一串 slug 在别的站是另一本书 */
+  const pid = plugin?.meta.id ?? '';
   const [q, setQ] = useState('');
   const [submitted, setSubmitted] = useState('');
   const [region, setRegion] = useState('all');
@@ -179,18 +181,18 @@ export default function ExplorePage() {
             <IconEmpty />
             <div>这个筛选下没有内容</div>
             <div style={{ fontSize: 12 }}>换个筛选条件，或检查插件配置</div>
-            <Link to="/settings" className="btn btn--sm">
+            <Link to="/settings?tab=sources" className="btn btn--sm">
               调整插件配置
             </Link>
           </div>
         ) : (
           <div className="grid">
             {comics.map((c) => (
-              <Link key={c.slug} to={`/comic/${c.slug}`} className="card">
+              <Link key={c.slug} to={`/comic/${pid}/${c.slug}`} className="card">
                 <div className="card__cover">
                   {c.cover && (
                     <img
-                      src={coverUrl(c.cover, 300, 400)}
+                      src={coverUrl(plugin, c.cover, 300, 400)}
                       alt={c.title}
                       loading="lazy"
                       decoding="async"

@@ -1,9 +1,9 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
-import { listPlugins, setActivePlugin } from '@/store/plugins';
+import { listPlugins } from '@/store/plugins';
 import type { InstalledPlugin } from '@/store/db';
-import { usePlugin, notifyPluginChanged } from '@/store/PluginContext';
+import { usePlugin } from '@/store/PluginContext';
 import { IconSearch } from '@/components/Icons';
 import BottomNav from '@/components/BottomNav';
 import { ErrorBox, Loading } from '@/components/UI';
@@ -203,25 +203,19 @@ export default function GlobalSearchPage() {
                 const pid = h.plugin.plugin.meta.id;
                 return (
                   /*
-                   * 关键：结果可能来自非当前插件。
-                   * 直接跳 /comic/:slug 会被当前插件解析 —— 同名 slug 在不同站
-                   * 指向完全不同的漫画。所以先切插件再跳。
+                   * 结果可能来自非当前激活的源。详情页与阅读器都按地址里的
+                   * pluginId 解析，所以直接跳就行 —— 以前这里要先 setActivePlugin
+                   * 再跳（副作用是用户回不来原来那个源），现在不需要了。
                    */
                   <button
                     key={`${pid}-${h.comic.slug}-${i}`}
                     className="card"
-                    onClick={async () => {
-                      if (pid !== activePlugin?.meta.id) {
-                        await setActivePlugin(pid);
-                        notifyPluginChanged();
-                      }
-                      nav(`/comic/${h.comic.slug}`);
-                    }}
+                    onClick={() => nav(`/comic/${pid}/${h.comic.slug}`)}
                   >
                     <div className="card__cover">
                       {h.comic.cover && (
                         <img
-                          src={coverUrl(h.comic.cover, 300, 400)}
+                          src={coverUrl(h.plugin.plugin, h.comic.cover, 300, 400)}
                           alt={h.comic.title}
                           loading="lazy"
                           decoding="async"

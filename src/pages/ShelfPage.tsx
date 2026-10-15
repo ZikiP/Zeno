@@ -82,11 +82,15 @@ export default function ShelfPage() {
                */
               const pct = bookProgress(lists[it.key], it);
               return (
-                <Link key={it.key} to={`/comic/${it.slug}`} className="card card--plate">
+                <Link
+                  key={it.key}
+                  to={`/comic/${it.pluginId}/${it.slug}`}
+                  className="card card--plate"
+                >
                   <div className="card__cover">
                     {it.cover && plugin && (
                       <img
-                        src={coverUrl(it.cover, 300, 400)}
+                        src={coverUrl(plugin, it.cover, 300, 400)}
                         alt={it.title}
                         loading="lazy"
                         decoding="async"
