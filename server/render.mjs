@@ -36,6 +36,19 @@ const RENDER_DEBUG = process.env.ZENO_RENDER_DEBUG === '1';
 const DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+/**
+ * 计划任务的会话没有真桌面，Windows 上的 Chromium 于是把窗口判定为"被挡住"，
+ * 连带把渲染进程的计时器与 rAF 压到约 1% —— 表现是结构在、不报错、子资源不失败，
+ * 但要几个计时周期才能完成的数据永远不到。这四条只关掉"看不见=后台"这条推论，
+ * 请求、UA、指纹都不动，不是伪装。
+ */
+const LAUNCH_ARGS = [
+  '--disable-features=CalculateNativeWinOcclusion',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-background-timer-throttling',
+];
+
 /** 找可用的 chromium 系浏览器。顺序与 scripts/gen-icons.ts 保持一致。 */
 export function findBrowser() {
   if (process.env.ZENO_BROWSER && existsSync(process.env.ZENO_BROWSER)) {
@@ -117,22 +130,7 @@ async function getBrowser() {
   launching = chromium.launch({
     headless: true,
     executablePath: found.exe,
-    /*
-     * 计划任务的会话里没有真桌面。Windows 上 Chromium 会去算"这个窗口是不是被
-     * 挡住了"（CalculateNativeWinOcclusion），算不出来就当它被挡，于是把渲染进程
-     * 的计时器和 requestAnimationFrame 降到约 1% —— 表现恰好是：页面结构在、脚本
-     * 不报错、子资源没有失败，但需要几个计时周期才能完成的数据永远不到。
-     * 前台跑同一个代码就没这事，因为有交互会话的桌面可参考。
-     *
-     * 这四条只是"别把看不见的窗口当后台"，不改变站点看到的东西：
-     * 请求、UA、指纹全都不动。
-     */
-    args: [
-      '--disable-features=CalculateNativeWinOcclusion',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--disable-background-timer-throttling',
-    ],
+    args: LAUNCH_ARGS,
   });
   try {
     browser = await launching;
