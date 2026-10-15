@@ -134,18 +134,6 @@ export default function CacheSheet({ onClose }: { onClose: () => void }) {
               ›
             </span>
           </button>
-          {/* 目录改成只能点之后，"清空回默认"也得留个入口，不然只能手打空字符串 */}
-          {dir && (
-            <button
-              className="field-btn__reset"
-              onClick={() => {
-                setDir('');
-                setNote('保存后回到默认目录');
-              }}
-            >
-              用回默认（{st?.defaultDir}）
-            </button>
-          )}
           <Field
             label="容量上限（MB）"
             hint="超了按「最久没看过」裁。0 = 关掉缓存。"
