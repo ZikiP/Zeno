@@ -143,7 +143,7 @@ export default function ComicPage() {
         ) : (
           <div className="detail">
             <div className="detail__head">
-              <img className="detail__cover" src={coverUrl(comic.cover, 400, 530)} alt={comic.title} />
+              <img className="detail__cover" src={coverUrl(plugin, comic.cover, 400, 530)} alt={comic.title} />
               <div>
                 <h1 className="detail__title">{comic.title}</h1>
                 <div className="detail__meta">
