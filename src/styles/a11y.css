@@ -10,8 +10,13 @@
     --glass-bg-bar: var(--bg-elev);
     --glass-filter: none;
     --glass-filter-thick: none;
-    --r-glass: #191c22;
+    --chip-filter: none;
+    --r-glass: rgba(14, 16, 20, 0.94);
     --r-edge: rgba(255, 255, 255, 0.16);
+    /* 压在照片上的小胶囊：没有模糊就压深，否则细字在封面上会糊掉。
+       进度环的底盘也吃这一个令牌，它本来就没有模糊。 */
+    --chip-glass: rgba(8, 10, 14, 0.94);
+    --chip-filter: none;
   }
 }
 
@@ -80,6 +85,7 @@
   :root {
     --edge: light-dark(rgba(0, 0, 0, 0.24), rgba(255, 255, 255, 0.28));
     --r-edge: rgba(255, 255, 255, 0.32);
+    --edge-photo: rgba(255, 255, 255, 0.34);
     --border: light-dark(#a9b1bd, #525c6b);
     --border-strong: light-dark(#7d8794, #798393);
     --text-dim: light-dark(#3c4350, #b6bfcd);

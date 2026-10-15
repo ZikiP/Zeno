@@ -9,12 +9,9 @@
   display: flex;
   flex-direction: column;
 
-  /* 阅读器的底色由阅读偏好决定（纯黑/深灰/护眼/中性），跟 App 主题无关。
-     所以这里自成一套前景与玻璃色 —— 否则浅色主题下深色页面上文字会反成看不见。 */
-  --r-fg: #f2f4f8;
-  --r-dim: rgba(242, 244, 248, 0.62);
-  --r-glass: rgba(14, 16, 20, 0.6);
-  --r-edge: rgba(255, 255, 255, 0.1);
+  /* --r-fg / --r-dim / --r-glass / --r-edge 挪到 tokens.css 的 :root 上了。
+     挂在这个元素上也定义得出来，但元素上的自定义属性会盖住 :root，
+     「减少透明」那档降级就永远进不来 —— 阅读器里的玻璃于是降不下去。 */
 }
 
 .reader__bar {
@@ -42,7 +39,7 @@
   color: var(--r-dim);
 }
 .reader .icon-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--r-hover);
   color: var(--r-fg);
 }
 
