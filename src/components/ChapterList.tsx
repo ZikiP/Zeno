@@ -2,7 +2,8 @@
 import { Link } from 'react-router-dom';
 import type { Chapter } from '@/site/engine';
 import { formatBytes } from '@/store/utils';
-import { IconOrderAsc, IconOrderDesc } from '@/components/Icons';
+import { isRead } from '@/store/shelf';
+import { IconOrderAsc, IconOrderDesc, IconReadAll } from '@/components/Icons';
 
 /**
  * 章节列表
@@ -22,11 +23,17 @@ export default function ChapterList({
   pluginId,
   slug,
   cached,
+  positions,
+  onMarkThrough,
 }: {
   chapters: Chapter[];
   pluginId: string;
   slug: string;
   cached: Record<string, { bytes: number }>;
+  /** 各章进度。读过的行压暗，也用来决定那颗批量按钮是"标已读"还是"取消已读" */
+  positions?: Record<string, number>;
+  /** 把某一章之前的章节整段标成已读 / 取消已读 */
+  onMarkThrough?: (uptoId: string, read: boolean) => void;
 }) {
   /*
    * 顺序。默认倒序（最新在最前）—— 追更的人进来就是找最新那一章。
@@ -55,6 +62,20 @@ export default function ChapterList({
 
   const visible = ordered.slice(0, limit);
   const rest = ordered.length - visible.length;
+
+  /*
+   * 「这一章之前是不是都读过了」每行都要用一次。逐行现算是 O(n²)——
+   * 190 话就是三万六千次比较，所以先扫一遍前缀。
+   */
+  const allBeforeRead = useMemo(() => {
+    const flags: boolean[] = [];
+    let acc = true;
+    for (const c of chapters) {
+      flags.push(acc);
+      if (!isRead(positions?.[c.id])) acc = false;
+    }
+    return flags;
+  }, [chapters, positions]);
 
   return (
     <>
@@ -96,19 +117,34 @@ export default function ChapterList({
           if (next) query.set('n', next.id);
           const qs = query.toString();
 
+          const read = isRead(positions?.[ch.id]);
+          /*
+           * 整行是链接，那颗批量按钮必须放在链接外面 —— 塞在 <a> 里点它会先跳走。
+           */
           return (
-            <Link
-              key={ch.id}
-              to={`/read/${pluginId}/${slug}/${ch.id}${qs ? `?${qs}` : ''}`}
-              className="chapter-row"
-            >
-              <span className="chapter-row__name">{ch.title}</span>
-              {hit && (
-                <span className="chapter-row__badge badge-cache">
-                  离线 {formatBytes(hit.bytes)}
-                </span>
+            <div key={ch.id} className={`chapter-row${read ? ' chapter-row--read' : ''}`}>
+              <Link
+                className="chapter-row__main"
+                to={`/read/${pluginId}/${slug}/${ch.id}${qs ? `?${qs}` : ''}`}
+              >
+                <span className="chapter-row__name">{ch.title}</span>
+                {hit && (
+                  <span className="chapter-row__badge badge-cache">
+                    离线 {formatBytes(hit.bytes)}
+                  </span>
+                )}
+              </Link>
+              {pos > 0 && onMarkThrough && (
+                <button
+                  className="icon-btn chapter-row__act"
+                  title={allBeforeRead[pos] ? '取消之前的已读' : '这一章之前全部标为已读'}
+                  aria-label={`${allBeforeRead[pos] ? '取消' : '标记'} ${ch.title} 之前的章节为${allBeforeRead[pos] ? '未读' : '已读'}`}
+                  onClick={() => onMarkThrough(ch.id, !allBeforeRead[pos])}
+                >
+                  <IconReadAll />
+                </button>
               )}
-            </Link>
+            </div>
           );
         })}
       </div>

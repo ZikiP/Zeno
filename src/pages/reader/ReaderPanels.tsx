@@ -34,6 +34,8 @@ export interface ReaderPanelProps {
   onModeChange: (m: 'scroll' | 'paged') => void;
   /** 仅章节目录需要 */
   currentChapter: { slug: string; id: string };
+  /** 各章进度，目录里用来把读过的压暗 */
+  positions: Record<string, number>;
   bookmarksByChapter: Map<string, number[]>;
   onPickChapter: (id: string) => void;
   /** 仅书签面板需要 */
@@ -64,6 +66,7 @@ export default function ReaderPanel(p: ReaderPanelProps) {
           pluginId={plugin.meta.id}
           slug={currentChapter.slug}
           currentId={currentChapter.id}
+          positions={p.positions}
           bookmarks={p.bookmarksByChapter}
           onPick={p.onPickChapter}
           onClose={panels.close}

@@ -63,6 +63,11 @@
 .drawer__item:active {
   background: var(--bg-elev-2);
 }
+/* 读过的压暗。当前章那条是 .drawer__item.on（两个类，权重更高），
+   所以"正在读的这一章就算读过也照样亮着"不用额外处理 */
+.drawer__item--read {
+  color: var(--text-faint);
+}
 .drawer__item.on {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);

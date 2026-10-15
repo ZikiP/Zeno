@@ -23,6 +23,8 @@ export interface Paging {
   startIndex: number;
   /** 当前页对应的图片序号（双页时取第一张） */
   currentImageIndex: number;
+  /** 底部进度条该画到哪儿。两种模式单位不同，各自换算 */
+  progressPercent: number;
 
   setPage: (n: number) => void;
   /** 语义化的前进 / 后退，RTL 差异在调用方处理 */
@@ -149,6 +151,13 @@ export function usePaging(
     totalPages,
     startIndex,
     currentImageIndex: mode === 'paged' ? startIndex : page,
+    // 分页是「第几屏 / 共几屏」，滚动是「第几张 / 共几张」，两种各自成立
+    progressPercent:
+      mode === 'paged'
+        ? ((page + 1) / Math.max(1, totalPages)) * 100
+        : totalImages > 0
+          ? (page / totalImages) * 100
+          : 0,
     setPage,
     goForward,
     goBack,

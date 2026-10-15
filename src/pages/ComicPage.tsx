@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useVtNavigate } from '@/hooks/viewTransition';
 import { getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import { cacheChapterList } from '@/store/chapters';
-import { addToShelf, bookProgress, getShelfEntry, removeFromShelf } from '@/store/shelf';
+import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf } from '@/store/shelf';
 import type { ShelfEntry } from '@/store/types';
 import { formatBytes } from '@/store/utils';
 import { useOfflineCache } from '@/store/useOfflineCache';
@@ -93,6 +93,18 @@ export default function ComicPage() {
       await addToShelf(plugin.meta.id, { slug, title: comic.title, cover: comic.cover });
       setEntry(await getShelfEntry(plugin.meta.id, slug));
     }
+  };
+
+  /**
+   * 一键标 / 取消「这一章之前」为已读。
+   *
+   * 依据是 chapters 的 id 序列 —— 它是升序（阅读顺序）。
+   * 列表切成正序还是倒序只是「怎么看」，不该改变「之前」是谁。
+   */
+  const markThroughHere = async (uptoId: string, read: boolean) => {
+    if (!plugin || !entry) return;
+    await markThrough(plugin.meta.id, slug, chapters.map((c) => c.id), uptoId, read);
+    setEntry(await getShelfEntry(plugin.meta.id, slug));
   };
 
   if (!plugin) {
@@ -207,6 +219,9 @@ export default function ComicPage() {
               pluginId={plugin.meta.id}
               slug={slug}
               cached={cached}
+              positions={entry?.positions}
+              /* 不在书架上没有进度可记，那颗批量按钮也就没意义 */
+              onMarkThrough={entry ? markThroughHere : undefined}
             />
           </div>
         )}

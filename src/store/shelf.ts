@@ -104,6 +104,10 @@ export async function savePosition(
  *
  * 返回 null 表示"算不出来"（有进度但章节表没缓存、或那一章已经不在表里）。
  * 这时候宁可不画环，也别画一个错数 —— 环上没有数字，错了也看不出来。
+ *
+ * 分母来自缓存的章节表，所以表要是不全（上游章节分页没抓完），
+ * 比例会虚高。这是缓存本身决定的，不是这里能校验的 —— 记下以免日后
+ * 看到"环怎么突然变成 100%"时往别处找。
  */
 export function bookProgress(
   chapters: { id: string; index: number }[] | null | undefined,
@@ -117,6 +121,86 @@ export function bookProgress(
   if (at < 0) return null;
   const within = (entry.positions[entry.lastChapterId] ?? 0) / 100;
   return Math.min(100, Math.round(((at + within) / list.length) * 100));
+}
+
+/**
+ * 读到这个百分比就算「看过了」。
+ *
+ * 留 5% 余量：最后一张图往往比屏幕矮，滚到底也到不了 100，
+ * 卡在 97、98 的章应该算读完，而不是永远亮着。
+ */
+export const READ_AT = 95;
+
+export const isRead = (pct: number | undefined): boolean => (pct ?? 0) >= READ_AT;
+
+/**
+ * 一键把某一章**之前**的章节标成已读 / 取消已读（追番补旧章用）。
+ *
+ * 一次读一次写：190 话的长篇要是逐章走 savePosition，就是三百多次
+ * IndexedDB 往返，界面会明显卡一下。
+ *
+ * 「之前」按阅读顺序（index 升序）算 —— 跟列表此刻是正序还是倒序展示无关。
+ *
+ * 顺手把「上次读到」挪到这一章：用户点这个按钮表达的就是「我读到这了」，
+ * 不跟着挪的话书架进度环还是几周前的数字，跟刚标完的列表自相矛盾。
+ * 只往后挪不往前挪，免得把读到 150 话的人一键标前面的章打回 100 话。
+ */
+export async function markThrough(
+  pluginId: string,
+  slug: string,
+  orderedIds: string[],
+  uptoId: string,
+  read: boolean,
+): Promise<void> {
+  const key = shelfKey(pluginId, slug);
+  const d = await db();
+  const entry = await d.get('shelf', key);
+  if (!entry) return;
+  const at = orderedIds.indexOf(uptoId);
+  if (at <= 0) return; // 第一章之前什么都没有
+
+  const now = Date.now();
+  const positions = { ...entry.positions };
+  const positionsAt = { ...entry.positionsAt };
+  const cleared: string[] = [];
+  for (const id of orderedIds.slice(0, at)) {
+    if (read) {
+      positions[id] = 100;
+      positionsAt[id] = now;
+    } else if (isRead(positions[id])) {
+      /*
+       * 取消已读只清「被标成已读」的那些。
+       * 之前是无条件删 —— 于是一按取消，连某章读到 60% 的局部进度也一起没了：
+       * 那是用户真的读出来的位置，不是这颗按钮写的。
+       */
+      delete positions[id];
+      delete positionsAt[id];
+      cleared.push(id);
+    }
+  }
+
+  const curAt = entry.lastChapterId ? orderedIds.indexOf(entry.lastChapterId) : -1;
+  const moveOn = read && at > curAt;
+
+  await d.put('shelf', {
+    ...entry,
+    positions,
+    positionsAt,
+    lastChapterId: moveOn ? uptoId : entry.lastChapterId,
+    lastChapterAt: moveOn ? now : entry.lastChapterAt,
+    // 记录本身被动过，LWW 时钟要跟着走
+    updatedAt: now,
+  });
+
+  /*
+   * 取消已读删掉的行要逐个记墓碑 —— 跟 clearPosition 一个道理。
+   * 不记的话服务端那些 100% 还活着：别的设备继续显示"已读"，
+   * 本机哪天做一次全量拉取（since=0）就又全回来了，表现为"取消不掉"。
+   */
+  if (!read) {
+    const base = shelfKey(pluginId, slug);
+    for (const id of cleared) await recordDelete('position', `${base}/${id}`);
+  }
 }
 
 /** 清掉某章的进度记录（读完之后没必要留着） */

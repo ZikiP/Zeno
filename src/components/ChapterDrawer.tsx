@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { getChapterList } from '@/store/chapters';
+import { isRead } from '@/store/shelf';
 
 export interface ChapterRef {
   id: string;
@@ -25,6 +26,7 @@ export default function ChapterDrawer({
   pluginId,
   slug,
   currentId,
+  positions,
   bookmarks,
   onPick,
   onClose,
@@ -32,6 +34,8 @@ export default function ChapterDrawer({
   pluginId: string;
   slug: string;
   currentId: string;
+  /** 各章进度。读过的章节压暗，跟详情页那份是同一个口径 */
+  positions: Record<string, number>;
   /** 该章有书签的页码，用于在目录里标记 */
   bookmarks: Map<string, number[]>;
   onPick: (id: string) => void;
@@ -121,7 +125,9 @@ export default function ChapterDrawer({
               return (
                 <button
                   key={c.id}
-                  className={`drawer__item${c.id === currentId ? ' on' : ''}`}
+                  className={`drawer__item${c.id === currentId ? ' on' : ''}${
+                    isRead(positions[c.id]) ? ' drawer__item--read' : ''
+                  }`}
                   onClick={() => {
                     onPick(c.id);
                     onClose();

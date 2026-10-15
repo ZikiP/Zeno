@@ -313,6 +313,29 @@
 .chapter-row:active {
   background: var(--bg-elev-2);
 }
+/* 链接吃掉整行的剩余宽度；批量按钮在链接外面，不然点它会先跳走 */
+.chapter-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/*
+ * 读过的暗下去。压的是字色而不是整行 opacity —— 行里还挂着离线徽标和
+ * 那颗「取消之前已读」的按钮，整行淡掉等于把能操作的东西也抹没了。
+ */
+.chapter-row--read {
+  color: var(--text-faint);
+}
+.chapter-row__act {
+  width: 30px;
+  height: 30px;
+  color: var(--text-faint);
+}
+.chapter-row__act:hover {
+  color: var(--text-dim);
+}
 .chapter-row__name {
   flex: 1;
   min-width: 0;

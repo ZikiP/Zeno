@@ -15,6 +15,7 @@ import {
   ArrowUpNarrowWide,
   Bookmark,
   Check,
+  CheckCheck,
   ChevronLeft,
   ChevronRight,
   Columns2,
@@ -112,3 +113,10 @@ export const IconPlay = ({ size = 16, ...p }: P) => <Play size={size} strokeWidt
  */
 export const IconOrderAsc = (p: P) => <ArrowDownWideNarrow strokeWidth={SW} {...p} />;
 export const IconOrderDesc = (p: P) => <ArrowUpNarrowWide strokeWidth={SW} {...p} />;
+
+/**
+ * 一键「这一章之前全标已读」。
+ * 用双勾而不是 IconCheck：单勾已经表示「就是这一章」的状态，
+ * 双勾才是成批的意思，两个记号不能混用。
+ */
+export const IconReadAll = ({ size = 15, ...p }: P) => <CheckCheck size={size} strokeWidth={SW} {...p} />;

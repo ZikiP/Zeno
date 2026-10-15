@@ -4,15 +4,15 @@ import { useVtNavigate } from '@/hooks/viewTransition';
 import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, DEFAULT_PREFS, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
-import { useChapterLoader, useRestoreScrollPosition } from './useChapterLoader';
+import { useChapterLoader } from './useChapterLoader';
 import { useChapterNeighbors } from './useChapterNeighbors';
 import { useBookmarks } from './useBookmarks';
 import {
   useAutoDismiss,
   useImagePreload,
   useKeepAwake,
-  useRestorePagedPosition,
-  useSavedPercent,
+  useRestoreProgress,
+  useShelfProgress,
 } from './useReaderEffects';
 import { useReaderActions } from './useReaderActions';
 import { useReaderHotkeys, nextBrightness } from './useReaderHotkeys';
@@ -20,9 +20,8 @@ import { usePaging, useToolbarVisibility, type ReaderMode } from './usePaging';
 import ReaderPanel, { useReaderPanels } from './ReaderPanels';
 import ReaderBar from '@/components/reader/ReaderBar';
 import ScrollView from '@/components/reader/ScrollView';
-import PagedView from '@/components/reader/PagedView';
+import PagedStage from '@/components/reader/PagedStage';
 import ZoomView from '@/components/reader/ZoomView';
-import EdgeHint from '@/components/reader/EdgeHint';
 import ChapterNav from '@/components/reader/ChapterNav';
 import ReaderProgress from '@/components/reader/ReaderProgress';
 import Toast from '@/components/reader/Toast';
@@ -97,21 +96,16 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     setMode,
   });
 
-  /*
-   * ── 进度 ──
-   * 滚动模式的进度由 ScrollView 的 onScroll 顺带上报，恢复只看滚动容器；
-   * 翻页模式的上报走 usePaging 的翻页动作（程序定位不算，否则切一下模式
-   * 就把 0% 盖回真进度上），恢复单独一条 —— 换章不重挂，page 是带着
-   * 上一章的屏号过来的。
-   */
-  const savedPercent = useSavedPercent(plugin?.meta.id, slug, chapterId);
-  useRestoreScrollPosition(mode === 'scroll' && !!images, savedPercent, scrollRef);
-  useRestorePagedPosition(
-    mode === 'paged' && !!images,
-    savedPercent,
-    paging.totalPages,
-    paging.setPage,
-  );
+  /* ── 进度：读出来、恢复回去 ── */
+  const progress = useShelfProgress(plugin?.meta.id, slug, chapterId);
+  useRestoreProgress({
+    mode,
+    ready: !!images,
+    percent: progress.percent,
+    scrollRef,
+    totalPages: paging.totalPages,
+    setPage: paging.setPage,
+  });
 
   /* ── 副作用 ── */
   useKeepAwake(prefs.value.keepAwake, !!images);
@@ -181,37 +175,24 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           images={images}
           markedPages={bookmarks.markedPages}
           filter={filter}
+          containerRef={scrollRef}
           onScroll={(el) => paging.onScroll(el, images.length, record)}
           onTap={bar.toggle}
           onZoom={(src, i) => setZoom({ src, i })}
         />
       ) : (
-        <PagedView
-          images={images.slice(paging.startIndex, paging.startIndex + paging.perPage)}
-          startIndex={paging.startIndex}
-          perPage={paging.perPage}
-          markedPages={bookmarks.markedPages}
+        <PagedStage
+          images={images}
+          paging={paging}
           filter={filter}
+          markedPages={bookmarks.markedPages}
           rtl={isRTL}
-          /*
-           * 中间那块不翻页，只开关悬浮件（顶部条 + 章末胶囊）。
-           * 分页模式没有滚动，bar 那套「向下滚隐藏、向上滚显示」永远不会被触发，
-           * 不给它接一条 toggle 的话 HUD 就钉死在屏幕上了。
-           */
-          onTapZone={(side) => (side === 'center' ? bar.toggle() : paging.tap(side, isRTL))}
-          onSwipe={(dir) => (dir === 'forward' ? paging.goForward() : paging.goBack())}
+          hudVisible={bar.visible}
+          onToggleHud={bar.toggle}
           onZoom={(src, i) => setZoom({ src, i })}
-          edgeHint={
-            <EdgeHint
-              page={paging.page}
-              totalPages={paging.totalPages}
-              hasPrevChapter={!!prevId}
-              hasNextChapter={!!nextId}
-              armed={bar.visible}
-              onGoPrev={() => prevId && gotoChapter(prevId)}
-              onGoNext={() => nextId && gotoChapter(nextId)}
-            />
-          }
+          prevId={prevId}
+          nextId={nextId}
+          onGoChapter={gotoChapter}
         />
       )}
 
@@ -230,11 +211,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
 
       {images && (
         <ReaderProgress
-          percent={
-            mode === 'paged'
-              ? ((paging.page + 1) / Math.max(1, paging.totalPages)) * 100
-              : (paging.page / images.length) * 100
-          }
+          percent={paging.progressPercent}
           markedPositions={[...bookmarks.markedPages].map((p) => (p / images.length) * 100)}
           onSeek={
             mode === 'paged'
@@ -258,6 +235,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         onPrefsChange={prefs.patch}
         onModeChange={switchMode}
         currentChapter={{ slug, id: chapterId }}
+        positions={progress.positions}
         bookmarksByChapter={bookmarks.byChapter}
         onPickChapter={gotoChapter}
         onJumpBookmark={(b) => {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getShelf } from '@/store/shelf';
+import { useRestoreScrollPosition } from './useChapterLoader';
 
 /**
  * 阅读器副作用
@@ -9,15 +10,20 @@ import { getShelf } from '@/store/shelf';
  */
 
 /**
- * 从书架记录里读上次读到百分之几。
- * 只在切章时读一次 —— 滚动过程中反复读 IndexedDB 没必要。
+ * 这本书的阅读进度。
+ *
+ * percent = 本章上次读到几成（恢复位置用）；
+ * positions = 全书各章的百分比，章节目录靠它把读过的压暗。
+ *
+ * 只在换书时读一次 IndexedDB：percent 是从 positions 现推的，
+ * 换章不该再多跑一趟盘。
  */
-export function useSavedPercent(
+export function useShelfProgress(
   pluginId: string | undefined,
   slug: string,
   chapterId: string,
-): number {
-  const [percent, setPercent] = useState(0);
+): { percent: number; positions: Record<string, number> } {
+  const [positions, setPositions] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -26,15 +32,15 @@ export function useSavedPercent(
     void getShelf(pluginId).then((shelf) => {
       if (cancelled) return;
       const entry = shelf.find((s) => s.slug === slug);
-      setPercent(entry?.positions?.[chapterId] ?? 0);
+      setPositions(entry?.positions ?? {});
     });
 
     return () => {
       cancelled = true;
     };
-  }, [pluginId, slug, chapterId]);
+  }, [pluginId, slug]);
 
-  return percent;
+  return { percent: positions[chapterId] ?? 0, positions };
 }
 
 /**
@@ -60,6 +66,28 @@ export function useRestorePagedPosition(
     const target = Math.round((percent / 100) * (totalPages - 1));
     setPage(Math.max(0, Math.min(totalPages - 1, target)));
   }, [enabled, percent, totalPages, setPage]);
+}
+
+/**
+ * 进度恢复。
+ *
+ * 滚动模式由 ScrollView 的 onScroll 顺带上报，恢复只看滚动容器；
+ * 翻页模式的上报走 usePaging 的翻页动作（程序定位不算，否则切一下模式
+ * 就把 0% 盖回真进度上），恢复单独一条 —— 换章不重挂，page 是带着
+ * 上一章的屏号过来的。
+ */
+export function useRestoreProgress(args: {
+  mode: 'scroll' | 'paged';
+  /** 图片到手了才有位置可恢复 */
+  ready: boolean;
+  percent: number;
+  scrollRef: React.RefObject<HTMLDivElement>;
+  totalPages: number;
+  setPage: (n: number) => void;
+}) {
+  const { mode, ready, percent, scrollRef, totalPages, setPage } = args;
+  useRestoreScrollPosition(mode === 'scroll' && ready, percent, scrollRef);
+  useRestorePagedPosition(mode === 'paged' && ready, percent, totalPages, setPage);
 }
 
 /** 提示条 2.6 秒后自动消失 */

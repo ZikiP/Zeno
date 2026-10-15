@@ -29,6 +29,16 @@ export interface ChapterLoader {
   scrollRef: React.RefObject<HTMLDivElement>;
 }
 
+/**
+ * 比例 → 百分比，钳到 0..100。
+ *
+ * 不钳的话会写出 100 以上的假进度：卸载补写那一刻图片正在收起，
+ * scrollHeight 可能比 scrollTop 还小，比值超过 1 ——
+ * 之前 ScrollView 的 ref 没接上，这条路径根本没跑过，所以没暴露。
+ * 移动端回弹（overscroll）也能给出 >1 的比值。
+ */
+const pctOf = (ratio: number) => Math.max(0, Math.min(100, Math.round(ratio * 100)));
+
 export function useChapterLoader(
   plugin: Plugin | null,
   slug: string,
@@ -115,7 +125,7 @@ export function useChapterLoader(
       if (!pluginId) return;
       window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
-        void savePosition(pluginId, slug, chapterId, Math.round(ratio * 100));
+        void savePosition(pluginId, slug, chapterId, pctOf(ratio));
       }, 600);
     },
     [pluginId, slug, chapterId],
@@ -129,7 +139,7 @@ export function useChapterLoader(
       if (pluginId && el) {
         const total = el.scrollHeight - el.clientHeight;
         if (total > 0 && el.scrollTop > 0) {
-          void savePosition(pluginId, slug, chapterId, Math.round((el.scrollTop / total) * 100));
+          void savePosition(pluginId, slug, chapterId, pctOf(el.scrollTop / total));
         }
       }
     };
@@ -150,8 +160,16 @@ export function useChapterLoader(
 /**
  * 恢复上次的滚动位置。
  *
- * 必须等图片撑开高度才能定位，否则设了 scrollTop 也没用。
- * 所以连等两帧。
+ * 前提是 container 真的指着那个滚动容器 —— ScrollView 以前没把 ref 接上，
+ * 于是这条整段都是空转：记录进度好用（走 onScroll），恢复却永远不动，
+ * 从界面上看不出是"没实现"还是"实现错了"。
+ *
+ * 不能「一次算完 scrollTop」就收工：图片是 lazy 的，刚挂上的那一刻
+ * scrollHeight 只算得出一小部分，而且上面那些图陆续加载完之前高度一直在长，
+ * 按百分比算的 scrollTop 会跟着漂。所以盯到它稳下来为止。
+ *
+ * 用户自己滚了（滚轮或触摸）就立刻让位。我们设 scrollTop 触发的是 scroll
+ * 事件，不会自己把这个「用户动过」的标志点亮。
  */
 export function useRestoreScrollPosition(
   enabled: boolean,
@@ -163,18 +181,44 @@ export function useRestoreScrollPosition(
     const el = container.current;
     if (!el) return;
 
-    let outer = 0;
-    let inner = 0;
-    outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => {
-        const total = el.scrollHeight - el.clientHeight;
-        if (total > 0) el.scrollTop = (total * percent) / 100;
-      });
-    });
+    let touched = false;
+    let steady = 0;
+    let last = el.scrollHeight;
+    let poll = 0;
+    let cap = 0;
 
-    return () => {
-      cancelAnimationFrame(outer);
-      cancelAnimationFrame(inner);
+    const apply = () => {
+      const total = el.scrollHeight - el.clientHeight;
+      if (total > 0) el.scrollTop = (total * percent) / 100;
     };
+    const onUserScroll = () => {
+      touched = true;
+    };
+    const stop = () => {
+      window.clearInterval(poll);
+      window.clearTimeout(cap);
+      el.removeEventListener('wheel', onUserScroll);
+      el.removeEventListener('touchstart', onUserScroll);
+    };
+
+    apply();
+    poll = window.setInterval(() => {
+      if (touched) return stop();
+      const h = el.scrollHeight;
+      if (h !== last) {
+        last = h;
+        steady = 0;
+        return apply();
+      }
+      // 连续一秒钟没再长，认为图片该到的都到了
+      if (++steady >= 5) stop();
+    }, 200);
+    // 别为了等一张永远加载不出来的图无限轮询下去
+    cap = window.setTimeout(stop, 10_000);
+
+    el.addEventListener('wheel', onUserScroll, { passive: true });
+    el.addEventListener('touchstart', onUserScroll, { passive: true });
+
+    return stop;
   }, [enabled, percent, container]);
 }
