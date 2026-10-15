@@ -224,6 +224,31 @@ tailscale serve --bg 8788
 
 拿到 `https://<机器名>.<tailnet>.ts.net`。
 
+### 客户端该敲哪个地址（最高频的误判来源）
+
+| 写法 | 实测 | 说明 |
+|---|---|---|
+| `https://<机器名>.<tailnet>.ts.net` | ✅ 200 | **唯一正确写法，不带端口号。** Serve 在 443 终结 TLS，再在本机转给 `127.0.0.1:8788` |
+| `https://<任意主机>:8788` | ❌ `curl (35) SEC_E_INVALID_TOKEN` | 8788 只说明文 HTTP。拿 TLS 去敲它，回来的不是证书而是 HTTP 报文 —— Chrome 渲染成「不是安全链接 · 此站点发送了无效的响应」 |
+| `http://<局域网IP>:8788`、`http://100.x.x.x:8788` | ⚠️ 200，但别用 | 不是安全上下文 → SW 不注册 → 离线静默失效（上面那条坑）。只有 `127.0.0.1` / `localhost` 是例外 |
+| `http://<机器名>.<tailnet>.ts.net` | ❌ 连不上（000） | Serve 不提供明文那条路，别指望它 302 到 https |
+
+误判的成因很具体：手敲地址时只把 `http://` 改成 `https://`、端口没动，
+于是报错看着像「证书坏了 / HTTPS 没配好」，实际是**拿 TLS 去敲一个明文端口**。
+一个端口只有一种协议，所以 **带 `:8788` 的 https 一定是错的**。
+
+在服务端本机一条命令就能证实，不用猜：
+
+```bash
+curl -sS -o NUL -w '%{http_code}\n' https://127.0.0.1:8788/   # curl (35) SEC_E_INVALID_TOKEN
+curl -sS -o NUL -w '%{http_code}\n' http://127.0.0.1:8788/    # 200
+curl -sS -o NUL -w '%{http_code}\n' https://<机器名>.<tailnet>.ts.net/api/health   # 200
+```
+
+三条的结果应该分别是「TLS 失败 / 200 / 200」。第三条也 200 就说明服务端一切正常、
+问题在客户端侧（Tailscale 没连上、手机上的代理劫持了 `*.ts.net`、或私人 DNS /
+Chrome 安全 DNS 绕过了 MagicDNS）—— 见文末排查手册。
+
 ### ⚠️ 最大的坑：系统代理会掐断 ts.net 的 TLS
 
 **先说结论：Windows 上代理状态不在环境变量里，在注册表里。**
@@ -338,6 +363,8 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 | 部署跑到「计划任务已注册」之后中断，或 PS 报一串看不懂的语法错 | 含中文的 `.ps1` 存成了**无 BOM 的 UTF-8**，5.1 按 ANSI 解码 | 补 BOM，再用上面那条 `Parser::ParseFile` 自检到 0 错重跑 |
 | 列表/详情解析出 0 条但页面在浏览器里正常 | 站点内容靠 JS 注入，`fetch` 模式拿到的是空壳 | 插件加 `"fetch": { "mode": "browser", "waitFor": "<卡片选择器>" }` |
 | 手机装不了 PWA | 用的 http（**`127.0.0.1` 除外**） | 局域网 IP / 机器名必须 https |
+| 客户端报「不是安全链接 · 此站点发送了无效的响应」 | 只把 `http://` 换成 `https://`，端口还是 8788 —— **那是明文口**，TLS 拿回来的是 HTTP 报文 | 改用 `https://<机器名>.<tailnet>.ts.net`，**不带端口号**。判据见上「客户端该敲哪个地址」那三条 curl |
+| 服务端本机 ts.net 三条 curl 全绿，手机还是打不开 | 问题在客户端侧，不在部署 | 依次查：手机 Tailscale 是否 connected、手机上代理软件的绕过列表有没有 `*.ts.net`、安卓私人 DNS 与 Chrome 安全 DNS |
 | 页面渲染正常但什么都不加载 | 系统代理掐断 ts.net，Workbox 用 precache 兜住了导航 | 见下「代理劫持」；用 `fetch('/api/health',{cache:'no-store'})` 一测就露 |
 | `ERR_CONNECTION_ABORTED` | 代理劫持（**不是**证书没签下来） | 在代理软件的绕过列表里加 `*.ts.net`，改注册表会被覆盖 |
 | `*.ts.net` 解析失败（安卓） | 私人 DNS 冲突 | 设置 → 网络 → 私人 DNS 设为「自动」或「关闭」 |
