@@ -16,6 +16,7 @@ import {
   Bookmark,
   Check,
   CheckCheck,
+  CircleDashed,
   ChevronLeft,
   ChevronRight,
   Columns2,
@@ -120,3 +121,11 @@ export const IconOrderDesc = (p: P) => <ArrowUpNarrowWide strokeWidth={SW} {...p
  * 双勾才是成批的意思，两个记号不能混用。
  */
 export const IconReadAll = ({ size = 15, ...p }: P) => <CheckCheck size={size} strokeWidth={SW} {...p} />;
+
+/**
+ * 一键「这一章之前取消已读」。和上面那对是一对反向动作，
+ * 必须长得不一样 —— 手机上没有 hover，同一个图标靠 title 分方向等于没说。
+ * 用虚线圈（"还没读"的空状态）而不是 ✕：那颗已经挂在关闭按钮上，
+ * 而且这两个动作是改状态，不是删除。
+ */
+export const IconUnreadAll = ({ size = 15, ...p }: P) => <CircleDashed size={size} strokeWidth={SW} {...p} />;

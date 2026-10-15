@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { Chapter } from '@/site/engine';
 import { formatBytes } from '@/store/utils';
 import { isRead } from '@/store/shelf';
-import { IconOrderAsc, IconOrderDesc, IconReadAll } from '@/components/Icons';
+import { IconOrderAsc, IconOrderDesc, IconReadAll, IconUnreadAll } from '@/components/Icons';
 
 /**
  * 章节列表
@@ -141,10 +141,9 @@ export default function ChapterList({
                   aria-label={`${allBeforeRead[pos] ? '取消' : '标记'} ${ch.title} 之前的章节为${allBeforeRead[pos] ? '未读' : '已读'}`}
                   onClick={() => onMarkThrough(ch.id, !allBeforeRead[pos])}
                 >
-                  <IconReadAll />
+                  {allBeforeRead[pos] ? <IconUnreadAll /> : <IconReadAll />}
                 </button>
-              )}
-            </div>
+              )}            </div>
           );
         })}
       </div>
