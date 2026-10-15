@@ -1,6 +1,7 @@
 ﻿import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getShelf } from '@/store/shelf';
+import { getShelf, bookProgress } from '@/store/shelf';
+import { getCachedChapterLists } from '@/store/chapters';
 import type { ShelfEntry } from '@/store/types';
 import { usePlugin } from '@/store/PluginContext';
 import { useReloadOnChange } from '@/store/useDataVersion';
@@ -13,12 +14,19 @@ import { ErrorBox, Loading } from '@/components/UI';
 export default function ShelfPage() {
   const { plugin } = usePlugin();
   const [items, setItems] = useState<ShelfEntry[] | null>(null);
+  /** 章节表缓存，按 `${pluginId}/${slug}` 索引，全书进度要用 */
+  const [lists, setLists] = useState<Record<string, { id: string; index: number }[]>>({});
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setErr(null);
     try {
-      setItems(await getShelf(plugin?.meta.id));
+      const [shelf, cached] = await Promise.all([
+        getShelf(plugin?.meta.id),
+        getCachedChapterLists(plugin?.meta.id),
+      ]);
+      setItems(shelf);
+      setLists(Object.fromEntries(cached.map((c) => [c.key, c.chapters])));
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -66,10 +74,13 @@ export default function ShelfPage() {
           <div className="grid">
             {items.map((it) => {
               /*
-               * 进度是"最近读的那一章读到几成"，不是整本完成度 ——
-               * 后者要遍历章节表，而这里只有书架记录，硬算出来也是个假数。
+               * 全书进度 =（读到第几章 + 本章读到几成）/ 总章数。
+               * 以前直接拿"最近一章读到几成"当进度，等于把本章进度条
+               * 缩小一圈摆在封面上：200 话读到第 12 话明明是 6%，环上显示 42%。
+               * 算不出来（章节表没缓存、或那章已从表里掉了）就不画 ——
+               * 环上没有数字，画错了用户看不出来，宁缺。
                */
-              const pct = it.lastChapterId ? (it.positions[it.lastChapterId] ?? 0) : 0;
+              const pct = bookProgress(lists[it.key], it);
               return (
                 <Link key={it.key} to={`/comic/${it.slug}`} className="card card--plate">
                   <div className="card__cover">
@@ -81,7 +92,9 @@ export default function ShelfPage() {
                         decoding="async"
                       />
                     )}
-                    {pct > 0 && <ProgressRing percent={pct} size={30} label={`上次读到本章 ${pct}%`} />}
+                    {pct !== null && pct > 0 && (
+                      <ProgressRing percent={pct} size={30} label={`全书 ${pct}%`} />
+                    )}
                   </div>
                   <div className="card__name">{it.title}</div>
                 </Link>

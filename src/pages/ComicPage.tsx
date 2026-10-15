@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useVtNavigate } from '@/hooks/viewTransition';
 import { getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import { cacheChapterList } from '@/store/chapters';
-import { addToShelf, getShelfEntry, removeFromShelf } from '@/store/shelf';
+import { addToShelf, bookProgress, getShelfEntry, removeFromShelf } from '@/store/shelf';
 import type { ShelfEntry } from '@/store/types';
 import { formatBytes } from '@/store/utils';
 import { useOfflineCache } from '@/store/useOfflineCache';
@@ -36,6 +36,8 @@ export default function ComicPage() {
   const onShelf = !!entry;
   const lastChapter = chapters.find((c) => c.id === entry?.lastChapterId);
   const lastPct = entry?.lastChapterId ? (entry.positions[entry.lastChapterId] ?? 0) : 0;
+  /** 全书完成度，书架卡片上的环用的是同一个算法 */
+  const bookPct = entry ? bookProgress(chapters, entry) : null;
 
   const { cached, caching, cachedBytes, cacheAll, dropEverything } = useOfflineCache(
     plugin,
@@ -148,10 +150,14 @@ export default function ComicPage() {
 
                 {lastChapter && (
                   <div className="detail__reading">
-                    <ProgressRing percent={lastPct} size={22} label={`上次读到本章 ${lastPct}%`} />
+                    {/* 环上是全书完成度，跟书架那张卡同一个口径；
+                        文字里另说本章读到几成，两个数不是一回事。
+                        lastChapter 就是从 chapters 里找到的，所以这里算得出 */}
+                    <ProgressRing percent={bookPct ?? 0} size={22} label={`全书 ${bookPct ?? 0}%`} />
                     <span className="detail__reading-text">
                       上次读到 {lastChapter.title}
                       {lastPct > 0 ? ` · 本章 ${lastPct}%` : ''}
+                      {bookPct !== null ? ` · 全书 ${bookPct}%` : ''}
                     </span>
                   </div>
                 )}

@@ -140,6 +140,17 @@ export async function cacheChapterList(
   });
 }
 
+/**
+ * 一次把缓存过的章节表捞出来，书架算全书进度用。
+ *
+ * 逐本 getChapterList 的话，几十本书就是几十次事务。
+ * chapterCache 一本一行、行又小，直接全表读比建索引划算。
+ */
+export async function getCachedChapterLists(pluginId?: string): Promise<CachedChapterList[]> {
+  const all = (await (await db()).getAll('chapterCache')) as CachedChapterList[];
+  return pluginId ? all.filter((c) => c.pluginId === pluginId) : all;
+}
+
 export async function getChapterList(
   pluginId: string,
   slug: string,

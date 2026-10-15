@@ -93,6 +93,32 @@ export async function savePosition(
   });
 }
 
+/**
+ * 全书进度：读到第几章的第几页，摊到整本上。
+ *
+ * 之前书架那个环直接拿"最近一章读到几成"当进度，等于把本章进度条
+ * 缩小了一圈摆在封面上 —— 一本 200 话读到第 12 话讲是 6%，环上却显示 42%。
+ *
+ * 位置用章节表里的下标，不用 chapter.index：上游的编号会跳号、
+ * 也从 0 或 1 起算，只有排完序的下标是连续的。
+ *
+ * 返回 null 表示"算不出来"（有进度但章节表没缓存、或那一章已经不在表里）。
+ * 这时候宁可不画环，也别画一个错数 —— 环上没有数字，错了也看不出来。
+ */
+export function bookProgress(
+  chapters: { id: string; index: number }[] | null | undefined,
+  entry: Pick<ShelfEntry, 'lastChapterId' | 'positions'>,
+): number | null {
+  // 加了架还没读过，0% 是事实而不是算不出来
+  if (!entry.lastChapterId) return 0;
+  if (!chapters?.length) return null;
+  const list = [...chapters].sort((a, b) => a.index - b.index);
+  const at = list.findIndex((c) => c.id === entry.lastChapterId);
+  if (at < 0) return null;
+  const within = (entry.positions[entry.lastChapterId] ?? 0) / 100;
+  return Math.min(100, Math.round(((at + within) / list.length) * 100));
+}
+
 /** 清掉某章的进度记录（读完之后没必要留着） */
 export async function clearPosition(
   pluginId: string,
