@@ -75,9 +75,12 @@ function PluginRow({
        * 开关用 role=switch 的按钮，不用 checkbox：外观复用阅读器那套 .switch，
        * 而全局 button 重置已经把边框和背景清了。名字放在 aria-label 里，
        * 读屏念出来是「启用 拷貝漫畫」，知道开的是哪一个。
+       *
+       * `on` 这个类是**唯一的视觉状态**（底色变绿、圆点右移全挂在 .switch.on 上），
+       * 漏了它开关就永远停在灰的：状态其实改了，看上去像点了没反应。
        */}
       <button
-        className="switch"
+        className={`switch${enabled ? ' on' : ''}`}
         role="switch"
         aria-checked={enabled}
         aria-label={`启用 ${plugin.meta.name}`}

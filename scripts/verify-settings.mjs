@@ -118,6 +118,25 @@ const setSources = async (ids, browse) => {
   );
 };
 
+/**
+ * 读每个源开关的状态：aria-checked（语义）与 .on（看得见的那点绿）两个都读。
+ *
+ * 只断言前者的话，"状态确实改了、开关却纹丝不动"这种 bug 会一路绿灯 ——
+ * 真踩过一次：.switch 的填充色和圆点位移全挂在 .switch.on 上，
+ * 渲染时漏了这个类，界面上看就是"点了没反应"。
+ */
+const switchRows = async () =>
+  page.$$eval('.plugin-row', (els) =>
+    els.map((el) => {
+      const sw = el.querySelector('.switch');
+      return {
+        name: sw?.getAttribute('aria-label') ?? '',
+        on: sw?.getAttribute('aria-checked') === 'true',
+        filled: !!sw && sw.classList.contains('on'),
+      };
+    }),
+  );
+
 const cardsInfo = () =>
   page.evaluate(() => ({
     n: document.querySelectorAll('a.card').length,
@@ -200,15 +219,10 @@ if (BOTH) {
    */
   await page.goto(`${BASE}/settings?tab=sources`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.plugin-row .switch', { timeout: 20_000 });
-  const rows = await page.$$eval('.plugin-row', (els) =>
-    els.map((el) => ({
-      name: el.querySelector('.switch')?.getAttribute('aria-label') ?? '',
-      on: el.querySelector('.switch')?.getAttribute('aria-checked') === 'true',
-    })),
-  );
+  const rows = await switchRows();
   check(
-    rows.length === 2 && rows.every((r) => r.on),
-    `装了两个源就默认启用两个：${rows.map((r) => `${r.name}=${r.on}`).join(' / ')}`,
+    rows.length === 2 && rows.every((r) => r.on && r.filled),
+    `装了两个源就默认启用两个，开关看着也是开的：${rows.map((r) => `${r.name}=aria:${r.on}/绿:${r.filled}`).join(' / ')}`,
   );
 
   await setSources([A.id, B.id], A.id);
@@ -304,6 +318,13 @@ if (BOTH) {
   await page.waitForTimeout(900);
   const stored = await page.evaluate(() => localStorage.getItem('enabledPluginIds'));
   check(stored === A.id, `关掉 ${B.name} 之后启用集合只剩 ${A.id}（实际「${stored}」）`);
+  /* 点下去得看得见：语义翻了、开关那颗也得跟着变灰，不然就是"点了没反应" */
+  const rowsAfterOff = await switchRows();
+  check(
+    rowsAfterOff.every((r) => r.on === r.filled),
+    `开关的外观跟着状态走：${rowsAfterOff.map((r) => `${r.name}=aria:${r.on}/绿:${r.filled}`).join(' / ')}`,
+  );
+  await page.screenshot({ path: join(shots, 'sources-one-off.png'), fullPage: true });
 
   await page.goto(`${BASE}/shelf`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
