@@ -188,9 +188,14 @@ export async function renderHtml(url, opts = {}) {
    * 就把这些打到 stdout（计划任务的日志里）。
    */
   if (RENDER_DEBUG) {
-    page.on('requestfailed', (r) =>
-      console.warn(`[zeno][render] 子资源失败 ${r.url().slice(0, 110)} ${r.failure()?.errorText ?? ''}`),
-    );
+    /** 发出去了但还没回来的请求 → 发出时刻。挂着的请求两边都不报错，只能这样抓 */
+    page.__pending = new Map();
+    page.on('request', (r) => page.__pending.set(r.url(), Date.now()));
+    page.on('requestfinished', (r) => page.__pending.delete(r.url()));
+    page.on('requestfailed', (r) => {
+      page.__pending.delete(r.url());
+      console.warn(`[zeno][render] 子资源失败 ${r.url().slice(0, 110)} ${r.failure()?.errorText ?? ''}`);
+    });
     page.on('response', (r) => {
       if (r.status() >= 400) console.warn(`[zeno][render] HTTP ${r.status()} ${r.url().slice(0, 110)}`);
     });
@@ -221,6 +226,17 @@ export async function renderHtml(url, opts = {}) {
      * 只有没抓到才回落取 HTML，让解析层还能按老路（parse.imageAttr）再试一次。
      */
     const html = captured.length ? '' : await page.content();
+
+    /*
+     * 抓空时把"发出去却永远没回来"的请求列出来。
+     * 这类请求既不算失败也没有响应，两边都不会报错 —— 而服务会话里渲染
+     * 不出内容就是这么一种表现：页面结构在、脚本没报错、数据永远不到。
+     */
+    if (page.__pending && !captured.length) {
+      for (const [u, at] of page.__pending) {
+        console.warn(`[zeno][render] 未返回 已等 ${Date.now() - at}ms ${u.slice(0, 120)}`);
+      }
+    }
 
     /*
      * 状态码：渲染模式下首次导航的响应经常没有意义。
