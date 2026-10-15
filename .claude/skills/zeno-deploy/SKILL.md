@@ -82,6 +82,37 @@ description: 在 Windows / Linux / macOS 上部署 Zeno（干净的网页阅读�
 渲染侧按 UA 分 context（同一个 UA 共用一个会话，质询 cookie 在那儿）。
 以前是全站一个 context，后装的插件的 UA 会被先装的那个盖掉。
 
+### 服务会话里渲染不出内容（前台却正常）
+
+症状：需要渲染的插件在**部署实例**里只拿到静态壳 —— 结构在、`pageerror` 没有、
+`requestfailed` 也没有、没有永远挂着的请求，数据就是不到；同一份代码在前台跑
+1–4 秒就拿到了。这不是代码问题，是会话问题：计划任务那个会话没有真桌面，
+Windows 上的 Chromium 会去算"窗口有没有被挡住"，算不出来就当被挡，
+于是把渲染进程的计时器与 rAF 压到约 1%，站点自己那几个计时周期永远排不上。
+
+`render.mjs` 的 `LAUNCH_ARGS` 已带上这四条：`--disable-features=CalculateNativeWinOcclusion`、
+`--disable-backgrounding-occluded-windows`、`--disable-renderer-backgrounding`、
+`--disable-background-timer-throttling`。只关掉"看不见=后台"这条推论，
+请求、UA、指纹一律不动。
+
+再遇到同类情况用 `.\deploy.ps1 -RunAsUser -SkipInstall -SkipTailscale -RenderDebug`
+重注册一次，服务会把每条请求（`→`）、每个失败、每个未返回和页面报错写进
+`zeno.log`。**排查完记得去掉这个开关** —— 它会把每个子资源都写进日志，而日志没有轮转。
+
+### 深链进另一个源的章节 = 空白
+
+这个应用一次只跟一个**激活**内容源（`localStorage.activePluginId`），而
+`/read/:pluginId/...` 里的 pluginId 目前只是路径装饰，阅读器仍按激活的那个源拼地址。
+所以从书签/历史直接打开"非激活源"的章节，表现是「这一章没有图片」。
+在设备上验证时务必先切源再点进去（`scripts/verify-phone.mjs` 就是按这个真实顺序走的）。
+
+### 从这台机器上的自动浏览器打 tailnet
+
+`*.ts.net` 在 Chromium 里会 `ERR_CONNECTION_CLOSED / ABORTED`：FlClash 写的系统代理
+在注册表里，Chromium 跟着走就把 tailnet 的 TLS 掐了（手机不会这样，它自己走 tailnet）。
+启动参数加 `--proxy-bypass-list=*.ts.net` 才通。Playwright 加了这条仍打不通时，
+用 LAN 地址验功能，TLS/SW 那一层单独用 `curl https://<name>.ts.net/api/health` 验。
+
 ### 读性能相关的两个数（都有实测依据）
 
 | 变量 | 默认 | 依据 |
