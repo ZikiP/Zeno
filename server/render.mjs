@@ -21,12 +21,9 @@ import { waitUntilSettled } from './render-wait.mjs';
 export { renderCacheStats } from './render-cache.mjs';
 
 /*
- * 空闲多久关掉了重渲染用的浏览器。
- *
- * 60 秒对"阅读"这个场景是错的：一章读三分钟很常见，翻到下一话时浏览器
- * 已经被收了，于是每一章都要再付一次启动（实测 1.5s 的换章变成 4s+）。
- * 代价是一个 chromium 进程多空挂约 3 分钟（百来 MB 常驻），换来的是
- * 阅读期间不再有"隔一章卡一次"。
+ * 空闲多久关掉渲染用的浏览器。60 秒对"阅读"是错的：一章读三分钟很常见，
+ * 翻到下一话时浏览器已被收了，每章都要再付一次启动（实测 1.5s 的换章变 4s+）。
+ * 代价是一个 chromium 进程多空挂 3 分钟（百来 MB），换来阅读期间不再隔章卡一次。
  */
 const IDLE_SHUTDOWN_MS = Number(process.env.BROWSER_IDLE_MS || 180_000);
 const MAX_PAGES = Number(process.env.BROWSER_MAX_PAGES || 3);
