@@ -13,9 +13,9 @@
 import { Readable } from 'node:stream';
 import { assertPublicTarget } from './ssrf.mjs';
 import { renderHtml } from './render.mjs';
-import { hostAllowed } from './allowlist.mjs';
+import { hostAllowed, headersFor } from './allowlist.mjs';
 import { json } from './respond.mjs';
-import { collector, isImage, lookup } from './cache-store.mjs';
+import { collector, cacheableAsImage, lookup } from './cache-store.mjs';
 import { IMG_CACHE_CONTROL, serveCached } from './cache.mjs';
 
 const MOBILE_UA =
@@ -23,7 +23,12 @@ const MOBILE_UA =
 /** 放行解析到内网/回环的目标。只给本地测试用，生产不该开 */
 const ALLOW_PRIVATE_HOSTS = process.env.ALLOW_PRIVATE_HOSTS === '1';
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 20_000);
-const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 6);
+/*
+ * 实测同一批章节图（21 张 / 6.8 MB）直连 CDN 的吞吐：
+ * 并发 1 → 0.69 MB/s，4 → 2.5，8 → 4.0，16 → 4.06 —— 8 就已经撞到上行天花板，
+ * 再往上加只会让每张图都变慢一点、总数不变。所以默认值取 8，不多取。
+ */
+const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 8);
 
 let active = 0;
 const waiters = [];
@@ -78,6 +83,8 @@ export async function handleProxy(req, res, url) {
 
   const mode = url.searchParams.get('mode') === 'browser' ? 'browser' : 'fetch';
   const cacheKey = parsed.toString();
+  /** 这个域名属于哪个插件、它要求站点看到什么头 */
+  const ph = headersFor(host);
 
   /*
    * 图片先问本地盘，命中就不回上游 —— 这才是这个缓存的意义：
@@ -116,9 +123,33 @@ export async function handleProxy(req, res, url) {
     if (mode === 'browser') {
       const r = await renderHtml(parsed.toString(), {
         waitFor: url.searchParams.get('waitFor') || undefined,
+        minCount: Number(url.searchParams.get('minCount')) || undefined,
+        capture: url.searchParams.get('capture') || undefined,
         timeoutMs: Number(url.searchParams.get('timeoutMs')) || undefined,
-        userAgent: req.headers['user-agent'],
+        userAgent: ph['user-agent'] ?? req.headers['user-agent'],
       });
+      /*
+       * 从 JSON 里抓到整张表时回 JSON，不再把那份一个字节都用不上的 HTML 传下去：
+       * 实测一次长章节的 HTML 有 75 KB，而真正要用的图片地址表只有 5 KB。
+       * 抓空了 renderHtml 自己回落取 HTML，这里就照旧回 HTML —— 解析层还能
+       * 按 parse.imageAttr 的老路再试一次，一个站点的两种形态都能读。
+       */
+      if (r.format === 'json') {
+        /*
+         * 不能用 respond.mjs 的 json() —— 它带 Access-Control-Allow-Origin: *。
+         * 这个端点只能被同源 PWA 用：一旦允许跨源读，任意网页都能拿本服务
+         * 当白名单中继，把已装插件域名的数据读走（上面 CORS 那段注释写的就是它）。
+         */
+        const body = JSON.stringify({ images: r.captured });
+        res.writeHead(r.status, {
+          ...CORS,
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Length': Buffer.byteLength(body),
+          'Cache-Control': 'no-store',
+        });
+        res.end(req.method === 'HEAD' ? undefined : body);
+        return;
+      }
       res.writeHead(r.status, {
         ...CORS,
         'Content-Type': r.contentType,
@@ -160,10 +191,17 @@ export async function handleProxy(req, res, url) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           upstream = await fetch(current.toString(), {
+            /*
+             * 站点声明的头优先。这不是可有可无的装饰：实测拷貝漫畫只给桌面
+             * UA 返回服务端渲染的列表，手机 UA 一律 302 到 JS 壳 —— 代理固定发
+             * MOBILE_UA 的话，那个站本来 1 秒就能拿到的页面必须花 3 秒去渲染，
+             * 而列表页压根渲染不出卡片。
+             */
             headers: {
-              'User-Agent': MOBILE_UA,
-              Accept: req.headers.accept ?? '*/*',
-              'Accept-Language': 'zh-TW,zh;q=0.9',
+              'User-Agent': ph['user-agent'] ?? MOBILE_UA,
+              Accept: ph.accept ?? req.headers.accept ?? '*/*',
+              'Accept-Language': ph['accept-language'] ?? 'zh-TW,zh;q=0.9',
+              ...(ph.referer ? { Referer: ph.referer } : {}),
             },
             redirect: 'manual',
             /*
@@ -206,7 +244,7 @@ export async function handleProxy(req, res, url) {
      * 图片给一天（本地还有盘上的副本兜着），HTML 保持十分钟：
      * 章节列表放一天，用户会以为上游没更新。
      */
-    if (isImage(ct)) headers['Cache-Control'] = IMG_CACHE_CONTROL;
+    if (cacheableAsImage(ct, cacheKey)) headers['Cache-Control'] = IMG_CACHE_CONTROL;
 
     res.writeHead(upstream.status, headers);
     if (!upstream.body || req.method === 'HEAD') {
@@ -227,7 +265,8 @@ export async function handleProxy(req, res, url) {
      * 单张上限 8MB、并发 6，最坏占 48MB，换掉的是那一整类 bug。
      * 客户端中途断开时 'end' 不会触发，于是半张图不会被存进去。
      */
-    const sink = upstream.ok && isImage(ct) ? collector(cacheKey, ct) : null;
+    const sink =
+      upstream.ok && cacheableAsImage(ct, cacheKey) ? collector(cacheKey, ct) : null;
     if (sink) {
       src.on('data', (c) => sink.push(c));
       src.on('end', () => void sink.commit());

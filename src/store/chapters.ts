@@ -91,17 +91,55 @@ export async function cacheChapterImages(
     images,
     cachedAt: Date.now(),
     bytes,
+    downloaded: true,
   });
   return bytes;
 }
 
+/**
+ * 只存地址表，一张图都不下。
+ *
+ * 翻开一章的时候调这个：地址表是几十 KB，存了它，重进这一章就不用再等
+ * 一次服务端渲染（实测 1.4–5.6s）。整章图片交给 Service Worker 边看边存，
+ * 真要搬进设备的是详情页的「离线下载」。
+ */
+export async function saveChapterTable(
+  pluginId: string,
+  slug: string,
+  cid: string,
+  images: string[],
+): Promise<void> {
+  const existing = await getCachedChapter(pluginId, slug, cid);
+  /*
+   * 已经整章下完的那章不能拿这张表盖回去 —— 一盖就把 downloaded 打回未下载，
+   * 界面上会变成"没离线"，而盘上的图其实还在。
+   */
+  if (existing && existing.downloaded !== false) return;
+  await (await db()).put('chapters', {
+    key: chapKey(pluginId, slug, cid),
+    pluginId,
+    slug,
+    chapterId: cid,
+    images,
+    cachedAt: Date.now(),
+    bytes: existing?.bytes ?? 0,
+    downloaded: false,
+  });
+}
+
+/**
+ * 这一本里**图片真的在设备上**的章。
+ *
+ * 只存了地址表的那些不算：调用方拿它显示"已离线 N 章 · X MB"和抽屉里的
+ * 已缓存标记，把没下过的章报成离线是骗人。
+ */
 export async function listCachedChapters(
   pluginId: string,
   slug: string,
 ): Promise<CachedChapter[]> {
   const all = await (await db()).getAll('chapters');
   return all
-    .filter((c) => c.pluginId === pluginId && c.slug === slug)
+    .filter((c) => c.pluginId === pluginId && c.slug === slug && c.downloaded !== false)
     .sort((a, b) => b.cachedAt - a.cachedAt);
 }
 

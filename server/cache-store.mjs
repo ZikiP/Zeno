@@ -172,6 +172,24 @@ export function isImage(ctype) {
 }
 
 /**
+ * 该不该按图片存盘 / 给图片的 Cache-Control。
+ *
+ * 光看 Content-Type 不够：实测有站的封面走的是 CDN 的原图路径，
+ * 回的是 `binary/octet-stream` —— 按类型判就不是图，于是一张封面都不进盘，
+ * 每屏列表都回源重取，缓存看着开着其实没起作用。
+ *
+ * 所以放行条件是「类型是 image/*，或者 URL 看着是图且类型不是 text/*」。
+ * 加上后半句的类型限制是为了挡住另一种情况：`.jpg` 地址上回一整页 HTML 报错，
+ * 那东西存进盘就是一颗一天的雷。
+ */
+export function cacheableAsImage(ctype, url) {
+  if (isImage(ctype)) return true;
+  const ct = (ctype ?? '').toLowerCase();
+  if (ct.startsWith('text/')) return false;
+  return /^https?:\/\/[^\s?#]+\.(?:jpg|jpeg|png|webp|gif|avif|bmp)(?:[?#]|$)/i.test(String(url));
+}
+
+/**
  * 查一张缓存图。
  *
  * 命中的键只可能是「当初按 image/* 存进去的 URL」，所以这里不用再判类型。
@@ -198,10 +216,10 @@ export function lookup(url) {
  *
  * 为什么不用双写（pipe 到客户端的同时 pipe 到文件）：那套要自己管背压，
  * 两个下游谁慢都会把另一个饿着，出错时容易只清掉一半。
- * 单张上限 8MB、并发 6，最坏也就占住 48MB 内存，换来的是简单可靠。
+ * 单张上限 8MB、并发 8，最坏也就占住 64MB 内存，换来的是简单可靠。
  */
 export function collector(url, ctype) {
-  if (!cacheOn() || !isImage(ctype)) return null;
+  if (!cacheOn() || !cacheableAsImage(ctype, url)) return null;
   const key = keyOf(url);
   const chunks = [];
   let size = 0;

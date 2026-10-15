@@ -14,8 +14,21 @@
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { captureScript, readCaptures } from './capture.mjs';
+import { cacheGet, cachePut, keyFor } from './render-cache.mjs';
+import { waitUntilSettled } from './render-wait.mjs';
 
-const IDLE_SHUTDOWN_MS = Number(process.env.BROWSER_IDLE_MS || 60_000);
+export { renderCacheStats } from './render-cache.mjs';
+
+/*
+ * 空闲多久关掉了重渲染用的浏览器。
+ *
+ * 60 秒对"阅读"这个场景是错的：一章读三分钟很常见，翻到下一话时浏览器
+ * 已经被收了，于是每一章都要再付一次启动（实测 1.5s 的换章变成 4s+）。
+ * 代价是一个 chromium 进程多空挂约 3 分钟（百来 MB 常驻），换来的是
+ * 阅读期间不再有"隔一章卡一次"。
+ */
+const IDLE_SHUTDOWN_MS = Number(process.env.BROWSER_IDLE_MS || 180_000);
 const MAX_PAGES = Number(process.env.BROWSER_MAX_PAGES || 3);
 
 const DESKTOP_UA =
@@ -57,7 +70,6 @@ export function findBrowser() {
 
 let browser = null;
 let launching = null;
-let sharedCtx = null;
 let openPages = 0;
 let idleTimer = null;
 
@@ -71,12 +83,14 @@ function scheduleIdleClose() {
 }
 
 async function teardown() {
-  try {
-    await sharedCtx?.close();
-  } catch {
-    /* 已随浏览器一起回收 */
+  for (const ctx of [...contexts.values()]) {
+    try {
+      await ctx.close();
+    } catch {
+      /* 已随浏览器一起回收 */
+    }
   }
-  sharedCtx = null;
+  contexts.clear();
   try {
     await browser?.close();
   } catch {
@@ -105,7 +119,7 @@ async function getBrowser() {
     browser.on('disconnected', () => {
       browser = null;
       launching = null;
-      sharedCtx = null;
+      contexts.clear();
     });
   } finally {
     launching = null;
@@ -114,61 +128,46 @@ async function getBrowser() {
 }
 
 /**
- * 全站共享一个 context —— 也就是同一个浏览器会话。
+ * 同一个 UA 共享一个 context —— 也就是同一个浏览器会话。
  *
  * 每次请求新建 context 会把会话 cookie 一起丢掉，于是带 JS 质询的站点
  * 每一个页面都要从零再解一次质询：实测列表页 40s、详情页直接撑破 45s 超时。
  * 复用同一个会话后只有第一次付这个代价，后续就是正常页面加载。
  * 这不是伪装 —— 浏览器对连续翻页的正常用户本来就是这么做的。
+ *
+ * 按 UA 分开而不是全局一个：UA 现在可以由插件声明（有的站只给桌面 UA
+ * 返回服务端渲染的内容），共用一个就等于让后装的那个插件的 UA 形同废纸。
  */
+const contexts = new Map();
+
 async function getContext(userAgent) {
   const b = await getBrowser();
-  if (sharedCtx) return sharedCtx;
-  sharedCtx = await b.newContext({
-    userAgent: userAgent || DESKTOP_UA,
+  const ua = userAgent || DESKTOP_UA;
+  const existing = contexts.get(ua);
+  if (existing) return existing;
+  const ctx = await b.newContext({
+    userAgent: ua,
     viewport: { width: 1280, height: 900 },
     locale: 'zh-CN',
   });
-  return sharedCtx;
+  contexts.set(ua, ctx);
+  ctx.on('close', () => contexts.delete(ua));
+  return ctx;
 }
+
+
 
 /**
- * 渲染结果缓存
+ * 渲染一个页面。
  *
- * browser 模式一次渲染要 1–3s，而阅读里重复取同一个 URL 的场景很多：
- * 返回列表再点进来、章节抽屉来回切、失败后重试。
- *
- * 键必须带上 waitFor —— 同一个 URL 等不同选择器，"算不算成功"的判据不同，
- * 共用一份结果会把列表页的成功当成详情页的成功。
- *
- * TTL 故意短：列表/详情内容本来就在变，缓存久了用户看到的就是旧章节。
- */
-const RENDER_TTL_MS = Number(process.env.RENDER_TTL_MS || 90_000);
-const RENDER_CACHE_MAX = 24;
-/** Map 的迭代顺序就是插入顺序，容量满了从头开始挤 */
-const renderCache = new Map();
-let cacheHits = 0;
-
-function cacheKey(url, opts) {
-  return `${url}\u0000${opts.waitFor ?? ''}`;
-}
-
-export function renderCacheStats() {
-  return { size: renderCache.size, hits: cacheHits, ttlMs: RENDER_TTL_MS };
-}
-
-/**
- * 渲染一个页面并返回 HTML。
  * @param {string} url
- * @param {{waitFor?: string, timeoutMs?: number, userAgent?: string}} opts
+ * @param {{waitFor?: string, minCount?: number, capture?: string, timeoutMs?: number, userAgent?: string}} opts
+ * @returns {Promise<{format:'html'|'json', html:string, captured:string[], status:number, contentType:string}>}
  */
 export async function renderHtml(url, opts = {}) {
-  const key = cacheKey(url, opts);
-  const hit = renderCache.get(key);
-  if (hit && Date.now() - hit.at < RENDER_TTL_MS) {
-    cacheHits++;
-    return { html: hit.html, status: hit.status, contentType: hit.contentType };
-  }
+  const key = keyFor(url, opts);
+  const cached = cacheGet(key);
+  if (cached) return cached;
 
   const timeoutMs = Math.min(Math.max(opts.timeoutMs ?? 20_000, 5_000), 120_000);
   scheduleIdleClose();
@@ -181,27 +180,30 @@ export async function renderHtml(url, opts = {}) {
   const ctx = await getContext(opts.userAgent);
   const page = await ctx.newPage();
   try {
+    /** 必须在 goto 之前装：注入脚本要在站点的脚本跑到之前就把 JSON.parse 包住 */
+    if (opts.capture) await page.addInitScript({ content: captureScript(opts.capture) });
+
     const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
-    // waitFor 是**提示**而不是硬要求：插件只有一份 fetch.waitFor，却要覆盖
-    // 列表 / 详情 / 章节三种页面，后两者往往没有列表的那个选择器。
-    // 当成必须条件就会白等满超时再报错，所以超时后直接用当前 DOM。
-    let settled = false;
-    if (opts.waitFor) {
-      settled = await page
-        .waitForSelector(opts.waitFor, { timeout: timeoutMs })
-        .then(() => true)
-        .catch(() => false);
-    } else {
-      // 没有声明等待条件时，给 SPA 一个落地的机会；不是精确方案，但比立即抓强
-      await page.waitForLoadState('load', { timeout: timeoutMs }).catch(() => {});
-    }
-    // 只有没给等待条件时才额外让 800ms。给了 waitFor 就已经等到内容了，
-    // 再固定加 800ms 是纯开销 —— 它会加在每一次渲染上。
-    if (!settled && !opts.waitFor) {
-      await page.waitForTimeout(800).catch(() => {});
-    }
-    const html = await page.content();
+    /*
+     * waitFor 是**提示**而不是硬要求：插件只有一份 fetch.waitFor，却要覆盖
+     * 列表 / 详情 / 章节三种页面，后两者往往没有列表的那个选择器。
+     * 当成必须条件就会白等满超时再报错，所以超时后直接用当前 DOM。
+     */
+    const settled = await waitUntilSettled(page, opts, timeoutMs);
+    // 只有什么都没等到时才额外让 800ms。等到了内容再固定加 800ms 是纯开销 ——
+    // 它会加在每一次渲染上。
+    if (!settled && !opts.waitFor) await page.waitForTimeout(800).catch(() => {});
+
+    // 捕获到期没中也要再读一次：可能刚好在最后一段等待时间里到位
+    const captured = opts.capture ? await readCaptures(page) : [];
+
+    /*
+     * 整章地址已经从 JSON 里拿到就不再序列化 DOM —— 实测一次 page.content()
+     * 在四万像素高的长章节页上要几百毫秒，而那份 HTML 我们一个字节都用不到。
+     * 只有没抓到才回落取 HTML，让解析层还能按老路（parse.imageAttr）再试一次。
+     */
+    const html = captured.length ? '' : await page.content();
 
     /*
      * 状态码：渲染模式下首次导航的响应经常没有意义。
@@ -211,19 +213,21 @@ export async function renderHtml(url, opts = {}) {
      * 所以判据换成"要等的东西出来了没有"：等到了就是 200。
      */
     let status = resp?.status() ?? 200;
-    if (settled) status = 200;
+    /*
+     * 'idle'（"不再吐新内容了"）不算证据：一个停在质询页的站点同样很安静。
+     * 所以它不走这条直接判 200 的路，只留给下面"页面确实有内容"那条兜底。
+     */
+    if (settled === 'capture' || settled === 'selector' || settled === 'load' || captured.length)
+      status = 200;
     else if (status >= 400 && html.length > 2000) status = 200;
 
-    if (status < 400) {
-      /*
-       * 失败的结果不缓存 —— 那等于把一次抖动钉住 90 秒，
-       * 用户点重试也只会反复拿到同一个坏结果。
-       */
-      if (renderCache.size >= RENDER_CACHE_MAX) renderCache.delete(renderCache.keys().next().value);
-      renderCache.set(key, { at: Date.now(), html, status, contentType: 'text/html; charset=utf-8' });
-    }
+    const out = captured.length
+      ? { format: 'json', html: '', captured, status, contentType: 'application/json; charset=utf-8' }
+      : { format: 'html', html, captured: [], status, contentType: 'text/html; charset=utf-8' };
 
-    return { html, status, contentType: 'text/html; charset=utf-8' };
+    cachePut(key, out);
+
+    return out;
   } finally {
     openPages--;
     // 只关标签页，不关 context —— context 是全站共享的会话，关掉就等于

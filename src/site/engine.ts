@@ -1,5 +1,14 @@
 ﻿import type { Plugin } from './types';
-import { coverUrl, escapeRe, fetchText, FetchError, proxied } from './fetch';
+import {
+  captureFor,
+  coverUrl,
+  fetchCaptured,
+  FetchError,
+  fetchText,
+  modeFor,
+  proxied,
+} from './fetch';
+import { escapeRe } from './text';
 import {
   fillTemplate,
   isSearchExact,
@@ -129,11 +138,31 @@ function stripTagsSafe(html: string): string {
 }
 
 /**
+ * 从 HTML 里按 parse.imageAttr 抓正文图片地址。
+ *
+ * 这是老路，也是 fetch.capture 落空时的兜底。很多站点 src 里放的是框架
+ * 绑定符号（如 `[src]="chapter00Src"`），真实地址在 data-src —— 所以属性名
+ * 由插件配置而不是写死。
+ */
+function imageUrlsFromHtml(html: string, plugin: Plugin): string[] {
+  const re = new RegExp(
+    `${escapeRe(plugin.parse.imageAttr)}="(https?://[^"]+?\\.(?:jpg|jpeg|png|webp))"`,
+    'gi',
+  );
+  return [...html.matchAll(re)].map((x) => x[1]);
+}
+
+/**
  * 章节正文，自动翻完所有内页
  *
  * 长章节会拆成多个 URL：`0_271.html`、`0_271_2.html`…
  * 默认不限页数（插件可配 maxChapterPages），因为硬性截断会让人
  * 误以为「读完了」而实际后面还有。另有 500 页的硬性安全上限防死循环。
+ *
+ * 但有一类站点根本没有"内页"这个概念：正文地址只存在于它自己 JS 解出来的
+ * 数据里（插件声明了 fetch.capture）。这类站的翻页参数它自己的 App 都不读
+ * （实测 ?page=6 指示器仍是 1 / 57），所以一次渲染取全表就收工，
+ * 绝不进下面那个靠 404 收尾的循环 —— 进去只会被 404 当成"这章只有一页"。
  */
 export async function getChapter(
   plugin: Plugin,
@@ -141,11 +170,26 @@ export async function getChapter(
   chapterId: string,
   opts?: { signal?: AbortSignal },
 ): Promise<ChapterPage> {
+  const base = plugin.chapterHost ?? plugin.entry;
+  const urlFor = (id: string) =>
+    new URL(fillTemplate(plugin.urls.chapter, { slug, id }), base).toString();
+
+  if (captureFor(plugin, 'chapter') && modeFor(plugin, 'chapter') === 'browser') {
+    const firstUrl = urlFor(chapterId);
+    const { images, html } = await fetchCaptured(plugin, firstUrl, 'chapter', opts);
+    const urls = [...new Set(images.length ? images : imageUrlsFromHtml(html, plugin))];
+    /*
+     * 空表必须抛，不能返回 []。一张图都没有却被当成"取到了"，
+     * 界面上就是翻开一章白页，而且看上去一切正常。
+     */
+    if (!urls.length) throw new FetchError('这一章没有解析出任何图片地址', firstUrl);
+    return { totalPages: urls.length, images: urls.map((u) => proxied(u)) };
+  }
+
   const configured = plugin.maxChapterPages ?? 0;
   const limit = configured > 0 ? configured : Number.POSITIVE_INFINITY;
   const HARD_CAP = 500;
 
-  const base = plugin.chapterHost ?? plugin.entry;
   const images: string[] = [];
   const seen = new Set<string>();
 
@@ -159,11 +203,7 @@ export async function getChapter(
     const pageId = page === 1 ? chapterId : `${chapterId}_${page}`;
     let html: string;
     try {
-      html = await fetchText(
-        plugin,
-        new URL(fillTemplate(plugin.urls.chapter, { slug, id: pageId }), base).toString(),
-        'chapter',
-      );
+      html = await fetchText(plugin, urlFor(pageId), 'chapter');
     } catch (e) {
       const status = e instanceof FetchError ? e.status : undefined;
       /*
@@ -189,16 +229,7 @@ export async function getChapter(
       if (page === 1) totalPages = Math.max(totalPages, declared);
     }
 
-    /*
-     * 真实图片地址在插件配置的属性上。
-     * 很多站点 src 里是框架绑定符号（如 `[src]="chapter00Src"`），
-     * 真实地址在 data-src —— 所以这里做成可配置而非硬编码。
-     */
-    const re = new RegExp(
-      `${escapeRe(plugin.parse.imageAttr)}="(https?://[^"]+?\\.(?:jpg|jpeg|png|webp))"`,
-      'gi',
-    );
-    const found = [...html.matchAll(re)].map((x) => x[1]);
+    const found = imageUrlsFromHtml(html, plugin);
 
     if (found.length === 0) break;
 

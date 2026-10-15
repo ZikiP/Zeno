@@ -203,10 +203,15 @@ interface Props {
 | 文件 | 行数 | 说明 |
 |---|---|---|
 | `sync/client.ts` | 298 | 贴着 300。设备身份与服务端地址（deviceId、显示名、endpoint、token）已拆到 `sync/device.ts`；状态条与配置弹层拆成 `SyncBar.tsx` / `SyncSheet.tsx` |
-| `server/cache-store.mjs` | 252 | 图片缓存的盘上机制。配置在 `cache-config.mjs`、对外的脸在 `cache.mjs` |
-| `pages/GlobalSearchPage.tsx` | 249 | 逼近 250。搜索历史已抽成 `useSearchHistory` |
-| `pages/reader/ReaderPage.tsx` | 238 | 动作抽到 `useReaderActions`，副作用抽到 `useReaderEffects` |
-| `site/validate.ts` | 220 | 从 types.ts 拆出：类型定义和校验规则各自演进 |
+| `server/proxy.mjs` | 295 | 三道闸 + 逐跳重定向。渲染池在 `render.mjs`，等待判据在 `render-wait.mjs`，白名单与插件头在 `allowlist.mjs` |
+| `site/fetch.ts` | 277 | 纯文本工具（decodeEntities / stripTags / escapeRe）拆到 `site/text.ts`，parse 与 fetch 共用同一份 |
+| `server/cache-store.mjs` | 270 | 图片缓存的盘上机制。配置在 `cache-config.mjs`、对外的脸在 `cache.mjs` |
+| `site/validate.ts` | 263 | 类型定义和校验规则各自演进；URL 模板的占位符表拆到 `site/url-template.ts` |
+| `pages/reader/ReaderPage.tsx` | 250 | 顶到上限。动作在 `useReaderActions`，副作用在 `useReaderEffects`，下一话预热在 `usePrefetch` |
+| `server/render.mjs` | 242 | 浏览器池与结果缓存。等内容到位的三个判据在 `render-wait.mjs`，页面内 JSON 捕获在 `capture.mjs`，缓存在 `render-cache.mjs` |
+
+`server/db.mjs` 之前因为"连接/迁移"和"把插件 JSON 变成代理要用的域名与请求头"
+两件事挤在一个文件里冲到 311 行，后者已拆到 `server/plugins.mjs`。
 
 样式原先是单个 `src/styles.css`（1777 行，一个文件里塞了令牌、材质、外壳、
 阅读器、弹层、无障碍降级），已按域拆成 `src/styles/` 下 14 个文件，

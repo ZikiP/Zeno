@@ -1,4 +1,5 @@
 import { PLUGIN_FORMAT, type Plugin } from './types';
+import { validateTemplate } from './url-template';
 
 /**
  * 插件格式的导入期校验
@@ -61,11 +62,15 @@ export function validatePlugin(p: unknown): string[] {
       if (field === 'slugFrom' && groups < 1) {
         errs.push('parse.slugFrom 需要一个捕获组（取哪一段当 slug）');
       }
-      if (field === 'chapterIdFrom' && groups < 2) {
-        errs.push(
-          'parse.chapterIdFrom 需要两个捕获组：第 1 组分区号、第 2 组章节序号。' +
-            '少一个的话章节列表会是空的 —— 而且看上去像"这本书没章节"',
-        );
+      if (field === 'chapterIdFrom') {
+        if (groups < 1) {
+          errs.push('parse.chapterIdFrom 至少需要一个捕获组（取哪一段当章节 id）');
+        } else if (groups > 2) {
+          errs.push(
+            `parse.chapterIdFrom 只用 1 或 2 个捕获组，现在 ${groups} 个 —— ` +
+              '多出来的组会混进 id，章节列表会指向打不开的地址',
+          );
+        }
       }
     } catch (e) {
       errs.push(`parse.${field} 不是合法正则：${(e as Error).message}`);
@@ -123,6 +128,87 @@ export function validatePlugin(p: unknown): string[] {
       if (w !== undefined && typeof w !== 'string' && (typeof w !== 'object' || w === null)) {
         errs.push('fetch.waitFor 应为 CSS 选择器字符串，或 { list, detail, chapter } 对象');
       }
+
+      /*
+       * minCount：等选择器攒够几条。0 和负数会让"等够 N 条"永远成立，
+       * 等于没等，还比什么都不写更早收摊。
+       */
+      const mc = pl.fetch.minCount;
+      if (mc !== undefined) {
+        const vals =
+          typeof mc === 'number'
+            ? [mc]
+            : mc && typeof mc === 'object'
+              ? Object.values(mc)
+              : null;
+        if (!vals) {
+          errs.push('fetch.minCount 应为正整数，或 { list, detail, chapter } 对象');
+        } else {
+          for (const n of vals) {
+            if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) {
+              errs.push('fetch.minCount 每一项都应是 >= 1 的整数（等够几条才算渲染到位）');
+            }
+          }
+          if (mc && typeof mc === 'object') {
+            for (const k of Object.keys(mc)) {
+              if (!['list', 'detail', 'chapter'].includes(k)) {
+                errs.push(`fetch.minCount 的键只能是 list / detail / chapter，出现 "${k}"`);
+              }
+            }
+          }
+        }
+      }
+
+      /*
+       * capture：从页面 JS 解出来的数据里直接抓地址。
+       * 这条正则会**在站点自己的页面里**编译执行，所以括号、组数都得对；
+       * 更要紧的是它只在渲染模式下有意义 —— 直接 HTTP 取 HTML 时没有页面 JS，
+       * 这条会整条被静默忽略，作者只会看到"章节是空的"。
+       */
+      const cap = pl.fetch.capture;
+      const modeOf = (k: 'list' | 'detail' | 'chapter') => {
+        const m = pl.fetch?.mode;
+        if (!m) return 'fetch';
+        return typeof m === 'string' ? m : (m[k] ?? 'fetch');
+      };
+      if (cap !== undefined) {
+        if (typeof cap === 'string') {
+          errs.push(
+            'fetch.capture 必须按页面类型写，例 { "chapter": "..." }：' +
+              '它和 waitFor 是互斥判据，写成全局会让列表页也去抢捕获',
+          );
+        } else if (typeof cap !== 'object' || cap === null) {
+          errs.push('fetch.capture 应为 { list, detail, chapter } 对象');
+        } else {
+          for (const [k, v] of Object.entries(cap)) {
+            if (!['list', 'detail', 'chapter'].includes(k)) {
+              errs.push(`fetch.capture 的键只能是 list / detail / chapter，出现 "${k}"`);
+              continue;
+            }
+            const kind = k as 'list' | 'detail' | 'chapter';
+            if (typeof v !== 'string' || !v) {
+              errs.push(`fetch.capture.${kind} 应为非空正则源码`);
+            } else {
+              try {
+                if (captureGroups(new RegExp(v)) < 1) {
+                  errs.push(
+                    `fetch.capture.${kind} 需要一个捕获组 —— 第 1 组就是要取的地址，` +
+                      '没有组的话抓到的是整段匹配文本',
+                  );
+                }
+              } catch (e) {
+                errs.push(`fetch.capture.${kind} 不是合法正则：${(e as Error).message}`);
+              }
+            }
+            if (modeOf(kind) !== 'browser') {
+              errs.push(
+                `fetch.capture.${kind} 声明了，但 fetch.mode.${kind} 不是 "browser" —— ` +
+                  '不渲染就没有页面 JS 可捕获，这条会整条被忽略',
+              );
+            }
+          }
+        }
+      }
       if (pl.fetch.timeoutMs !== undefined) {
         const ts = pl.fetch.timeoutMs;
         if (typeof ts !== 'number' || ts < 1000 || ts > 120_000) {
@@ -133,49 +219,6 @@ export function validatePlugin(p: unknown): string[] {
   }
 
   return errs;
-}
-
-/**
- * 每种 URL 模板能用的占位符。
- *
- * 这是唯一一份定义 —— fillTemplate 的调用方（engine.ts）和导入校验都从这里取，
- * 不会出现在「引擎多支持了一个变量但校验还当它是错的」那种漂移。
- */
-export const URL_VARS: Record<keyof Plugin['urls'], string[]> = {
-  search: ['q'],
-  classify: ['type', 'region', 'state'],
-  detail: ['slug'],
-  chapter: ['slug', 'id'],
-};
-
-/**
- * 检查一个 URL 模板。
- *
- * 为什么值得单独校验：fillTemplate 对认不出的占位符是**替换成空串**的。
- * 于是把 {slug} 写成 {slugg}、或者 detail 里干脆没有 {slug}，
- * 插件照样导得进来，但每一本漫画都会打开同一个页面 ——
- * 看上去像站点坏了，实际是配置里的一个打字错误。
- */
-function validateTemplate(kind: keyof Plugin['urls'], tpl: string, errs: string[]) {
-  const used = [...tpl.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
-  const allowed = URL_VARS[kind];
-
-  for (const v of used) {
-    if (!allowed.includes(v)) {
-      errs.push(`urls.${kind} 里有不认识的占位符 {${v}}，可用的是 ${allowed.map((a) => `{${a}}`).join(' ')}`);
-    }
-  }
-
-  /*
-   * detail 必须靠 {slug} 定位到具体漫画；chapter 必须靠 {id} 定位到具体章节。
-   * 少了这些，所有请求都会打到同一个 URL 上。
-   * {slug} 在 chapter 里是可选的 —— 有些站的章节地址只有 id。
-   * classify 全部可选（有的站的分类页参数是固定写法）。
-   */
-  const required = kind === 'detail' ? ['slug'] : kind === 'chapter' ? ['id'] : [];
-  for (const v of required) {
-    if (!used.includes(v)) errs.push(`urls.${kind} 必须包含 {${v}}，否则每本书都会取到同一个地址`);
-  }
 }
 
 /**

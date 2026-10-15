@@ -77,13 +77,17 @@ export interface Plugin {
     /** 章节条目标识。会出现在 <a> 的 class 里 */
     chapterItem: string;
     /**
-     * 从章节链接里提取 id 的正则，需含**两个**捕获组：
-     * 第 1 组 = section（分卷/分区号），第 2 组 = 章节序号。
+     * 从章节链接里提取 id 的正则。捕获组个数决定 id 的形态：
      *
-     * 为什么要两个？因为章节 URL 有两种常见形态：
-     *   - 路径式：`/chapter/{slug}/0_562.html` → 直接从路径取
-     *   - 参数式：`/page_direct?comic_id=X&section_slot=0&chapter_slot=562` → 必须从参数取
-     * 两者的 id 都是「section_序号」的形式，统一拼成 `{section}_{index}`。
+     *  - **两组** = 分区号 + 章节序号，拼成 `{section}_{index}`，并按序号排序。
+     *    章节 URL 有路径式（`/chapter/{slug}/0_562.html`）和参数式
+     *    （`/page_direct?comic_id=X&section_slot=0&chapter_slot=562`）两种常见形态，
+     *    两者的 id 都是「section_序号」，所以用同一个正则覆盖。
+     *  - **一组** = 整段匹配到的就是 id，不拆分区/序号，顺序按页面里出现的先后。
+     *    给 UUID 这类没有"序号"概念的章节地址用
+     *    （例 `/chapter/d2bb9687-f9a6-11ef-878e-fa163e02432f`）。
+     *    注意这类站点的章节地址通常配不上 `_{page}` 的内页后缀，
+     *    需要配 fetch.capture 一次取整章 —— 见下面 fetch 段的说明。
      */
     chapterIdFrom: string;
     /** 章节正文图片：真实 URL 所在属性。
@@ -137,6 +141,34 @@ export interface Plugin {
      * 要等的东西本来就不是同一个，共用一个必然有一边等错。
      */
     waitFor?: string | Partial<Record<PageKind, string>>;
+    /**
+     * 选择器要**攒够几条**才算渲染到位，配合 waitFor 用，缺省 1（出现过即可）。
+     *
+     * 为什么需要它：不少站点的 SSR 壳里已经有一条真的章节链接。
+     * 实测拷貝漫畫详情页服务端 HTML 里正好 1 条，等「出现过」就在几百毫秒收摊，
+     * 用户看到的目录就只有第一章；等够 20 条时同一页能拿到 375 条。
+     */
+    minCount?: number | Partial<Record<PageKind, number>>;
+    /**
+     * 从页面 JS 解出来的数据里直接抓地址，而不是从 DOM 里抓。
+     *
+     * 用在哪：有的站点接口回文是加密的，它自己的代码解密后交给 JSON.parse，
+     * 再逐张挂进 DOM —— 而且翻页式阅读器同一时刻只挂 3 张图。这种站从 HTML
+     * 正则不出整章，**翻页也翻不出来**（URL 参数它根本不看）。
+     *
+     * 填法是**正则源码，需含一个捕获组**（第 1 组就是要的地址）：
+     * `"chapter": "\"url\"\\s*:\\s*\"([^\"]+)\""`
+     *
+     * 机制：服务端在页面加载前包住 JSON.parse，把命中这条正则的值按出现顺序
+     * 去重攒起来，攒到第一条就立刻返回 —— 不做任何解密，只是看站点自己的代码
+     * 亲手算出来、并且已经交给它自己渲染的东西。
+     *
+     * 为什么放在 fetch 而不是 parse：**它和 waitFor 是互斥的判据**。声明了 capture
+     * 就以它为准，选择器先出现不能算数（SSR 壳里那张占位图总是先出现）。
+     * 所以必须按页面类型分别声明，通常只给 chapter 配。
+     * 抓空了会自动回落取 HTML，parse.imageAttr 的老路仍然是兜底。
+     */
+    capture?: string | Partial<Record<PageKind, string>>;
     /** 单次取源上限，默认 20000ms */
     timeoutMs?: number;
   };

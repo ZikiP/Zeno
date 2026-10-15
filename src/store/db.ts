@@ -29,6 +29,16 @@ export interface CachedChapter {
   cachedAt: number;
   /** 已缓存的字节数估算 */
   bytes: number;
+  /**
+   * 图片是不是真的搬到设备上了。
+   *
+   * 这个区分是必须的：翻开一章就该立刻把**地址表**存下来（重进这一章不用再
+   * 跑一次服务端渲染），但整章几十张图（实测一章 6–18 MB）不该在你只是读它
+   * 的时候被后台偷偷下完 —— 那是详情页那颗「离线下载」的职责。
+   *
+   * undefined 当 true 处理：老数据只可能由整章下载写出来。
+   */
+  downloaded?: boolean;
 }
 
 export interface CachedChapterList {

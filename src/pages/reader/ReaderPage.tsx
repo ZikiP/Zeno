@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, DEFAULT_PREFS, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
+import { usePrefetchNextChapter } from './usePrefetch';
 import { useChapterLoader } from './useChapterLoader';
 import { useChapterNeighbors } from './useChapterNeighbors';
 import { useBookmarks } from './useBookmarks';
@@ -109,6 +110,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   /* ── 副作用 ── */
   useKeepAwake(prefs.value.keepAwake, !!images);
   useImagePreload(images, paging.startIndex, paging.perPage, mode === 'paged');
+  usePrefetchNextChapter({ plugin, slug, nextId, ready: !!images && !loading && !error });
 
   /* ── 快捷键 ── */
   useReaderHotkeys(

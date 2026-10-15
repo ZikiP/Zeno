@@ -1,4 +1,5 @@
 import type { FetchMode, PageKind, Plugin } from './types';
+import { decodeEntities } from './text';
 
 /**
  * 请求层
@@ -30,10 +31,18 @@ const DEFAULT_UA =
  * waitForLoadState('load') 赌注入时机，内容稍慢一点就抓回空壳。
  * （实测过：同一份插件，一次拿到 10 张卡片，一次 0 张，就是这个原因。）
  */
+/** waitFor / minCount / capture 三个"等到什么才算取到位"的判据 */
+export interface SettleOpts {
+  waitFor?: string;
+  minCount?: number;
+  capture?: string;
+  timeoutMs?: number;
+}
+
 export function proxied(
   url: string,
   mode: 'fetch' | 'browser' = 'fetch',
-  waitFor?: string,
+  opts: SettleOpts | string = {},
 ): string {
   const base = nodeProxyBase();
   if (typeof window === 'undefined' && !base) return url;
@@ -41,7 +50,12 @@ export function proxied(
   let out = `${origin}${PROXY_PATH}?url=${encodeURIComponent(url)}`;
   if (mode !== 'browser') return out;
   out += `&mode=browser`;
-  if (waitFor) out += `&waitFor=${encodeURIComponent(waitFor)}`;
+  // 第三参历史上是 waitFor 字符串，留着这个写法免得探针脚本全改一遍
+  const o: SettleOpts = typeof opts === 'string' ? { waitFor: opts } : opts;
+  if (o.waitFor) out += `&waitFor=${encodeURIComponent(o.waitFor)}`;
+  if (o.minCount && o.minCount > 1) out += `&minCount=${o.minCount}`;
+  if (o.capture) out += `&capture=${encodeURIComponent(o.capture)}`;
+  if (o.timeoutMs) out += `&timeoutMs=${o.timeoutMs}`;
   return out;
 }
 
@@ -74,35 +88,6 @@ export function coverUrl(rawCover: string, w: number, h: number): string {
   return proxied(url);
 }
 
-/** HTML 实体解码 —— AMP 之类会把 / 编码成 &#x2F;，不解码就取不到 URL */
-export function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&#x2F;/gi, '/')
-    .replace(/&#47;/g, '/')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)));
-}
-
-/** 去掉标签、压缩空白。用于把富文本简介变成纯文本 */
-export function stripTags(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** 转义正则元字符，让插件里填的选择器能安全进 RegExp */
-export function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 /**
  * 解析某类页面该用哪种取源方式。
  *
@@ -126,6 +111,26 @@ export function waitForFor(plugin: Plugin, kind: PageKind): string | undefined {
   return w[kind];
 }
 
+/** minCount 同上：字符串=所有类型共用，对象=按页面类型分别给 */
+export function minCountFor(plugin: Plugin, kind: PageKind): number | undefined {
+  const m = plugin.fetch?.minCount;
+  if (m === undefined) return undefined;
+  if (typeof m === 'number') return m;
+  return m[kind];
+}
+
+/**
+ * capture 同上。这里刻意**不做**"字符串时所有类型共用"的回落：
+ * 服务端把 capture 当作比 waitFor 更硬的判据（选择器先出现不算数），
+ * 一个全局 capture 会让列表页和详情页也一起去抢那张占位图之前的时间。
+ * 所以只有按类型声明的那些页面才启用捕获。
+ */
+export function captureFor(plugin: Plugin, kind: PageKind): string | undefined {
+  const c = plugin.fetch?.capture;
+  if (!c || typeof c === 'string') return undefined;
+  return c[kind];
+}
+
 /**
  * 取源失败。
  *
@@ -142,6 +147,29 @@ export class FetchError extends Error {
     super(`${message} — ${url}`);
     this.name = 'FetchError';
   }
+}
+
+/**
+ * 请求层里"放弃这次 HTTP"要比服务端"放弃等内容"晚一点。
+ *
+ * 两边用同一个数的话就是同时到期，而客户端的 abort 先落在自己头上 ——
+ * 于是永远拿不到服务端那份"没等够但也算渲染完了"的结果，
+ * 空列表的搜索从一个"没结果"变成一次超时错误。
+ */
+const HTTP_MARGIN_MS = 10_000;
+
+/**
+ * 按页面类型凑出交给服务端的"等到什么才算到位"判据。
+ * fetch 模式一个都不带 —— 那几个条件只有渲染时才存在。
+ */
+export function settleOpts(plugin: Plugin, kind: PageKind): SettleOpts {
+  if (modeFor(plugin, kind) !== 'browser') return {};
+  return {
+    waitFor: waitForFor(plugin, kind),
+    minCount: minCountFor(plugin, kind),
+    capture: captureFor(plugin, kind),
+    timeoutMs: plugin.fetch?.timeoutMs,
+  };
 }
 
 /** 取上游页面的 HTML，带退避重试。
@@ -166,9 +194,9 @@ export async function fetchText(
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs + HTTP_MARGIN_MS);
     try {
-      const res = await fetch(proxied(url, mode, mode === 'browser' ? waitForFor(plugin, kind) : undefined), {
+      const res = await fetch(proxied(url, mode, settleOpts(plugin, kind)), {
         headers: {
           // Node 端（探针）直连，需要伪装 UA；浏览器端设了也无效，代理已带
           'User-Agent': plugin.headers?.['User-Agent'] ?? DEFAULT_UA,
@@ -196,4 +224,54 @@ export async function fetchText(
 
   if (lastErr instanceof FetchError) throw lastErr;
   throw new FetchError((lastErr as Error)?.message ?? 'unknown', url);
+}
+
+/**
+ * 取"从页面 JS 里捕获"的结果。
+ *
+ * 服务端命中 capture 时回 `{ images: [...] }`，没命中就回整页 HTML ——
+ * 这里把两种都接下来：命中给地址表，没命中把 HTML 原样带回，
+ * 让调用方能拿**同一次渲染**回落到 DOM 正则，而不是再渲染一遍。
+ *
+ * 只试一次，理由和 fetchText 里 browser 模式一样：一次渲染就要几秒，
+ * 它失败的原因（页面确实没这份数据）重试也不会变。
+ */
+export async function fetchCaptured(
+  plugin: Plugin,
+  url: string,
+  kind: PageKind,
+  opts?: { signal?: AbortSignal },
+): Promise<{ images: string[]; html: string }> {
+  const settle = settleOpts(plugin, kind);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), (settle.timeoutMs ?? 20_000) + HTTP_MARGIN_MS);
+  const onAbort = () => ctrl.abort();
+  opts?.signal?.addEventListener('abort', onAbort);
+  try {
+    const res = await fetch(proxied(url, 'browser', settle), {
+      headers: {
+        'User-Agent': plugin.headers?.['User-Agent'] ?? DEFAULT_UA,
+        Accept: 'application/json,text/html;q=0.9,*/*;q=0.8',
+        'Accept-Language': plugin.headers?.['Accept-Language'] ?? 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
+      },
+      signal: ctrl.signal,
+      redirect: 'follow',
+    });
+    if (!res.ok) throw new FetchError(`HTTP ${res.status}`, url, res.status);
+    const text = await res.text();
+    if (!(res.headers.get('content-type') ?? '').includes('application/json')) {
+      return { images: [], html: decodeEntities(text) };
+    }
+    const parsed = JSON.parse(text) as { images?: unknown };
+    const images = Array.isArray(parsed.images)
+      ? parsed.images.filter((u): u is string => typeof u === 'string')
+      : [];
+    return { images, html: '' };
+  } catch (e) {
+    if (e instanceof FetchError) throw e;
+    throw new FetchError((e as Error)?.message ?? 'capture failed', url);
+  } finally {
+    clearTimeout(timer);
+    opts?.signal?.removeEventListener('abort', onAbort);
+  }
 }

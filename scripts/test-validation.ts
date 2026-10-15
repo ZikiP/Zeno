@@ -6,7 +6,8 @@
  * 越晚发现，用户越容易以为是站点挂了而不是配置写错。
  */
 import { PLUGIN_FORMAT, PLUGIN_TEMPLATE, type Plugin } from '../src/site/types';
-import { URL_VARS, validatePlugin } from '../src/site/validate';
+import { validatePlugin } from '../src/site/validate';
+import { URL_VARS } from '../src/site/url-template';
 
 let fails = 0;
 const check = (ok: boolean, msg: string) => {
@@ -61,10 +62,14 @@ console.log('\n=== 2. 正则以页型写错要挡住 ===');
 expectErr({ ...base, parse: { ...base.parse, slugFrom: 'href="/c/(["?' } }, 'slugFrom 括号没闭合', '不是合法正则');
 /* 注意 `a{2,` 是**合法**正则（JS 把不闭合的量词当字面量），别拿它当反例 */
 expectErr({ ...base, parse: { ...base.parse, cover: 'https?://(x' } }, 'cover 分组没闭合', '不是合法正则');
+expectOk(
+  { ...base, parse: { ...base.parse, chapterIdFrom: 'chapter/([0-9a-f-]{36})' } },
+  'chapterIdFrom 只给一个捕获组（UUID 形态的章节地址，整段就是 id）',
+);
 expectErr(
-  { ...base, parse: { ...base.parse, chapterIdFrom: 'chapter_slot=(\\d+)' } },
-  'chapterIdFrom 只给一个捕获组',
-  '两个捕获组',
+  { ...base, parse: { ...base.parse, chapterIdFrom: '(a)(b)(c)' } },
+  'chapterIdFrom 给了三个捕获组',
+  '只用 1 或 2 个捕获组',
 );
 expectErr(
   { ...base, parse: { ...base.parse, slugFrom: 'href="/comic/\\w+"' } },
@@ -105,7 +110,62 @@ expectErr({ ...base, maxChapterPages: -5 }, 'maxChapterPages 负数', '非负整
 expectErr({ ...base, format: 'zeno-plugin@2' as never }, '格式标识不对', '格式标识');
 expectErr({ ...base, fetch: { mode: 'render' as never } }, 'fetch.mode 取值非法', '只能是');
 
+console.log('\n=== 4b. fetch.capture / minCount ===');
+const CAP = '"url"\\s*:\\s*"([^"]+)"';
+expectOk(
+  {
+    ...base,
+    parse: { ...base.parse, chapterIdFrom: 'chapter/([0-9a-f-]{36})' },
+    urls: { ...base.urls, chapter: '/comic/{slug}/chapter/{id}' },
+    fetch: {
+      mode: { list: 'fetch', detail: 'browser', chapter: 'browser' },
+      waitFor: { detail: 'a[href*="/chapter/"]' },
+      minCount: { detail: 20 },
+      capture: { chapter: CAP },
+    },
+    imageHosts: ['mangafunb.fun'],
+  },
+  '渲染 + 捕获形态的插件（详情页等够 20 条、章节页从 JSON 抓地址）',
+);
+expectErr({ ...base, fetch: { capture: CAP } }, 'capture 写成全局字符串', '必须按页面类型写');
+expectErr(
+  { ...base, fetch: { capture: { chapter: '"url":"([^"]+"' } } },
+  'capture 正则括号没闭合',
+  '不是合法正则',
+);
+expectErr(
+  { ...base, fetch: { capture: { chapter: '"url":"[^"]+"' } } },
+  'capture 正则没有捕获组',
+  '需要一个捕获组',
+);
+expectErr(
+  { ...base, fetch: { capture: { chapter: CAP } } },
+  'capture 声明了但 mode 不是 browser（默认就是 fetch）',
+  '不是 "browser"',
+);
+expectErr(
+  { ...base, fetch: { mode: { chapter: 'browser' }, capture: { list: CAP } } },
+  'capture 的键写了没渲染的那种页',
+  '不是 "browser"',
+);
+/* 故意写一个格式里没有的键：类型上不放行，只能用断言造这份坏输入 */
+expectErr(
+  {
+    ...base,
+    fetch: {
+      mode: { list: 'browser' },
+      capture: { list: CAP, extra: CAP } as NonNullable<Plugin['fetch']>['capture'],
+    },
+  },
+  'capture 出现陌生键',
+  '只能是',
+);
+expectErr({ ...base, fetch: { minCount: 0 } }, 'minCount 为 0', '>= 1 的整数');
+expectErr({ ...base, fetch: { minCount: { detail: 2.5 } } }, 'minCount 不是整数', '>= 1 的整数');
+expectErr({ ...base, fetch: { minCount: '20' as never } }, 'minCount 写成字符串', '正整数');
+
 console.log('\n=== 5. 坏输入不能把校验本身弄崩 ===');
+
 for (const bad of [null, undefined, 42, 'string', [], {}]) {
   let errs: string[] | null = null;
   try {

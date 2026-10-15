@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getChapter } from '@/site/engine';
 import type { Plugin } from '@/site/types';
-import { cacheChapterImages, getCachedChapter } from '@/store/chapters';
+import { getCachedChapter, saveChapterTable } from '@/store/chapters';
 import { savePosition } from '@/store/shelf';
 
 /**
@@ -96,8 +96,8 @@ export function useChapterLoader(
            */
           return;
         }
-        // 后台静默缓存，不阻塞阅读
-        void cacheChapterImages(pluginId!, slug, chapterId, result.images);
+        // 后台静默存地址表，不阻塞阅读：图片由 Service Worker 边看边存
+        void saveChapterTable(pluginId!, slug, chapterId, result.images);
       } catch (e) {
         if (!cancelled) {
           setError((e as Error).message);

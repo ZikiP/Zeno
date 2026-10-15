@@ -1,0 +1,116 @@
+/**
+ * 渲染时"等到内容到位"的判据
+ *
+ * 从 render.mjs 抽出来：那三个判据各自都有实测踩坑史，混在浏览器池的
+ * 生命周期代码里既读不动也让那边超了行数上限。这里只管"什么时候算等到了"。
+ */
+
+/** 捕获命中后再采样的周期 */
+const CAPTURE_POLL_MS = 200;
+/** 连续这么多次数量没再变，才认为这张表发完了 */
+const CAPTURE_STABLE_SAMPLES = 2;
+/** 稳定确认的总预算：防着一张永远在加载的页面把渲染槽钉死 */
+const CAPTURE_STABLE_MAX_MS = 1_500;
+/** 页面加载完之后再安静多久就算"它不会再吐内容了"（空列表的搜索靠它收摊） */
+const QUIET_MS = 1_500;
+
+/**
+ * 捕获命中之后，再确认它不再增长。
+ *
+ * 一次交付的站点（实测拷贝漫画整章 21 / 57 条都在同一个 JSON 里）只多付两个
+ * 采样周期；分批交付的站点不等就会只回来头几张 —— 那会被读成"这一章就这么短"，
+ * 比慢更糟。
+ */
+async function settleCaptures(page, deadlineLeftMs) {
+  const budget = Math.min(CAPTURE_STABLE_MAX_MS, Math.max(CAPTURE_POLL_MS, deadlineLeftMs));
+  const t0 = performance.now();
+  let last = -1;
+  let same = 0;
+  while (same < CAPTURE_STABLE_SAMPLES && performance.now() - t0 < budget) {
+    const n = await page.evaluate(() => (window.__zenoCap || []).length).catch(() => last);
+    same = n === last ? same + 1 : 0;
+    last = n;
+    if (same >= CAPTURE_STABLE_SAMPLES) break;
+    await page.waitForTimeout(CAPTURE_POLL_MS).catch(() => {});
+  }
+}
+
+/**
+ * 等"内容到位"，判据按插件声明选一个：
+ *
+ *  - 声明了 `capture` → 只等页面里的 JSON 捕获攒到至少 1 条。
+ *    **选择器不能参与这场竞赛**：SSR 壳里本来就挂着一张占位 `<img>`，
+ *    让它先"成功"就等于在站点自己的 JS 解出正文表之前几百毫秒收摊，
+ *    捕获永远是空的（实测踩过，就是这么测出来的）。
+ *  - 只声明 `waitFor` → 等该选择器的数量达到 `minCount`（缺省 1）。
+ *    要的是数量而不是"出现过"：详情页的 SSR 里就有 1 条章节链接，
+ *    等它出现等于没等 —— 实测 1 条 vs 等够 20 条时拿到 375 条。
+ *  - 都没声明 → 等 load。
+ *
+ * 命中就返回判据名（capture / selector / idle / load）；
+ * 到期没满足返回 null，调用方回落到 DOM 解析。
+ */
+export async function waitUntilSettled(page, opts, timeoutMs) {
+  if (opts.capture) {
+    const hit = await page
+      .waitForFunction(() => (window.__zenoCap || []).length > 0, null, {
+        polling: 100,
+        timeout: timeoutMs,
+      })
+      .then(() => true, () => false);
+    if (!hit) return null;
+    await settleCaptures(page, timeoutMs);
+    return 'capture';
+  }
+
+  if (opts.waitFor) {
+    const min = Math.max(1, Number(opts.minCount) || 1);
+    const ac = new AbortController();
+    const enough = page
+      .waitForFunction(
+        ([sel, n]) => document.querySelectorAll(sel).length >= n,
+        [opts.waitFor, min],
+        { polling: 150, timeout: timeoutMs, signal: ac.signal },
+      )
+      .then(() => 'selector', () => null);
+
+    /*
+     * minCount 没写（等于 1）时只能直接等它：这时"等够数量"和"出现过"是同一件事，
+     * 没有第二个判据可竞赛。之前在这里塞过一个立刻 resolve 的占位 promise 去
+     * Promise.race，结果是 race 当场返回 null、紧接着的 ac.abort() 把还在等的
+     * enough 自己取消掉 —— 等于根本没等内容，baozimh 的列表因此返回 0 部。
+     */
+    if (min === 1) return enough;
+
+    /*
+     * "等够数量" 和 "页面不再往外吐东西了"，哪个先到算哪个。
+     *
+     * 少了后半条，一次搜不存在的词就是一路等满 timeoutMs —— 列表本来就是空的，
+     * 数量永远到不了下限。实测拷贝漫画搜一个乱码词：30 秒全花光再报超时，
+     * 用户看到的行为是"搜索卡死"，而正确答案是"没有结果"。
+     */
+    const quiet = page
+      .waitForFunction(
+        ([sel, quietMs]) => {
+          const w = (window.__zenoQuiet ||= {});
+          if (document.readyState !== 'complete') return false;
+          const n = document.querySelectorAll(sel).length;
+          if (n !== w.n) {
+            w.n = n;
+            w.at = performance.now();
+            return false;
+          }
+          return performance.now() - (w.at ?? 0) >= quietMs;
+        },
+        [opts.waitFor, QUIET_MS],
+        { polling: 200, timeout: timeoutMs, signal: ac.signal },
+      )
+      .then(() => 'idle', () => null);
+
+    const winner = await Promise.race([enough, quiet]);
+    ac.abort();
+    return winner;
+  }
+
+  return page.waitForLoadState('load', { timeout: timeoutMs }).then(() => 'load', () => null);
+}

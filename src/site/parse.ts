@@ -1,4 +1,4 @@
-import { escapeRe, stripTags } from './fetch';
+import { escapeRe, stripTags } from './text';
 
 /**
  * 解析层
@@ -123,24 +123,27 @@ export function parseChapters(html: string, parse: ParseRules): ParsedChapter[] 
 
     const href = hrefM[1].replace(/&amp;/g, '&').replace(/&#x2F;/g, '/');
     const idM = href.match(idRe);
+    if (!idM) continue;
 
     /*
-     * 需要两个捕获组：分区号 + 章节序号，拼成 `section_index`。
-     * 章节 URL 有路径式（/0_562.html）和参数式（?section_slot=0&chapter_slot=562）
-     * 两种形态，插件用同一个正则覆盖。
+     * 组的个数决定章节地址的形态，运行时看 match 数组长度最准：
+     *  - 两组：`section_slot=0&chapter_slot=562` → id 拼成 `0_562`，
+     *    第二组是序号，拿来排序（页面顺序未必是章节顺序）。
+     *  - 一组：整段就是 id。这类站（UUID 形态的章节地址）根本没有
+     *    "分区/序号"的概念，序号只能按它们在页面里出现的先后排 ——
+     *    实测拷貝漫畫的目录 DOM 顺序就是第 01 话在前，按出现顺序是对的。
      */
-    const section = idM?.[1] ?? '0';
-    const index = idM?.[2];
-    if (!index) continue;
-
-    const id = `${section}_${index}`;
+    const numbered = idM.length >= 3;
+    const raw = numbered ? idM[2] : idM[1];
+    if (!raw) continue;
+    const id = numbered ? `${idM[1] ?? '0'}_${raw}` : raw;
     if (seen.has(id)) continue;
     seen.add(id);
 
     chapters.push({
       id,
-      index: Number(index) || 0,
-      title: stripTags(inner).slice(0, 80) || `第 ${index} 话`,
+      index: numbered ? Number(raw) || 0 : chapters.length + 1,
+      title: stripTags(inner).slice(0, 80) || `第 ${raw} 话`,
     });
   }
 

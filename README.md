@@ -149,15 +149,18 @@ npm run dev
 | `parse.slugFrom` | 提取漫画标识，需一个捕获组 |
 | `parse.title` | `{attr:"title"}` 按属性，或 `{tag:"h3"}` 按标签 |
 | `parse.cover` | 提取封面地址的正则 |
-| `parse.chapterItem` | 章节条目在 `<a>` 上的 class |
-| `parse.chapterIdFrom` | 提取章节 id，需**两个**捕获组：分区、序号 |
+| `parse.chapterItem` | 章节条目在 `<a>` 上的 class（或 href 里的固定片段） |
+| `parse.chapterIdFrom` | 提取章节 id。**两组**=分区+序号（拼成 `0_562`、按序号排序）；**一组**=整段就是 id（UUID 之类，顺序按页面出现先后） |
 | `parse.imageAttr` | 图片真实地址所在的属性名 |
-| `imageHosts` | 图片 CDN 域名，用于代理白名单提示与离线缓存 |
+| `imageHosts` | 图片 CDN 域名后缀，用于代理白名单与离线缓存 |
 | `fetch.mode` | `fetch`（默认）或 `browser`。见下「取源方式」 |
-| `fetch.waitFor` | browser 模式：渲染后等这个 CSS 选择器出现再取 HTML |
+| `fetch.waitFor` | browser 模式：渲染后等这个 CSS 选择器再取 HTML |
+| `fetch.minCount` | 该选择器要**攒够几条**才算渲染到位，缺省 1（出现过即可） |
+| `fetch.capture` | browser 模式：从页面 JS 解出来的数据里直接抓图片地址，而不是从 DOM 抓。见下 |
 | `fetch.timeoutMs` | 单次取源上限，默认 20000 |
+| `headers` | 站点要求看到的请求头。代理转发 `User-Agent`/`Accept`/`Accept-Language`/`Referer`（**刻意不转发 Cookie 与 Authorization**） |
 
-### 写插件时的四个坑
+### 写插件时的七个坑
 
 1. **`card` 不能填 CSS 选择器。** 它是字符串切分点。填 `.comic-card` 会把
    `<style>` 里同名的 CSS 规则一起切进来。必须填 `<div class="comic-card`。
@@ -166,12 +169,35 @@ npm run dev
    `data-src` / `data-original`，而 `src` 里是绑定符号或占位图。
    打开开发者工具看真实地址在哪个属性。
 
-3. **`chapterIdFrom` 要两个捕获组。** 章节 URL 有两种形态：
-   - 路径式 `/chapter/{slug}/0_562.html` → `/(\d+)_(\d+)\.html`
-   - 参数式 `/page_direct?section_slot=0&chapter_slot=562` → `section_slot=(\d+)&chapter_slot=(\d+)`
+3. **`chapterIdFrom` 的组数决定 id 形态。** 章节 URL 有三种常见形态：
+   - 路径式 `/chapter/{slug}/0_562.html` → 两组 `/(\d+)_(\d+)\.html`
+   - 参数式 `/page_direct?section_slot=0&chapter_slot=562` → 两组
+     `section_slot=(\d+)&chapter_slot=(\d+)`
+   - UUID 式 `/comic/{slug}/chapter/d2bb9687-f9a6-11ef-...` → 一组
+     `chapter/([0-9a-f-]{36})`，此时**没有**"分区/序号"可拆，章节顺序就按
+     页面里出现的先后（这类站的目录 DOM 本身就是升序，实测过）。
 
 4. **AMP 站点会编码 `/`。** 抓到的 HTML 里路径可能是 `&#x2F;`，
    本项目已自动解码，不用额外处理。
+
+5. **SSR 壳里可能已经有一条真数据，`waitFor` 因此会过早收摊。** 用
+   `minCount` 把判据从"出现过"改成"攒够几条"。实测某站详情页服务端 HTML 里
+   正好有 1 条章节链接，等到出现就收摊的话整本书只显示第一章；等够 20 条时
+   同一页能拿到 375 条。
+
+6. **有的站只给特定 UA 返回正常内容。** 这类站必须用 `headers` 把 UA 写进插件：
+   代理转发的是插件的头，不是你手机的头。实测某站对手机 UA 一律 302 到 JS 壳
+   （列表里一张卡片都没有），桌面 UA 才给渲染好的列表 —— 不写这条，本来 1 秒
+   能拿到的页面就得花 3 秒去渲染，而且渲染完也可能还是没有。
+
+7. **翻页式阅读器的 DOM 里同一时刻只有 3 张图，`?page=N` 它自己也不看。**
+   这种站从 HTML 正则不出整章，用 `fetch.capture`：服务端在页面加载前包住
+   `JSON.parse`，把插件正则命中的值按出现顺序去重收下来。填的是正则源码 +
+   一个捕获组，例如 `"chapter": "\"url\"\\s*:\\s*\"([^\"]+)\""`。
+   它不解密、不抠密钥，只是看站点自己的代码亲手算出来、并且已经交给它自己
+   渲染的东西。**capture 与 waitFor 互斥**（声明了 capture 就以它为准，
+   选择器先出现不算数——那张占位图总是先到），所以只能按页面类型分别写，
+   通常只给 `chapter` 配。抓空了会自动回落取 HTML，`parse.imageAttr` 仍是兜底。
 
 ## 取源方式：`fetch` 与 `browser`
 
@@ -248,6 +274,15 @@ node --import tsx scripts/verify-plugin.ts 你的插件.json
 Node 里直连上游只会拿到质询页，这类插件在脚本里就永远验证不了。
 加 `--direct` 可以退回直连（只适合全 `fetch` 模式的插件）。
 
+还有三个跑真站点的实测脚本，都不进 `npm test`（CI 上没浏览器也没外网）：
+
+| 脚本 | 验什么 |
+|---|---|
+| `scripts/verify-capture.mjs` | `fetch.capture` 一次渲染能否拿全整章、抓空能否回落 HTML、`minCount` 到底多拿了多少钱 |
+| `scripts/verify-copymanga.mjs` | 图片过代理的并发吞吐、服务端盘缓存是否真的命中、`binary/octet-stream` 的封面有没有被当图片缓存 |
+| `scripts/verify-prefetch.mjs` | 真浏览器手机视口下：点开一章要多久、下一话的地址表是否被预热出来、预热有没有偷偷下整章 |
+| `scripts/bench-images.mjs` | 图片并发数与上行吞吐（定 `MAX_CONCURRENT` 用的实测依据） |
+
 ## 从插件仓库自动更新
 
 插件放在独立仓库里维护（本仓库不附带任何内容源）。配好凭据后，部署脚本会在健康检查
@@ -311,7 +346,13 @@ Service Worker 早就对图片做了 CacheFirst（800 张、90 天），那份�
 超出 800 张上限的老图、没装 SW 的场景（隐私模式、非 HTTPS 的局域网直连）也由它兜住。
 顺带一条韧性：命中路径根本不去问上游，CDN 限流或抽风时已经看过的图照样出（实测掐掉源站仍 200）。
 
-只缓存 `image/*`，列表页和详情页的 HTML 不缓存（SW 那边也是 NetworkFirst）—— 新话不能被缓存挡着。
+按"是不是图片"决定存不存，判据是 **`image/*` 或者 URL 是图片扩展名且类型不是 `text/*`**。
+只看 Content-Type 会漏：实测有站的封面走 CDN 的原图路径，回的是
+`binary/octet-stream` —— 那样一来一张封面都不进盘，每屏列表都回源重取，
+缓存看着开着其实没起作用。加"不是 `text/*`"这半句是为了挡住另一种情况：
+`.jpg` 地址上回一整页 HTML 报错，那东西存进盘就是一颗一天的雷。
+
+列表页和详情页的 HTML 不缓存（SW 那边也是 NetworkFirst）—— 新话不能被缓存挡着。
 浏览器直接请求时的图片时效从 10 分钟提到一天（`stale-while-revalidate` 七天）。
 
 「设置 → 图片缓存」可以看占用、改目录和上限、一键清空。目录不用手打：点「缓存目录」
@@ -381,6 +422,7 @@ Service Worker 早就对图片做了 CacheFirst（800 张、90 天），那份�
 | **边界反馈** | 到头时提示「已是第一章 / 下一章」，而不是点了没反应 |
 | 进度条 | 底部细条显示位置，点击可跳转；已收藏页在条上标记 |
 | 预加载 | 当前页前后各 2 张提前加载，翻页不等待 |
+| **下一话预热** | 读着当前这章时把下一话的**地址表**取回来（需要渲染的站省掉那一次渲染，实测点开从 3.9s 变 0.95s）。图片不整章偷偷下载 —— 那是详情页「离线下载」的事 |
 | **图片自动重试** | 单张失败自动重试 3 次（退避 0/600/1800ms），仍失败可手动点重试 |
 | 离线识别 | 离线时图片位置显示「离线中，无法加载」而不是空白 |
 | **长按/双击放大** | 看不清细节时用，点击任意处关闭 |
@@ -388,7 +430,7 @@ Service Worker 早就对图片做了 CacheFirst（800 张、90 天），那份�
 | **亮度调节** | 30%–100% 应用内调暗，不改系统设置 |
 | 背景色 | 纯黑 / 深灰 / 护眼 / 中性 |
 | 灰度模式 | 去掉颜色，省流量 |
-| 离线缓存 | 打开过的章节自动缓存，断网可读 |
+| 离线缓存 | 看过的图由 SW + 服务端盘各存一份；翻开一章会立刻存下**地址表**（重进不用再渲染）。要把整章搬到设备上用详情页的「离线下载」，断网可读 |
 | 进度记忆 | 滚动位置与页码自动保存，重进还原 |
 
 **电脑端快捷键**：`←` `→` 翻页　`空格`/`F` 工具栏　`D` 切换方向　`B` 收藏本页　`C` 章节目录　`K` 书签面板　`+` `-` 亮度　`Esc` 返回
