@@ -1,0 +1,35 @@
+/* 全局搜索页 */
+/* ── 全局搜索 ─────────────────────────────────────── */
+
+.gs-recent {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.gs-recent__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.gs-recent__head button {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.gs-recent__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gs-recent__item {
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.gs-recent__item:active {
+  border-color: var(--accent);
+}

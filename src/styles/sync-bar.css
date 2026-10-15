@@ -1,0 +1,54 @@
+/* 同步状态条 */
+/* ── 同步状态条 ───────────────────────────────────── */
+
+.sync-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  position: relative;
+}
+/* 整条都可点（打开同步面板），但只有 29px 高，手机上很难点中。
+   同样只扩热区不改外观。 */
+.sync-bar::after {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto 0;
+  transform: translateY(-50%);
+  height: 44px;
+}
+
+.sync-bar__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.sync-bar__dot--ok {
+  background: var(--ok);
+}
+
+.sync-bar--busy .sync-bar__dot {
+  background: var(--accent);
+  animation: pulse 1.2s var(--e-inout) infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.sync-bar--error {
+  color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
+}
+.sync-bar--error .sync-bar__dot {
+  background: var(--danger);
+}
+

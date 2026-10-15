@@ -1,0 +1,101 @@
+/* 应用外壳：app / topbar / 图标按钮 / bottom-nav */
+/* ── 布局 ───────────────────────────────────────── */
+
+.app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: calc(var(--bottom-nav-h) + var(--safe-b));
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: calc(var(--header-h) + var(--safe-t));
+  padding: var(--safe-t) calc(var(--s-3) + var(--safe-r)) 0 calc(var(--s-3) + var(--safe-l));
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+}
+
+.topbar__title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition:
+    background var(--d-press) var(--e-out),
+    color var(--d-press) var(--e-out),
+    transform var(--d-press) var(--e-out);
+}
+.icon-btn:hover {
+  background: color-mix(in oklab, var(--text) 8%, transparent);
+  color: var(--text);
+}
+.icon-btn:active {
+  transform: scale(0.92);
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+}
+
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  height: calc(var(--bottom-nav-h) + var(--safe-b));
+  padding-bottom: var(--safe-b);
+  display: flex;
+}
+
+.bottom-nav a {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--text-dim);
+  transition:
+    color var(--d-micro) var(--e-out),
+    background var(--d-press) var(--e-out);
+}
+.bottom-nav a svg {
+  flex-shrink: 0;
+  transition: transform var(--d-micro) var(--e-settle);
+}
+.bottom-nav a.active {
+  color: var(--accent);
+}
+.bottom-nav a.active svg {
+  transform: translateY(-1px);
+}
+.bottom-nav a:active {
+  background: color-mix(in oklab, var(--text) 7%, transparent);
+}
+

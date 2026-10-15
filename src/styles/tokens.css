@@ -1,0 +1,126 @@
+/* 设计令牌：颜色、材质、圆角、间距、时长、曲线 */
+/* ── 设计令牌 ───────────────────────────────────────
+   一套值只写一次。深浅色用 light-dark()，由元素实际生效的 color-scheme 决定，
+   而 color-scheme 是 useTheme 显式写到 <html> 上的（选「跟随系统」时取系统值）。
+   以前浅色盘要在 [data-theme=light] 和 prefers-color-scheme 两处各抄一遍，
+   改一处漏一处 —— 现在不存在第二个地方。
+
+   三条规矩：
+   1. 玻璃只用在骨架上（顶栏、底栏、HUD、抽屉、弹窗）。内容层永远实心 ——
+      封面就是内容，给它蒙一层雾等于毁掉它。
+   2. blur 永远和 saturate 成对出现。只 blur 会发灰发闷，那是廉价毛玻璃的通病。
+   3. 动效一律 ease-out 起步，UI 时长不超过 400ms。ease-in 进场禁用：
+      它慢启动，正好延迟用户正盯着看的那一刻。 */
+
+:root {
+  color-scheme: light dark;
+
+  /* 表面与文字 */
+  --bg: light-dark(#f4f5f8, #0d0f14);
+  --bg-elev: light-dark(#ffffff, #171b23);
+  --bg-elev-2: light-dark(#eceef3, #21262f);
+  --text: light-dark(#12151b, #eef1f6);
+  --text-dim: light-dark(#5b6472, #9aa4b5);
+  --text-faint: light-dark(#8a92a1, #6b7484);
+
+  --accent: light-dark(#2563eb, #6ba6ff);
+  --accent-dim: light-dark(#1d4ed8, #2d5a9e);
+  --on-accent: light-dark(#ffffff, #0b1220);
+  --danger: light-dark(#dc2626, #f87171);
+  --warn: light-dark(#b45309, #f59e0b);
+  --ok: light-dark(#059669, #10b981);
+  --mark: light-dark(#b45309, #ffc857);
+
+  /* 分隔线：实心表面之间用。玻璃上不用它，用 --edge */
+  --border: light-dark(#dfe3ea, #262c37);
+  --border-strong: light-dark(#c3c9d4, #3a4150);
+
+  /* ── 材质 ──
+     --glass-bg 给骨架，--glass-bg-thick 给浮层（抽屉/弹窗要更压得住）。
+     浅色下饱和只给 1.4：再高会往青里偏。 */
+  --glass-bg: light-dark(rgba(255, 255, 255, 0.72), rgba(20, 23, 30, 0.62));
+  --glass-bg-thick: light-dark(rgba(255, 255, 255, 0.86), rgba(18, 21, 27, 0.8));
+  /* 常驻条要压得住文字：底下永远有内容在滚，比通用玻璃更实一点。
+     实测 0.62 那档在底部导航上，未选中的标签已经快读不出来了。 */
+  --glass-bg-bar: light-dark(rgba(255, 255, 255, 0.82), rgba(15, 18, 24, 0.78));
+  --glass-blur: 20px;
+  /* 深色下提饱和更有通透感；浅色压到 1.4，再高会往青里偏。
+     注意 light-dark() 只能用在**颜色**值上 —— 拿它包 saturate() 的数字参数，
+     整条 backdrop-filter 会静默失效成 none，玻璃直接没了。所以数字只能按主题写。 */
+  --glass-sat: 1.8;
+  /* 滤镜也做成令牌：不支持 backdrop-filter 的浏览器、以及"减少透明"
+     这两种情况，只需要在这里把值换成 none，组件那边一行都不用动。 */
+  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  --glass-filter-thick: blur(calc(var(--glass-blur) * 1.35)) saturate(var(--glass-sat));
+  /* 边光。玻璃的"厚度"全靠这一圈，不是装饰 */
+  --edge: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
+  --edge-hi: light-dark(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.14));
+  --scrim: light-dark(rgba(15, 18, 24, 0.34), rgba(0, 0, 0, 0.55));
+
+  /* 高度：三档，对应"贴在纸上 / 浮起来 / 盖住整屏"。
+     阴影只能把 light-dark() 用在**颜色**那一段上 —— 直接写
+     `--shadow-3: light-dark(0 18px 50px …, 0 18px 50px …)` 会让整条声明在
+     计算值阶段失效成 box-shadow:none，玻璃的边光也跟着一起没了。 */
+  --shadow-ambient: light-dark(rgba(16, 20, 28, 0.1), rgba(0, 0, 0, 0.5));
+  --shadow-lift: light-dark(rgba(16, 20, 28, 0.2), rgba(0, 0, 0, 0.62));
+  --shadow-1: 0 1px 2px var(--shadow-ambient);
+  --shadow-2: 0 6px 18px var(--shadow-ambient);
+  --shadow-3: 0 18px 50px var(--shadow-lift);
+
+  /* 圆角：三档，不许出现第四个数 */
+  --radius: 10px; /* 控件 */
+  --radius-sm: 8px;
+  --radius-card: 14px; /* 封面、输入框、卡片 */
+  --radius-sheet: 22px; /* 抽屉、弹窗 */
+  --radius-pill: 999px;
+
+  /* 间距：4px 基准 */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --gap: var(--s-3);
+
+  /* ── 动效 ──
+     按压 120 · 微反馈 180 · 转场 260 · 翻页 340 · 抽屉 380。UI 一律压在 400ms 内。 */
+  --d-press: 120ms;
+  --d-micro: 180ms;
+  --d-view: 260ms;
+  --d-flip: 340ms;
+  --d-sheet: 380ms;
+  /* 内置的 ease 太软，这几个是从 iOS/常见规范里挑的强曲线 */
+  --e-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --e-inout: cubic-bezier(0.77, 0, 0.175, 1);
+  --e-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  /* 只给翻页落位用：极轻的过冲。不要拿去做弹跳 */
+  --e-settle: cubic-bezier(0.3, 1.28, 0.56, 1);
+
+  --reader-bg: #000000;
+  --header-h: 52px;
+  --bottom-nav-h: 56px;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+
+/* 手动选浅色/深色时只需要改 color-scheme，palette 由 light-dark() 自己切换 */
+[data-theme='light'] {
+  color-scheme: light;
+  --glass-sat: 1.4;
+}
+[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* 选「跟随系统」时 html 上没有 data-theme，浅色的饱和要另走一条媒体查询 */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --glass-sat: 1.4;
+  }
+}
+

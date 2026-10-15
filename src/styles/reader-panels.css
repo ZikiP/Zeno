@@ -1,0 +1,250 @@
+/* 提示条、阅读设置面板、阅读器内的目录与书签提示 */
+/* ── 提示条 ─────────────────────────────────────── */
+
+.notice-ok,
+.notice-err {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.notice-ok {
+  background: color-mix(in srgb, #10b981 12%, transparent);
+  border: 1px solid color-mix(in srgb, #10b981 35%, transparent);
+  color: color-mix(in srgb, #10b981 80%, var(--text));
+}
+.notice-err {
+  background: color-mix(in srgb, #f87171 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f87171 35%, transparent);
+  color: color-mix(in srgb, #f87171 82%, var(--text));
+}
+
+/* 搜索提示条 */
+.search-hint {
+  padding: 7px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── 阅读设置面板 ───────────────────────────────── */
+
+.prefs-section {
+  margin-bottom: 18px;
+}
+.prefs-section__title {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+.prefs-hint {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  margin-top: 6px;
+  padding-left: 2px;
+}
+
+.seg {
+  display: flex;
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 3px;
+}
+.seg__item {
+  flex: 1;
+  height: 34px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: all 0.15s;
+}
+.seg__item.on {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 500;
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 4px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.pref-row:last-child {
+  border-bottom: none;
+}
+.pref-row:not(.pref-row--static):active {
+  background: var(--bg-elev-2);
+}
+
+.pref-row__text {
+  flex: 1;
+  min-width: 0;
+}
+.pref-row__label {
+  font-size: 14px;
+  color: var(--text);
+}
+.pref-row__hint {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.pref-row__value {
+  font-size: 12.5px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.swatches {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  transition: all 0.15s;
+}
+.swatch.on {
+  border-color: var(--accent);
+  transform: scale(1.1);
+}
+
+.slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.slider-wrap input[type='range'] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+.slider-reset {
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.slider-reset:active {
+  background: var(--bg-elev-2);
+}
+/* 章末导航 */
+.reader__nav {
+  display: flex;
+  gap: 10px;
+  padding: 20px 16px calc(30px + env(safe-area-inset-bottom, 0px));
+}
+.reader__nav .btn {
+  flex: 1;
+}
+.reader__nav-end {
+  flex: 1;
+  text-align: center;
+  padding: 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.32);
+}
+/* ── 阅读器：书签 / 目录 / 提示 ───────────────────── */
+
+.reader__bm-mark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffc857;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.reader__cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.icon-btn.is-on {
+  color: #ffc857;
+}
+
+.reader__progress-bm {
+  position: absolute;
+  top: 12px;
+  width: 2px;
+  height: 6px;
+  margin-left: -1px;
+  background: #ffc857;
+  border-radius: 1px;
+}
+
+.reader__toast {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(8px);
+  animation: toastIn 0.2s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+/* 图片加载失败时的占位 */
+.img-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 180px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 12px;
+}
+.reader__scroll .img-fallback {
+  height: 60vh;
+}
+.img-fallback__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px dashed currentColor;
+}
+.img-fallback:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+

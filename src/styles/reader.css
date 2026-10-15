@@ -1,0 +1,257 @@
+/* 阅读器舞台、滚动与分页、3D 折页、进度、放大 */
+/* ── 阅读器 ─────────────────────────────────────── */
+
+.reader {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--reader-bg);
+  display: flex;
+  flex-direction: column;
+
+  /* 阅读器的底色由阅读偏好决定（纯黑/深灰/护眼/中性），跟 App 主题无关。
+     所以这里自成一套前景与玻璃色 —— 否则浅色主题下深色页面上文字会反成看不见。 */
+  --r-fg: #f2f4f8;
+  --r-dim: rgba(242, 244, 248, 0.62);
+  --r-glass: rgba(14, 16, 20, 0.6);
+  --r-edge: rgba(255, 255, 255, 0.1);
+}
+
+.reader__bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  height: calc(48px + var(--safe-t));
+  padding: var(--safe-t) var(--s-2) 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  transition:
+    opacity var(--d-sheet) var(--e-drawer),
+    transform var(--d-sheet) var(--e-drawer);
+}
+.reader__bar.hide {
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+/* 工具栏里的图标也归阅读器配色，不能跟 App 主题走 */
+.reader .icon-btn {
+  color: var(--r-dim);
+}
+.reader .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--r-fg);
+}
+
+.reader__title {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  color: var(--r-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 var(--s-1);
+}
+
+.reader__scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
+}
+
+.reader__item {
+  position: relative;
+}
+
+.reader__page {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+/* 本章结束标记 */
+.reader__end {
+  padding: 28px 16px 40px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: 2px;
+}
+
+/* 分页模式 */
+.reader__paged {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  /* 折页的透视给在这里，不是给每一页 —— 一屏只有一张 spread 在动 */
+  perspective: 1600px;
+}
+
+.reader__spread {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 0 env(safe-area-inset-left, 0) 0 env(safe-area-inset-right, 0);
+  transform-origin: var(--turn-origin, center);
+  backface-visibility: hidden;
+}
+
+/*
+ * 翻进来那一下：绕书脊那条边从 ±72° 折回 0，落位用 --e-settle（极轻的过冲）。
+ * spread 每次换页都换 key 重挂，所以动画天然会重放，不用 JS 去摘 class。
+ */
+.reader__spread.turn-in {
+  animation: page-turn var(--d-flip) var(--e-settle) both;
+  will-change: transform;
+}
+@keyframes page-turn {
+  from {
+    transform: rotateY(var(--turn-from, 0deg));
+  }
+  to {
+    transform: rotateY(0deg);
+  }
+}
+
+/* 暗面：折起来的那一侧偏暗，靠 opacity 而不是 filter */
+.reader__turn-shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.5), transparent 55%);
+  animation: page-shade var(--d-flip) var(--e-out) both;
+}
+@keyframes page-shade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.reader__spread.is-rtl {
+  /* 双页 + 右起：靠视觉反转，DOM 顺序不动，绝对页号才不会错 */
+  flex-direction: row-reverse;
+}
+
+.reader__spread img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  transition: opacity 0.15s;
+}
+
+/* 双页：两张各占一半 */
+.reader__spread.is-double img {
+  max-width: calc(50% - 1px);
+  flex: 1 1 0;
+}
+
+/* 单页且图片较宽时留白，避免贴边 */
+.reader__spread:not(.is-double) img {
+  max-width: min(100%, calc((100vh - 80px) * 1.4));
+}
+
+/* 点击区：左右各 32%，中间 36% 不响应翻页（防止误触） */
+.paged-tap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+}
+.paged-tap--l {
+  left: 0;
+  width: 32%;
+}
+.paged-tap--r {
+  right: 0;
+  width: 32%;
+}
+.paged-tap--c {
+  left: 32%;
+  width: 36%;
+}
+
+/* 边界提示：到头了点一下给反馈 */
+.edge-hint {
+  position: absolute;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--s-2) 14px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--r-fg);
+  animation: edgeFade var(--d-micro) var(--e-out);
+}
+@keyframes edgeFade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+/* 底部进度条 */
+.reader__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 18px;
+  z-index: 12;
+  display: flex;
+  align-items: flex-end;
+  cursor: pointer;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.45), transparent);
+}
+.reader__progress-fill {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.75);
+  transition: width 0.2s;
+  margin-bottom: 4px;
+}
+
+/* 图片放大 */
+.zoom-view {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 20px;
+}
+.zoom-view img {
+  max-width: 100%;
+  height: auto;
+  cursor: zoom-out;
+}
+.zoom-view__hint {
+  margin-top: 14px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+

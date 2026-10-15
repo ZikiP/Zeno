@@ -1,0 +1,66 @@
+/* 无障碍降级：减少透明 / 减少动效 / 增加对比 */
+/* ── 无障碍降级（跟材质和动效同等地位，不是可选项）───── */
+
+/* 减少透明：玻璃退成实心，但边光和阴影留着 —— 不然层级关系跟着一起没了，
+   用户只会觉得界面"糊成一片"。 */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-bg: var(--bg-elev);
+    --glass-bg-thick: var(--bg-elev);
+    --glass-bg-bar: var(--bg-elev);
+    --glass-filter: none;
+    --glass-filter-thick: none;
+    --r-glass: #191c22;
+    --r-edge: rgba(255, 255, 255, 0.16);
+  }
+}
+
+/* 减少动效：位移和弹性全部去掉，只留交叉淡入。
+   时长压到 160ms —— 又慢又不动是最差的组合。 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --d-press: 1ms;
+    --d-micro: 160ms;
+    --d-view: 160ms;
+    --d-flip: 160ms;
+    --d-sheet: 160ms;
+    --e-out: linear;
+    --e-inout: linear;
+    --e-drawer: linear;
+    --e-settle: linear;
+  }
+  .icon-btn:active,
+  .theme-option:active,
+  .bottom-nav a.active svg {
+    transform: none;
+  }
+  /* 折页换成交叉淡入，暗面直接不要 */
+  .reader__spread.turn-in {
+    animation: page-fade 160ms linear both;
+  }
+  .reader__turn-shade {
+    display: none;
+  }
+}
+
+@keyframes page-fade {
+  from {
+    opacity: 0.25;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 增加对比：边光、分隔线、次要文字各加深一档。玻璃本身变实是透明度的事，
+   这里只管对比，两件事不要混着改。 */
+@media (prefers-contrast: more) {
+  :root {
+    --edge: light-dark(rgba(0, 0, 0, 0.24), rgba(255, 255, 255, 0.28));
+    --r-edge: rgba(255, 255, 255, 0.32);
+    --border: light-dark(#a9b1bd, #525c6b);
+    --border-strong: light-dark(#7d8794, #798393);
+    --text-dim: light-dark(#3c4350, #b6bfcd);
+    --text-faint: light-dark(#5b6472, #98a2b2);
+  }
+}

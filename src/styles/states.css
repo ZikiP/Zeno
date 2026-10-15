@@ -1,0 +1,68 @@
+/* 空态、加载、错误、离线条 */
+/* ── 状态 ───────────────────────────────────────── */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 64px 24px;
+  /* justify-content 只在容器比内容高时才起作用；.empty 原本是内容高度，
+     所以空状态一直贴在顶栏下面、下面一大片空白。给它一个最小高度让它真的居中。 */
+  min-height: 55vh;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+.empty svg {
+  opacity: 0.3;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error-box {
+  margin: var(--s-4);
+  padding: var(--s-4);
+  border-radius: var(--radius-card);
+  background: color-mix(in oklab, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger) 32%, transparent);
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.offline-bar {
+  position: fixed;
+  top: var(--safe-t);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  padding: var(--s-1);
+  text-align: center;
+  font-size: 12px;
+  background: var(--warn);
+  color: #fff;
+}
+

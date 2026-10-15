@@ -1,0 +1,94 @@
+/* 玻璃材质层：工具类、骨架表面、不支持时的回退 */
+/* ── 玻璃工具类 ─────────────────────────────────────
+   边光走 inset 阴影而不是真边框：真边框和 backdrop-filter 会打架，
+   边缘发虚甚至重影（Safari 尤其明显）。分隔线用渐隐的 ::after，
+   比一条 1px 实线轻，也不会把玻璃切成两块板。 */
+
+/* ── 玻璃表面 ───────────────────────────────────────
+   列在这里的都是「界面骨架」，共用一份配方；内容层（封面、正文、章节行）
+   永远实心 —— 给照片蒙一层雾等于毁掉照片。
+   边光走 inset 阴影而不是真边框：真边框和 backdrop-filter 会打架，
+   边缘发虚甚至重影（Safari 尤其明显）。 */
+
+.glass,
+.topbar,
+.bottom-nav,
+.sync-bar,
+.sheet,
+.drawer,
+.reader__bar,
+.edge-hint {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+/* 常驻条：底下永远有内容在滚，用更实的那一档 */
+.topbar,
+.bottom-nav,
+.sync-bar {
+  background: var(--glass-bg-bar);
+}
+
+/* 浮层要更压得住：更厚的模糊 + 外阴影。
+   两个阴影写在一条里 —— 组件那边再写一次 box-shadow 会把边光顶掉。 */
+.sheet,
+.drawer {
+  background: var(--glass-bg-thick);
+  -webkit-backdrop-filter: var(--glass-filter-thick);
+  backdrop-filter: var(--glass-filter-thick);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    var(--shadow-3);
+}
+
+/* 阅读器自成一套：底色由阅读偏好决定，跟 App 主题无关 */
+.reader__bar,
+.edge-hint {
+  background: var(--r-glass);
+  box-shadow: inset 0 0 0 1px var(--r-edge);
+}
+
+/* 不支持 backdrop-filter：退成实心，但边光留着，否则层级关系直接消失 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-bg: var(--bg-elev);
+    --glass-bg-thick: var(--bg-elev);
+    --glass-bg-bar: var(--bg-elev);
+    --glass-filter: none;
+    --glass-filter-thick: none;
+  }
+}
+
+.hairline-b,
+.hairline-t {
+  position: relative;
+}
+.hairline-b::after,
+.hairline-t::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--edge) 14%, var(--edge) 86%, transparent);
+}
+.hairline-b::after {
+  bottom: 0;
+}
+.hairline-t::after {
+  top: 0;
+}
+
+/* 顶部那道斜向高光：玻璃受光的暗示，只在深色下看得见 */
+.glass-sheen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(150deg, var(--edge-hi) 0%, transparent 38%);
+  opacity: 0.35;
+}
+
