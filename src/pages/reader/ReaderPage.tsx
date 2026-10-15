@@ -193,7 +193,12 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           markedPages={bookmarks.markedPages}
           filter={filter}
           rtl={isRTL}
-          onTapZone={(side) => paging.tap(side, isRTL)}
+          /*
+           * 中间那块不翻页，只开关悬浮件（顶部条 + 章末胶囊）。
+           * 分页模式没有滚动，bar 那套「向下滚隐藏、向上滚显示」永远不会被触发，
+           * 不给它接一条 toggle 的话 HUD 就钉死在屏幕上了。
+           */
+          onTapZone={(side) => (side === 'center' ? bar.toggle() : paging.tap(side, isRTL))}
           onSwipe={(dir) => (dir === 'forward' ? paging.goForward() : paging.goBack())}
           onZoom={(src, i) => setZoom({ src, i })}
           edgeHint={

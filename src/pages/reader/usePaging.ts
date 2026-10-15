@@ -28,8 +28,8 @@ export interface Paging {
   /** 语义化的前进 / 后退，RTL 差异在调用方处理 */
   goForward: () => void;
   goBack: () => void;
-  /** 点击左右区域。RTL 下语义会翻转 */
-  tap: (side: 'left' | 'right' | 'center', isRTL: boolean) => void;
+  /** 点左右两侧翻页。RTL 下语义会翻转 */
+  tap: (side: 'left' | 'right', isRTL: boolean) => void;
   /** 点进度条。ratio 为 0-1 */
   seek: (ratio: number) => void;
 
@@ -95,14 +95,13 @@ export function usePaging(
   }, [turnTo]);
 
   /**
-   * 点击区域。
+   * 点两侧翻页。
    *
-   * RTL：点左前进、点右后退（日漫习惯）。中间 36% 只切工具栏，
-   * 那段留这么宽是为了避免「想看工具栏却翻页了」这种误触。
+   * RTL：点左前进、点右后退（日漫习惯）。中间 36% 不归这里管 ——
+   * 它不翻页，只开关悬浮件，由页面直接接走。
    */
   const tap = useCallback(
-    (side: 'left' | 'right' | 'center', isRTL: boolean) => {
-      if (side === 'center') return;
+    (side: 'left' | 'right', isRTL: boolean) => {
       const forward = isRTL ? side === 'left' : side === 'right';
       if (forward) goForward();
       else goBack();
