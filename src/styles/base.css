@@ -65,19 +65,23 @@ input {
   font: inherit;
 }
 
-/* 滚动条 —— 桌面端才有 */
+/*
+ * 滚动条：不显示，也不占位。
+ *
+ * 之前给它设了 10px 宽 —— 那是 classic 滚动条，会**吃掉布局宽度**：
+ * 阅读器里整章图片凭空窄 10px，滚动条出现/消失的那一下内容还会整体跳位。
+ * 触屏有手势、桌面有滚轮和键盘，进度条也已经标出读到哪了，
+ * 所以这里直接归零，而不是"改细一点" —— 只要占位，问题就还在。
+ *
+ * scrollbar-width 不继承，所以得给 * 上；Safari/Chrome 走 ::-webkit-scrollbar。
+ */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 5px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-faint);
+  width: 0;
+  height: 0;
+  display: none;
 }
 

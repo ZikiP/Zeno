@@ -28,6 +28,26 @@ export interface RetryableImageProps {
 
 const RETRY_DELAYS = [0, 600, 1800];
 
+/*
+ * 已经确认能直接画出来的地址。
+ *
+ * 为什么需要它：state 从 'loading' 起步意味着每次挂载都有一张透明图，
+ * 翻页时"被露出来的那一页"第一帧是黑的 —— 那就是翻页闪一下的根因。
+ * 图片其实早就在缓存里了，只是 React 不知道。
+ *
+ * 记在这里而不是问 <img>.complete：那要等元素挂上，第一帧已经画完了。
+ */
+const readySrcs = new Set<string>();
+
+/** 预加载成功时调它，翻页时那一页就能直接以不透明状态出现 */
+export function markImageReady(src: string) {
+  readySrcs.add(src);
+}
+
+export function isImageReady(src: string) {
+  return readySrcs.has(src);
+}
+
 export function RetryableImage({
   src,
   alt,
@@ -37,7 +57,9 @@ export function RetryableImage({
   onDoubleClick,
   onContextMenu,
 }: RetryableImageProps) {
-  const [state, setState] = useState<ImageState>('loading');
+  const [state, setState] = useState<ImageState>(() =>
+    readySrcs.has(src) ? 'ok' : 'loading',
+  );
   const [attempt, setAttempt] = useState(0);
   const [offline, setOffline] = useState(
     typeof navigator === 'undefined' ? false : !navigator.onLine,
@@ -61,13 +83,17 @@ export function RetryableImage({
   // 每次 attempt 变化都重新发起加载
   useEffect(() => {
     let cancelled = false;
-    setState('loading');
+    setState(readySrcs.has(src) ? 'ok' : 'loading');
 
     const delay = RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)];
     const timer = setTimeout(() => {
       if (cancelled) return;
       const img = new Image();
-      img.onload = () => !cancelled && setState('ok');
+      img.onload = () => {
+        if (cancelled) return;
+        readySrcs.add(src);
+        setState('ok');
+      };
       img.onerror = () => {
         if (cancelled) return;
         // 还有重试次数就继续，否则标记失败
@@ -113,7 +139,10 @@ export function RetryableImage({
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       style={{ opacity: state === 'ok' ? 1 : 0 }}
-      onLoad={() => setState('ok')}
+      onLoad={() => {
+        readySrcs.add(src);
+        setState('ok');
+      }}
       onError={() => {
         if (attempt < RETRY_DELAYS.length - 1) setAttempt((a) => a + 1);
         else setState('error');

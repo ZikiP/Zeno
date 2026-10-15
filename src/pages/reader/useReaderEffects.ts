@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getShelf } from '@/store/shelf';
+import { markImageReady } from '@/components/RetryableImage';
 import { useRestoreScrollPosition } from './useChapterLoader';
 
 /**
@@ -148,6 +149,9 @@ export function useKeepAwake(enabled: boolean, ready: boolean) {
  *
  * 分页模式下把当前页前后各几张塞进浏览器缓存，翻页就不用等。
  * 用 new Image() 而不是 <img>，因为不需要渲染进 DOM。
+ *
+ * 加载成功后顺手标一下 ready —— 翻页时那一页会以"已经能画"的状态挂载。
+ * 少了这一步，它第一帧是透明的，露出来的那张是黑的，看着就是闪。
  */
 export function useImagePreload(
   images: string[] | null,
@@ -169,6 +173,7 @@ export function useImagePreload(
       if (!src || done.current.has(src)) continue;
       done.current.add(src);
       const img = new Image();
+      img.onload = () => markImageReady(src);
       img.src = src;
     }
   }, [images, startIndex, count, enabled, radius]);

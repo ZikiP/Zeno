@@ -142,6 +142,13 @@ async function sampleTurn({ dir = 'forward', slowFactor = 1, budget = 900 } = {}
             n: imgs.length,
             over: !!over,
             deg: over ? angle(over) : null,
+            /*
+             * 有几张图还在透明状态。翻页闪白（这里是闪黑，底色是黑的）的
+             * 真正来源就是这个：新页刚挂载时 opacity 是 0，露出来的那一帧
+             * 是空的。动画曲线再怎么调都治不了它 —— 得让图片以"已就绪"
+             * 的状态挂载。
+             */
+            dim: imgs.filter((im) => Number(getComputedStyle(im).opacity) < 0.99).length,
             p: document.querySelector('.reader__bar')?.textContent?.match(/\d+ \/ \d+/)?.[0] ?? '?',
             s: imgs
               .map((im) => (im.currentSrc || im.src).replace(/^.*\/([^/]+?)\.jpg.*$/, '$1'))
@@ -208,6 +215,17 @@ function report(frames, dir) {
   check(maxStep < 15, `${dir}：单帧最大转角步长 ${maxStep.toFixed(1)}°，没有跳帧`);
   check(backwards === 0, `${dir}：没有反向回弹（${backwards} 次）`);
   check(pageChanges === 1, `${dir}：一次点击只翻一页（页号变了 ${pageChanges} 次）`);
+  /*
+   * 这一条才是"闪"的直接证据：动画再平滑，只要露出来的那一页有哪怕
+   * 一帧是透明的，用户看到的就是一次闪烁。
+   */
+  const dimFrames = during.filter((f) => f.dim > 0);
+  check(
+    dimFrames.length === 0,
+    dimFrames.length
+      ? `${dir}：有 ${dimFrames.length} 帧存在透明图片（首现于 ${dimFrames[0].t}ms）—— 会闪`
+      : `${dir}：全程没有透明帧（露出来的那一页一直是实的）`,
+  );
   check(
     degs.length > 1 && (growing ? degs.at(-1) > 85 : degs[0] > 85),
     `${dir}：转到了侧立再收摊（起始 ${degs[0]}°、结束 ${degs.at(-1)}°），撤掉那一帧不会留下半张纸`,
@@ -309,6 +327,30 @@ const press = await page.evaluate(() => {
 console.log('  按压规则：', JSON.stringify(press));
 check(press.icon && press.nav, '图标与底栏都有按下缩放规则');
 check(press.bounce, '松手回弹规则在（按下去快、弹回来带过冲）');
+
+console.log('\n=== 4b. 滚动条不占布局 ===');
+for (const route of ['/shelf', '/explore', '/settings']) {
+  await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(900);
+  const squeeze = await page.evaluate(() => {
+    const out = [];
+    for (const el of document.querySelectorAll('*')) {
+      const scrollY = el.scrollHeight > el.clientHeight + 1;
+      const scrollX = el.scrollWidth > el.clientWidth + 1;
+      if (!scrollY && !scrollX) continue;
+      const cs = getComputedStyle(el);
+      /* offsetWidth - clientWidth 含边框，减掉才是滚动条真正吃掉的宽度 */
+      const border = parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+      const taken = Math.round(el.offsetWidth - el.clientWidth - border);
+      if (taken > 0) out.push({ where: el.className || el.tagName, taken });
+    }
+    return out;
+  });
+  check(
+    squeeze.length === 0,
+    `${route} 没有滚动条占位${squeeze.length ? `：${JSON.stringify(squeeze)}` : ''}`,
+  );
+}
 
 console.log('\n=== 5. 页面切换动画确认已移除 ===');
 const vt = await page.evaluate(() => ({
