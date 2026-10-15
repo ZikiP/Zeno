@@ -59,7 +59,7 @@ tailscale serve --bg 8788
 | 平台 | 命令 | 说明 |
 |---|---|---|
 | Linux / macOS | `./deploy.sh` | systemd 服务 |
-| Windows | `.\deploy.ps1` | 计划任务（SYSTEM 账号 + 崩溃自动重启） |
+| Windows | `.\deploy.ps1` | 计划任务（默认 SYSTEM 账号 + 崩溃自动重启） |
 
 脚本会做：环境检查 → 装依赖 → 构建 → 注册开机自启 → 健康检查 → 配 Tailscale HTTPS。
 
@@ -67,6 +67,13 @@ tailscale serve --bg 8788
 ./deploy.sh --port 9000        # 换端口
 ./deploy.sh --skip-tailscale   # 不配 HTTPS
 ./deploy.sh --uninstall        # 卸载
+```
+
+```powershell
+.\deploy.ps1 -RunAsUser        # 任务主体换成当前账号（S4U）—— browser 渲染模式需要它
+.\deploy.ps1 -SkipInstall      # 沿用现有依赖与 dist，只重注册常驻任务
+.\deploy.ps1 -Mode none        # 不起常驻，前台跑一次（Ctrl+C 退出）
+.\deploy.ps1 -Uninstall        # 卸载（数据保留在 data\）
 ```
 
 **⚠️ 系统开着代理软件（Clash / FlClash 等）时**，浏览器会把 `*.ts.net`
@@ -208,16 +215,19 @@ JS 才出内容的页面**：前端渲染的站点会拿到空壳。
 ms-playwright 缓存 → Edge → Chrome。部署脚本会检查并告知，**没有也不影响
 普通插件**。
 
-> **⚠️ 已知限制：以 SYSTEM 常驻时 `browser` 模式起不来。**
-> `deploy.ps1` 的计划任务跑在 `NT AUTHORITY\SYSTEM`（会话 0），实测 Edge 进程
+> **⚠️ 以 SYSTEM 常驻时 `browser` 模式起不来 —— 用 `-RunAsUser` 解决。**
+> `deploy.ps1` 默认把计划任务注册在 `NT AUTHORITY\SYSTEM`（会话 0），实测 Edge 进程
 > 启动后立刻以 `exitCode=1002` 退出，Playwright 报
 > `Target page, context or browser has been closed`。已排除沙箱原因
 > （Playwright 自带 `--no-sandbox`，profile 也落在 `C:\Windows\TEMP`）。
-> 以普通用户身份跑同一个服务端则完全正常（实测同一插件拿到 10 张卡片）。
 >
-> 也就是说 **常驻（SYSTEM）和浏览器渲染目前不能兼得**。要用 `browser` 模式，
-> 现在请 `.\deploy.ps1 -Mode none` 以登录用户身份前台运行，或把计划任务的
-> 主体换成你的账号。
+> `.\deploy.ps1 -RunAsUser` 把任务主体换成当前账号、登录类型用 S4U ——
+> 仍然是「不管用户是否登录都要运行」，注销后服务继续跑，也不把密码存进任务。
+> 实测切换后渲染恢复：分类页 7.2s / 73 张卡片，章节 50 张图全部加载成功。
+> 只要前台跑的话用 `.\deploy.ps1 -Mode none`，同样以登录用户身份启动。
+>
+> **插件写了 `fetch.mode="browser"` 就必须走这两条之一**，否则列表页和详情页
+> 会一直 503，而 `/api/health` 是绿的 —— 健康检查不碰渲染。
 
 **这个模式不含任何反自动化伪装** —— 不改 `navigator.webdriver`、不伪造指纹、
 不破解质询令牌。它的定位是"渲染 JS 生成的页面"，不是"冒充人类绕过机器人的

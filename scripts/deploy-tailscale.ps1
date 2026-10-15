@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     配 Tailscale Serve 并诊断 HTTPS 可达性（deploy.ps1 的子模块）
 

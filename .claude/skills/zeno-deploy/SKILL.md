@@ -48,6 +48,9 @@ description: 在 Windows / Linux / macOS 上部署 Zeno（干净的网页阅读�
 - 只作用于 HTML 文档；**图片永远走 fetch**
 - 慢（1–3s/页）、失败只试一次、响应 `no-store`
 - 需要服务端有 chromium 系浏览器：`ZENO_BROWSER` → ms-playwright 缓存 → Edge → Chrome
+- **Windows 上任务主体默认是 SYSTEM，而 SYSTEM 起不了浏览器** → 加 `-RunAsUser`。
+  漏了这一步的话 `/api/health` 依然是绿的（健康检查不碰渲染），只有打开列表页
+  才看到 503
 - **不含任何反自动化伪装**（不改 `navigator.webdriver`、不伪造指纹、不破解质询
   令牌）。它的定位是渲染 JS 页面，不是冒充人类绕过机器人拦截。站点若拒绝
   自动化客户端，就应该被拒绝 —— 部署脚本找不到浏览器也只警告，不硬失败
@@ -68,6 +71,22 @@ description: 在 Windows / Linux / macOS 上部署 Zeno（干净的网页阅读�
 
 Windows 上脚本会**读注册表里的真实代理状态**并检查绕过列表，缺 `*.ts.net`
 就明确报出来。它不会去清 `$env:http_proxy` —— 那是空操作，见下文。
+
+开关（两边不完全对等，`deploy.sh` 没有 `--skip-install`）：
+
+| 平台 | 开关 | 作用 |
+|---|---|---|
+| Windows | `-Port <n>` | 换端口，默认 8788 |
+| Windows | `-RunAsUser` | 任务主体换成当前账号（S4U）。**插件用了 `fetch.mode="browser"` 就必须加** |
+| Windows | `-SkipInstall` | 跳过 `npm ci` 与构建，只重注册常驻任务 |
+| Windows | `-Mode none` | 不起常驻，前台跑一次 |
+| Windows | `-SkipTailscale` / `-Uninstall` | 跳过 HTTPS / 卸载（数据保留） |
+| Linux | `--port` / `--dir` / `--skip-tailscale` / `--uninstall` | 同上含义 |
+
+部署完的收尾：**装插件**。网页里「设置 → 内容源插件 → 导入」，或
+`node scripts/install-plugin.mjs <插件.json>`（默认读根目录的 `baozimh-plugin.json`，
+它不在仓库里 —— 插件放在独立的 zeno-plugins 仓库，根目录那份是本地文件）。
+白名单从装好的插件自动推导，不用配任何东西。
 
 ### 手动（脚本跑不通时）
 
@@ -114,11 +133,13 @@ journalctl -u zeno -f
 `deploy.ps1` 用**计划任务**而不是 Windows 服务：
 
 - 触发器：开机（延迟 10 秒，等网络起来）
-- 账号：`NT AUTHORITY\SYSTEM`（不需要登录，开机就在）
+- 账号：默认 `NT AUTHORITY\SYSTEM`（不需要登录，开机就在）；加 `-RunAsUser` 换成
+  当前账号 + `LogonType S4U`，同样是「不管用户是否登录都要运行」，且不存密码
 - 设置：`RestartCount 999` + `RestartInterval 1min`，`ExecutionTimeLimit` 无限
 
 ```powershell
-.\deploy.ps1
+.\deploy.ps1                  # 默认 SYSTEM
+.\deploy.ps1 -RunAsUser       # 插件要 browser 渲染时用这个
 Get-Content "<安装目录>\zeno.log" -Tail 20 -Wait
 Restart-ScheduledTask -TaskName Zeno
 Stop-ScheduledTask   -TaskName Zeno
@@ -151,6 +172,17 @@ Stop-ScheduledTask   -TaskName Zeno
 - `New-ScheduledTaskTrigger` 返回的对象**不能直接改 Delay**，
   要先接住再赋值：`$trigger = New-ScheduledTaskTrigger -AtStartup; $trigger.Delay = 'PT10S'`
 - **`Set-Location` 在某些执行环境下不跨调用保持**，写文件用绝对路径。
+- **含中文的 `.ps1` 必须存成「UTF-8 带 BOM」**。PS 5.1 读无 BOM 的文件按 ANSI 解码，
+  中文里的字节会连带吃掉引号，报出一串看不懂的语法错 ——
+  `scripts/deploy-tailscale.ps1` 就这么在「计划任务已注册」之后中断过整个部署
+  （`deploy.ps1` 是点源它的，且 `$ErrorActionPreference='Stop'`）。
+  改完脚本别靠肉眼，用解析器自检（不执行）：
+
+  ```powershell
+  $e=$null
+  [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\deploy.ps1",[ref]$null,[ref]$e)
+  $e.Count   # 期望 0
+  ```
 
 ## Tailscale HTTPS
 
@@ -290,7 +322,8 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 | 抓不到图（403） | 白名单没生效 | `/api/health` 看 `allowedHosts`；确认插件已装 |
 | 403 且 `error:"blocked address"` | 目标解析到内网/回环/元数据/CGNAT 段 | 正常拦截，别去关它；本地测试才设 `ALLOW_PRIVATE_HOSTS=1` |
 | 503 且提示没有可用浏览器 | 插件用了 `fetch.mode:"browser"` 但服务端没 chromium 系浏览器 | 装 Chrome/Edge，或设 `ZENO_BROWSER`；部署脚本的环境检查会报这个 |
-| 502 + `browserType.launch: ... browser has been closed`，Edge `exitCode=1002` | 服务以 **SYSTEM**（会话 0）常驻，浏览器起不来 | 沙箱不是原因（Playwright 已带 `--no-sandbox`）。要么 `deploy.ps1 -Mode none` 以登录用户前台跑，要么把计划任务主体换成用户账号。常驻与 browser 渲染目前不可兼得 |
+| 502/503 + `browserType.launch: ... browser has been closed`，Edge `exitCode=1002` | 服务以 **SYSTEM**（会话 0）常驻，浏览器起不来 | 沙箱不是原因（Playwright 已带 `--no-sandbox`）。跑 `deploy.ps1 -RunAsUser -SkipInstall` 把主体换成当前账号（S4U，照样开机自启）；只要前台跑一次就 `-Mode none` |
+| 部署跑到「计划任务已注册」之后中断，或 PS 报一串看不懂的语法错 | 含中文的 `.ps1` 存成了**无 BOM 的 UTF-8**，5.1 按 ANSI 解码 | 补 BOM，再用上面那条 `Parser::ParseFile` 自检到 0 错重跑 |
 | 列表/详情解析出 0 条但页面在浏览器里正常 | 站点内容靠 JS 注入，`fetch` 模式拿到的是空壳 | 插件加 `"fetch": { "mode": "browser", "waitFor": "<卡片选择器>" }` |
 | 手机装不了 PWA | 用的 http（**`127.0.0.1` 除外**） | 局域网 IP / 机器名必须 https |
 | 页面渲染正常但什么都不加载 | 系统代理掐断 ts.net，Workbox 用 precache 兜住了导航 | 见下「代理劫持」；用 `fetch('/api/health',{cache:'no-store'})` 一测就露 |

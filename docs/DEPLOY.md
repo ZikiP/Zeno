@@ -189,29 +189,55 @@ SYNC_TOKEN=你的随机长字符串 npm start
 [Unit]
 Description=Zeno
 After=network-online.target tailscaled.service
+Wants=network-online.target
 
 [Service]
+Type=simple
 WorkingDirectory=/opt/Zeno
-ExecStart=/usr/bin/npm run serve
-Restart=always
+Environment=PORT=8788
+ExecStart=/usr/bin/node /opt/Zeno/server/index.mjs
+# on-failure 而不是 always —— 否则手动 systemctl stop 之后它会自己爬起来
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zeno
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+`ExecStart` 直接给 `node server/index.mjs`，别写 `npm run serve` —— 那个脚本每次
+开机都要重跑一遍构建，常驻服务不该依赖构建链。`WorkingDirectory` 必须有，
+`DIST_DIR` / `DB_PATH` 默认是相对 cwd 的。
+
 ```bash
 systemctl enable --now zeno
+journalctl -u zeno -f
 ```
 
 不用设任何环境变量 —— 白名单会从插件数据库自动读。
 
 ### 计划任务（Windows）
 
-```bat
-schtasks /create /tn Zeno /tr "npm run serve" /sc onstart /ru SYSTEM
+优先用 `.\deploy.ps1`，它已经把下面这些坑都处理了。真要手写，注意三件事：
+
+- **`/tr "npm run serve"` 不行**：Task Scheduler 起的进程 cwd 是 `C:\Windows\System32`，
+  而且默认不落 stdout。要包一层脚本先 `Set-Location` 到安装目录、再把输出重定向到
+  **安装目录里**的日志文件（`%TEMP%` 写不进去，SYSTEM 不是你的用户）。
+- **`/ru SYSTEM` 起不了浏览器**：插件里写 `fetch.mode="browser"` 的话，SYSTEM（会话 0）
+  下 Edge 会以 `exitCode=1002` 直接退出。用 `-RunAsUser`（S4U）或 `/ru` 换成你的账号。
+- 崩溃自动重启要显式配，`schtasks` 本身不给，得用 `New-ScheduledTaskSettingsSet -RestartCount`。
+
+```powershell
+.\deploy.ps1 -RunAsUser          # 推荐
+.\deploy.ps1 -RunAsUser -SkipInstall   # 依赖和 dist 已是新的，只重注册任务
 ```
 
 ### Docker
+
+容器里没有 chromium 系浏览器，`fetch.mode="browser"` 的插件会一直 503；
+要用就在镜像里装一个并设 `ZENO_BROWSER`。纯 `fetch` 模式的插件不受影响。
 
 ```dockerfile
 FROM node:22-slim

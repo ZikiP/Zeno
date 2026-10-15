@@ -171,6 +171,13 @@ HEALTH="http://127.0.0.1:$PORT/api/health"
 for i in 1 2 3 4 5; do
   if curl -fsS "$HEALTH" >/dev/null 2>&1; then
     ok "服务响应正常"
+    # 光看 /api/health 会漏判：它不依赖 dist。工作目录不对时健康检查照样绿，
+    # 首页却是 "dist not found" —— 这个坑在 Windows 那边踩过一次。
+    if curl -fsS "http://127.0.0.1:$PORT/" 2>/dev/null | grep -q 'id="root"'; then
+      ok "首页 HTML 正常（dist 可读，工作目录正确）"
+    else
+      warn "首页取不到，或响应里没有 #root —— 检查 systemd 的 WorkingDirectory 是不是 $INSTALL_DIR"
+    fi
     break
   fi
   [[ $i -eq 5 ]] && { echo "  服务没起来"; [[ "$HAS_SYSTEMD" == "1" ]] && sudo journalctl -u "$SERVICE_NAME" -n 20 --no-pager; exit 1; }

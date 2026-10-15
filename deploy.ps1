@@ -98,8 +98,10 @@ const m = await import(pathToFileURL(process.env.RENDER_MOD).href);
 const b = m.findBrowser();
 console.log(b ? 'FOUND|' + b.from + '|' + b.exe : 'NONE');
 '@ 2>$null
+$browserFound = $false
 if ("$browserCheck" -like 'FOUND|*') {
     $parts = "$browserCheck" -split '\|'
+    $browserFound = $true
     Ok ("渲染浏览器：" + $parts[2] + "（来源 " + $parts[1] + "）")
 } else {
     Warn '没找到 chromium 系浏览器（Chrome / Edge / ms-playwright）。'
@@ -199,7 +201,14 @@ if ($RunAsUser) {
     Ok ("任务主体改用当前账号 $acct（S4U，不存密码）—— browser 渲染模式需要它")
 } else {
     $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    Ok '任务主体为 SYSTEM（开机即在）；注意插件里的 fetch.mode="browser" 在该账号下起不来，需要 -RunAsUser'
+    Ok '任务主体为 SYSTEM（开机即在）'
+    if ($browserFound) {
+        # 本机有浏览器却用 SYSTEM，是最容易踩的组合：健康检查全绿，
+        # 但插件里 fetch.mode="browser" 的那类（列表页要渲染的）一打开就 503。
+        Warn '  SYSTEM / 会话 0 下起不了浏览器（Edge 直接 exitCode=1002）。'
+        Warn '  用了 fetch.mode="browser" 的插件会报 503。常驻和渲染要兼得就重跑：'
+        Warn '    .\deploy.ps1 -RunAsUser -SkipInstall'
+    }
 }
 
 Register-ScheduledTask `
