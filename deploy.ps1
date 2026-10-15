@@ -179,19 +179,26 @@ $wrapper = Join-Path $InstallDir 'start-zeno.ps1'
 # Task Scheduler 启动的 PowerShell 默认 cwd 是 C:\Windows\System32。
 # server/index.mjs 的 DIST_DIR 与 DB_PATH 都是 resolve('./...')，相对 cwd ——
 # 不钉死绝对路径的话，服务会在 System32 下建库并回 "dist not found"。
+# 诊断开关必须排在启动行**之前**：环境变量是给 & 启的那个 node 进程的，
+# 追加到文件末尾等于没设（第一版就是这么写错的，日志里一条 [zeno][render] 都没有）。
+$debugLine = if ($RenderDebug) { "`$env:ZENO_RENDER_DEBUG = '1'" } else { '' }
 $wrapperContent = @"
 `$ErrorActionPreference = 'Continue'
 Set-Location -LiteralPath '$InstallDir'
+# 不钉这两行，PS 5.1 会按系统代码页去解 node 写出的 UTF-8 字节，
+# 日志里的中文全成乱码 —— 而出问题时恰恰要靠这些中文行。
+`$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 `$env:PORT = $Port
 `$env:DIST_DIR = '$InstallDir\dist'
 `$env:DB_PATH = '$InstallDir\data\zeno.db'
-& '$nodePath' '$InstallDir\server\index.mjs' *>> '$LogFile'
+$debugLine
+& '$nodePath' '$InstallDir\server\index.mjs' 2>&1 | Out-File -FilePath '$LogFile' -Append -Encoding utf8
 "@
 Set-Content -Path $wrapper -Value $wrapperContent -Encoding UTF8
 if ($RenderDebug) {
-    # 服务会话里渲染不出内容时，靠这一行把页面自己的失败打到日志。
-    # 前台复现不出来 —— 因为差别就在会话环境，不在代码。
-    Add-Content -Path $wrapper -Value "`$env:ZENO_RENDER_DEBUG = '1'" -Encoding UTF8
+    # 服务会话里渲染不出内容时，靠这一行把页面自己的失败打进日志。
+    # 前台复现不出来 —— 差别在会话环境，不在代码。
     Warn '渲染诊断已打开（ZENO_RENDER_DEBUG=1），日志里会有 [zeno][render] 行。排完记得去掉这个开关'
 }
 Ok ("启动包装已写入 " + $wrapper)
