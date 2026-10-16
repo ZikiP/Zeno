@@ -2,6 +2,7 @@ import { db, deletePluginData } from './db';
 import { recordDelete } from './tombstones';
 import { PLUGIN_FORMAT, PLUGIN_TEMPLATE, type Plugin } from '@/site/types';
 import type { InstalledPlugin } from './db';
+import { serverNow } from '@/sync/clock';
 
 /** 插件的增删改查与启用状态 */
 
@@ -25,7 +26,7 @@ export async function savePlugin(
     ...item,
     id,
     installedAt: existing?.installedAt ?? item.installedAt,
-    updatedAt: Date.now(),
+    updatedAt: serverNow(),
   });
 }
 
@@ -95,7 +96,7 @@ export function enabledIdsOf(installedIds: string[]): string[] {
 
 export function setEnabledIds(ids: string[]): void {
   localStorage.setItem(ENABLED_KEY, ids.join(','));
-  localStorage.setItem(`${ENABLED_KEY}__at`, String(Date.now()));
+  localStorage.setItem(`${ENABLED_KEY}__at`, String(serverNow()));
 }
 
 /** 改一个源的启用状态，返回改完的启用集合 */

@@ -1,5 +1,6 @@
 import { db } from './db';
 import type { DeleteKind, ReaderDB } from './db';
+import { serverNow } from '@/sync/clock';
 
 /**
  * 删除墓碑
@@ -18,7 +19,7 @@ const TOMBSTONE_TTL_MS = 1000 * 60 * 60 * 24 * 90;
 
 export async function recordDelete(kind: DeleteKind, id: string): Promise<void> {
   const d = await db();
-  await d.put('tombstones', { key: `${kind}:${id}`, kind, id, deletedAt: Date.now() });
+  await d.put('tombstones', { key: `${kind}:${id}`, kind, id, deletedAt: serverNow() });
 }
 
 export async function listTombstones(): Promise<Tombstone[]> {

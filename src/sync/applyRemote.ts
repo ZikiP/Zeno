@@ -4,6 +4,7 @@ import type { ShelfEntry } from '@/store/types';
 import type { Plugin } from '@/site/types';
 import type { IDBPTransaction } from 'idb';
 import type { RemoteRow, RemoteSnapshot } from './transfer';
+import { serverNow } from './clock';
 
 /**
  * 把服务端快照落进本地
@@ -74,7 +75,7 @@ async function applyPlugins(t: Tx, rows: RemoteRow[]) {
       plugin,
       origin: row.origin === 'local' ? 'local' : 'imported',
       // 已装的要保留原安装时间，那决定插件列表的排序
-      installedAt: existing?.installedAt ?? (remoteTs || Date.now()),
+      installedAt: existing?.installedAt ?? (remoteTs || serverNow()),
       updatedAt: remoteTs,
     };
     await store.put(value);
@@ -270,7 +271,7 @@ async function applyDeletes(t: Tx, rows: NonNullable<RemoteSnapshot['deletes']>)
       key: `${row.kind}:${id}`,
       kind: row.kind,
       id,
-      deletedAt: delAt || Date.now(),
+      deletedAt: delAt || serverNow(),
     });
   }
   return pluginIds;
@@ -288,6 +289,6 @@ function applySettings(rows: RemoteRow[]) {
     if (localAt > remoteAt) continue;
 
     localStorage.setItem(key, String(value));
-    localStorage.setItem(`${key}__at`, String(remoteAt || Date.now()));
+    localStorage.setItem(`${key}__at`, String(remoteAt || serverNow()));
   }
 }

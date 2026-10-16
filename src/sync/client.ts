@@ -1,5 +1,6 @@
 import { collectLocal, type RemoteSnapshot } from './transfer';
 import { applyRemote } from './applyRemote';
+import { observeServerTime } from './clock';
 import { pruneTombstones } from '@/store/tombstones';
 import { emitDataChange } from '@/store/dataEvents';
 import {
@@ -211,7 +212,13 @@ class SyncManager {
         signal: AbortSignal.timeout(SYNC_FETCH_MS),
       });
       if (!pushRes.ok) throw new Error(`推送失败 HTTP ${pushRes.status}`);
-      const pushBody = (await pushRes.json()) as { applied?: { total?: number } };
+      const pushBody = (await pushRes.json()) as { applied?: { total?: number }; serverTime?: number };
+      /*
+       * 先对时再落库：这一轮拉回来的行要拿去和本地比 updatedAt，
+       * 而本地那些戳是 collectLocal 之前盖的 —— 越早知道正确偏移，
+       * 这一轮里"本地新还是远端新"判得越准。
+       */
+      observeServerTime(pushBody.serverTime ?? 0);
 
       // 2. 拉远端
       const pullRes = await fetch(
@@ -220,6 +227,7 @@ class SyncManager {
       );
       if (!pullRes.ok) throw new Error(`拉取失败 HTTP ${pullRes.status}`);
       const remote = (await pullRes.json()) as RemoteSnapshot;
+      observeServerTime(remote.serverTime ?? 0);
 
       // 3. 落库
       await applyRemote(remote);

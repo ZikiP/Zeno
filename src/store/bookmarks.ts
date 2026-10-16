@@ -1,6 +1,7 @@
 import { db } from './db';
 import { recordDelete } from './tombstones';
 import type { Bookmark } from './db';
+import { serverNow } from '@/sync/clock';
 
 /** 书签与笔记 */
 
@@ -33,7 +34,7 @@ export async function addBookmark(
     key,
     createdAt: existing?.createdAt ?? Date.now(),
     // 覆盖旧值时 updatedAt 要前进，否则同步那边永远认为没变过
-    updatedAt: Date.now(),
+    updatedAt: serverNow(),
   });
   return key;
 }
@@ -42,7 +43,7 @@ export async function updateBookmarkNote(key: string, note: string): Promise<voi
   const d = await db();
   const bm = await d.get('bookmarks', key);
   if (!bm) return;
-  await d.put('bookmarks', { ...bm, note, updatedAt: Date.now() });
+  await d.put('bookmarks', { ...bm, note, updatedAt: serverNow() });
 }
 
 export async function removeBookmark(key: string): Promise<void> {

@@ -13,6 +13,7 @@
  */
 import { db } from './db';
 import { setLocalPref } from '@/sync/localPrefs';
+import { serverNow } from '@/sync/clock';
 import type { ShelfEntry } from './types';
 
 /* ── 排序方式 ─────────────────────────────────────── */
@@ -85,7 +86,7 @@ export async function setShelfOrder(orderedKeys: string[]): Promise<number> {
   const d = await db();
   const t = d.transaction('shelf', 'readwrite');
   const store = t.objectStore('shelf');
-  const now = Date.now();
+  const now = serverNow();
   let moved = 0;
 
   for (let i = 0; i < orderedKeys.length; i++) {

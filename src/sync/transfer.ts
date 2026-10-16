@@ -3,6 +3,7 @@ import { listBookPrefs } from '@/store/bookPrefs';
 import { getShelf } from '@/store/shelf';
 import { getBookmarks } from '@/store/bookmarks';
 import { listTombstones } from '@/store/tombstones';
+import { serverNow } from './clock';
 import type { ShelfEntry } from '@/store/types';
 
 /**
@@ -18,6 +19,8 @@ export type RemoteRow = Record<string, unknown>;
 
 export interface RemoteSnapshot {
   seq: number;
+  /** 服务端盖响应那一刻的挂钟，客户端用它把自己的钟挪到同一条时间轴上（见 clock.ts） */
+  serverTime?: number;
   plugins: RemoteRow[];
   shelf: RemoteRow[];
   positions: RemoteRow[];
@@ -142,6 +145,6 @@ function collectSettings() {
     key,
     value: localStorage.getItem(key),
     // 单独记一个时间戳，避免每次同步都让所有设置都显得「更新过」
-    updatedAt: Number(localStorage.getItem(`${key}__at`) ?? Date.now()),
+    updatedAt: Number(localStorage.getItem(`${key}__at`) ?? serverNow()),
   })).filter((s) => s.value !== null);
 }

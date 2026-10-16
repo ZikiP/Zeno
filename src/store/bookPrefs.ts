@@ -1,5 +1,6 @@
 import { db } from './db';
 import type { BookPrefs } from '@/reader/prefs';
+import { serverNow } from '@/sync/clock';
 
 /**
  * 单书显示偏好的读写
@@ -46,7 +47,7 @@ export async function saveBookPrefs(key: string, patch: Partial<BookPrefs>): Pro
       merged = {};
     }
   }
-  const now = Date.now();
+  const now = serverNow();
   await d.put('bookPrefs', {
     key,
     data: JSON.stringify({ ...merged, ...patch }),

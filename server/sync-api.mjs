@@ -44,7 +44,11 @@ export async function handleSyncApi(req, res, url, auth) {
     const deviceId = url.searchParams.get('deviceId') ?? 'unknown';
     const data = pull(Number.isFinite(since) ? since : 0);
     saveClientState(deviceId, data.seq, ua(req), clientLabel(req), clientRole(req));
-    json(res, 200, data);
+    /*
+     * serverTime 是给客户端对时用的：冲突解决比的是 updatedAt 谁大，
+     * 而那原本是各设备自己的挂钟（见 src/sync/clock.ts）。
+     */
+    json(res, 200, { ...data, serverTime: Date.now() });
     return true;
   }
 
@@ -66,6 +70,7 @@ export async function handleSyncApi(req, res, url, auth) {
       ok: true,
       applied: result,
       serverSeq: stats().seq,
+      serverTime: Date.now(),
       allowedHosts: [...allowedHosts()],
     });
     return true;

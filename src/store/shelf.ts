@@ -1,5 +1,6 @@
 import { db } from './db';
 import { recordDelete } from './tombstones';
+import { serverNow } from '@/sync/clock';
 import type { ShelfEntry } from './types';
 
 /** 书架与阅读进度 */
@@ -38,7 +39,7 @@ export async function addToShelf(
   comic: { slug: string; title: string; cover: string },
 ): Promise<void> {
   const d = await db();
-  const now = Date.now();
+  const now = serverNow();
   /*
    * 新书插到最前：取现有最小 order 再减一。
    * 一本都没排过序时**不补编号** —— 那等于凭空把整架记录的 updatedAt 顶新，
@@ -88,7 +89,7 @@ export async function savePosition(
   const d = await db();
   const entry = await d.get('shelf', shelfKey(pluginId, slug));
   if (!entry) return;
-  const now = Date.now();
+  const now = serverNow();
   await d.put('shelf', {
     ...entry,
     lastChapterId: chapterId,
@@ -167,7 +168,7 @@ export async function markThrough(
   const at = orderedIds.indexOf(uptoId);
   if (at <= 0) return; // 第一章之前什么都没有
 
-  const now = Date.now();
+  const now = serverNow();
   const positions = { ...entry.positions };
   const positionsAt = { ...entry.positionsAt };
   const cleared: string[] = [];
