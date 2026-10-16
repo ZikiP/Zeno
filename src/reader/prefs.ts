@@ -1,8 +1,19 @@
 /**
  * 阅读偏好
  *
- * 独立成文件是因为这些设置会同时被阅读器和设置面板用到，
- * 且需要跨会话持久化。
+ * 分两层，因为这两类东西的"归属"不一样：
+ *
+ *   - **单书级（BookPrefs）**：图片适配、翻页方向、单/双页、背景色、灰度。
+ *     日漫要右起、条漫要竖向、有的书横条图就是要压扁看 —— 这些是**这本书**的性质，
+ *     不该被另一本书的选择覆盖。每本书一条记录，跟着同步走（见 store/bookPrefs.ts）。
+ *   - **设备级（DevicePrefs）**：亮度、屏幕常亮、翻页动画。这是"我现在这台机器、这个环境"的事，
+ *     跟着同步走会把手机的亮度设置搬到显示器上。翻页动画顺不顺滑取决于这台机器的屏幕和性能，
+ *     所以它也在这一层，而且单独存一个键、不参与同步。
+ *
+ * `readerPrefs` 这个 localStorage 键是"除了翻页动画以外"的那份完整偏好，
+ * 它同时充当"还没单独设过的书"的默认值：在任意一本书里改了显示项，会顺手把这份
+ * 默认值也更新，于是以后新开的书继承你最新的习惯，而已经单独调过的书不受影响。
+ * 翻页动画单独放在 `readerTurnAnim` 一个键里，正因为它是设备级的，而这份是要同步的。
  */
 import { setLocalPref } from '@/sync/localPrefs';
 
@@ -12,37 +23,103 @@ export type Direction = 'ltr' | 'rtl';
 export type PageMode = 'single' | 'double';
 /** 背景色（阅读器底色） */
 export type BgColor = 'black' | 'dark' | 'sepia' | 'gray';
+/**
+ * 图片适配。四档与 Kavita / Tachiyomi / CDisplayEx 的口径一致。
+ * 刻意不给"拉伸填满"：不保持比例会把人脸拉变形，漫画尤其不能忍。
+ */
+export type FitMode = 'width' | 'height' | 'screen' | 'original';
+/**
+ * 翻页动画。三档与微信读书 / 百度阅读 / 静读天下的口径一致（它们也是
+ * 仿真翻页 / 左右滑动 / 无动画这几档，上下滚动那一档在我们这儿是另一种阅读模式）。
+ */
+export type TurnAnim = 'none' | 'slide' | 'flip';
 
-export interface ReaderPrefs {
+/** 每本书各自记的显示偏好 */
+export interface BookPrefs {
+  fit: FitMode;
   direction: Direction;
   pageMode: PageMode;
+  bgColor: BgColor;
+  grayscale: boolean;
+}
+
+/** 这台设备的偏好，不参与按书拆分 */
+export interface DevicePrefs {
   /** 保持屏幕常亮 */
   keepAwake: boolean;
   /** 应用内亮度 0.3–1，覆盖系统亮度；null = 跟随系统 */
   brightness: number | null;
-  bgColor: BgColor;
-  /** 灰度显示，省流量也护眼 */
-  grayscale: boolean;
+  /**
+   * 翻页动画。存在自己那个键里，**不进同步**（见 TURN_KEY）：
+   * 动画顺不顺滑取决于这台机器的屏幕和性能，把手机上选的那档搬到显示器上是灾难。
+   */
+  turnAnim: TurnAnim;
 }
 
-export const DEFAULT_PREFS: ReaderPrefs = {
+/** 阅读器实际用的那份 = 单书 + 设备 */
+export type ReaderPrefs = BookPrefs & DevicePrefs;
+
+export const DEFAULT_BOOK: BookPrefs = {
+  /*
+   * 默认"适应屏幕"就是改动前的行为（object-fit: contain）。
+   * 新加一档不该让老用户的阅读体验莫名变掉。
+   */
+  fit: 'screen',
   direction: 'rtl',
   pageMode: 'single',
-  keepAwake: true,
-  brightness: null,
   bgColor: 'black',
   grayscale: false,
 };
 
+export const DEFAULT_DEVICE: DevicePrefs = {
+  keepAwake: true,
+  brightness: null,
+  turnAnim: 'flip',
+};
+
+export const DEFAULT_PREFS: ReaderPrefs = { ...DEFAULT_BOOK, ...DEFAULT_DEVICE };
+
 const KEY = 'readerPrefs';
+const TURN_KEY = 'readerTurnAnim';
+
+/** 属于单书的那几个键。写单书记录时只带这些，别把亮度也塞进去 */
+export const BOOK_KEYS = ['fit', 'direction', 'pageMode', 'bgColor', 'grayscale'] as const;
+
+export function pickBook(p: Partial<ReaderPrefs>): Partial<BookPrefs> {
+  const out: Partial<BookPrefs> = {};
+  for (const k of BOOK_KEYS) if (k in p) (out as Record<string, unknown>)[k] = p[k];
+  return out;
+}
+
+/**
+ * 没在设置里选过时用哪档。
+ *
+ * 系统开了「减少动效」就退到平移 —— 折页那一下的透视和旋转才是让人难受的部分，
+ * 横移一页还在。一旦选过，之后**完全按选的那档来**，系统偏好不再插手：
+ * 上一版是样式表里无条件把折页改写成交叉淡入，结果就是「翻页莫名消失了」，
+ * 界面上一句提示都没有，查半天。
+ */
+export function defaultTurnAnim(): TurnAnim {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'flip';
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'slide' : 'flip';
+}
+
+const TURN_VALUES: TurnAnim[] = ['none', 'slide', 'flip'];
+
+/** 单独一个键，不跟着 readerPrefs 同步 */
+export function loadTurnAnim(): TurnAnim {
+  if (typeof localStorage === 'undefined') return defaultTurnAnim();
+  const raw = localStorage.getItem(TURN_KEY);
+  return TURN_VALUES.includes(raw as TurnAnim) ? (raw as TurnAnim) : defaultTurnAnim();
+}
 
 export function loadPrefs(): ReaderPrefs {
   if (typeof localStorage === 'undefined') return DEFAULT_PREFS;
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return DEFAULT_PREFS;
     // 与默认值合并，新增字段在旧版本数据上也能正常生效
-    return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<ReaderPrefs>) };
+    const blob = raw ? (JSON.parse(raw) as Partial<ReaderPrefs>) : {};
+    return { ...DEFAULT_PREFS, ...blob, turnAnim: loadTurnAnim() };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -50,7 +127,9 @@ export function loadPrefs(): ReaderPrefs {
 
 export function savePrefs(p: ReaderPrefs) {
   try {
-    setLocalPref(KEY, JSON.stringify(p));
+    const { turnAnim, ...synced } = p;
+    setLocalPref(KEY, JSON.stringify(synced));
+    localStorage.setItem(TURN_KEY, turnAnim);
   } catch {
     /* 隐私模式下写不进去，忽略 */
   }
@@ -71,6 +150,34 @@ export const BG_LABELS: Record<BgColor, string> = {
   gray: '中性',
 };
 
+export const FIT_LABELS: Record<FitMode, string> = {
+  width: '适应宽度',
+  height: '适应高度',
+  screen: '适应屏幕',
+  original: '原始尺寸',
+};
+
+export const TURN_LABELS: Record<TurnAnim, string> = {
+  none: '无',
+  slide: '平移',
+  flip: '翻页',
+};
+
+/** 面板上那一行小字。说清楚各自适合什么，不然四档只是四个名词 */
+export const FIT_HINTS: Record<FitMode, string> = {
+  width: '撑满屏宽，上下超出就滚动 —— 条漫和手机最舒服',
+  height: '一屏正好一张，两边可能留黑边',
+  screen: '整张塞进屏幕，不裁不撑（默认）',
+  original: '按图片原始像素显示，可横向滚动看细节',
+};
+
+/** 面板上那一行小字。说清楚各自适合什么，不然三档只是三个名词 */
+export const TURN_HINTS: Record<TurnAnim, string> = {
+  none: '直接换页，最跟手，低端设备也不卡',
+  slide: '两页一起横推，像 Kindle 的左右滑动',
+  flip: '绕书脊把旧页掀起来，最像翻纸（默认）',
+};
+
 /**
  * 亮度 + 灰度合成一条 CSS filter。
  * 都没开时返回 undefined，让 <img> 保持浏览器默认渲染而不是套一层空 filter
@@ -80,5 +187,5 @@ export function buildFilter(p: ReaderPrefs): string | undefined {
   const parts: string[] = [];
   if (p.brightness !== null) parts.push(`brightness(${p.brightness})`);
   if (p.grayscale) parts.push('grayscale(1)');
-  return parts.length ? `filter: ${parts.join(' ')}` : undefined;
+  return parts.length ? parts.join(' ') : undefined;
 }

@@ -1,8 +1,14 @@
 import {
   BG_LABELS,
   BG_VALUES,
+  FIT_HINTS,
+  FIT_LABELS,
+  TURN_HINTS,
+  TURN_LABELS,
   type BgColor,
+  type FitMode,
   type ReaderPrefs,
+  type TurnAnim,
 } from '@/reader/prefs';
 import { HOTKEY_HELP } from '@/pages/reader/useReaderHotkeys';
 import {
@@ -62,6 +68,22 @@ export default function ReaderPrefsSheet({
         </div>
       </Section>
 
+      {/* ── 图片适配 ── */}
+      <Section title="图片适配">
+        <div className="seg">
+          {(Object.keys(FIT_LABELS) as FitMode[]).map((f) => (
+            <button
+              key={f}
+              className={`seg__item${prefs.fit === f ? ' on' : ''}`}
+              onClick={() => onChange({ fit: f })}
+            >
+              {FIT_LABELS[f].replace('适应', '')}
+            </button>
+          ))}
+        </div>
+        <div className="prefs-hint">{FIT_HINTS[prefs.fit]}</div>
+      </Section>
+
       {/* ── 翻页设置：只在分页模式有意义 ── */}
       {mode === 'paged' && (
         <Section title="翻页设置">
@@ -83,11 +105,28 @@ export default function ReaderPrefsSheet({
             value={prefs.pageMode === 'double' ? '开' : '关'}
             onClick={() => onChange({ pageMode: prefs.pageMode === 'single' ? 'double' : 'single' })}
           />
+
+          <div className="prefs-sublabel">翻页动画</div>
+          <div className="seg">
+            {(Object.keys(TURN_LABELS) as TurnAnim[]).map((a) => (
+              <button
+                key={a}
+                className={`seg__item${prefs.turnAnim === a ? ' on' : ''}`}
+                onClick={() => onChange({ turnAnim: a })}
+              >
+                {TURN_LABELS[a]}
+              </button>
+            ))}
+          </div>
+          <div className="prefs-hint">{TURN_HINTS[prefs.turnAnim]}</div>
         </Section>
       )}
 
       {/* ── 显示 ── */}
       <Section title="显示">
+        <div className="prefs-hint">
+          这一页里的显示项每本书各自记一份；亮度与常亮属于这台设备。
+        </div>
         <div className="pref-row pref-row--static">
           <div className="pref-row__text">
             <div className="pref-row__label">背景色</div>

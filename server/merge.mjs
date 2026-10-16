@@ -236,6 +236,35 @@ export function upsertSettings(rows, deviceId) {
   return changed;
 }
 
+/**
+ * 每本书的显示偏好。按 (pluginId, slug) 一行，各自带 updated_at。
+ *
+ * 和 shelf 一样是"集合式"的：只增改不删 —— 书从书架移除了，它的偏好留着，
+ * 重新加回来时原来怎么调的还怎么调。
+ */
+export function upsertBookPrefs(rows, deviceId) {
+  const d = openDb();
+  const touch = d.prepare('SELECT updated_at FROM book_prefs WHERE plugin_id = ? AND slug = ?');
+  const apply = d.prepare(
+    `INSERT INTO book_prefs (plugin_id, slug, data, updated_at, device_id)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(plugin_id, slug) DO UPDATE SET
+       data = excluded.data, updated_at = excluded.updated_at, device_id = excluded.device_id`,
+  );
+
+  let changed = 0;
+  for (const r of rows ?? []) {
+    if (!r?.pluginId || !r?.slug || typeof r.data !== 'string') continue;
+    const ts = num(r.updatedAt, Date.now());
+    const local = touch.get(r.pluginId, r.slug);
+    if (local && num(local.updated_at) >= ts) continue;
+    apply.run(r.pluginId, r.slug, r.data, ts, deviceId ?? null);
+    changed++;
+  }
+  if (changed) logChange('bookPrefs', deviceId);
+  return changed;
+}
+
 /* ── 批量推送 ─────────────────────────────────────── */
 
 /**
@@ -249,6 +278,7 @@ export function pushAll(payload, deviceId) {
     positions: upsertPositions(payload.positions, deviceId),
     lastChapter: upsertLastChapter(payload.lastChapter, deviceId),
     bookmarks: upsertBookmarks(payload.bookmarks, deviceId),
+    bookPrefs: upsertBookPrefs(payload.bookPrefs, deviceId),
     settings: upsertSettings(payload.settings, deviceId),
     // 删除必须最后应用，否则"先删了、又被同一批里的旧数据加回来"。
     // 反过来的顺序也有坑，由 applyDeletes 里跟现存数据比时间戳兜住。

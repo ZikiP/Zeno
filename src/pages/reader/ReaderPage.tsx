@@ -1,7 +1,7 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { usePlugin } from '@/store/PluginContext';
-import { BG_VALUES, DEFAULT_PREFS, buildFilter } from '@/reader/prefs';
+import { BG_VALUES, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
 import { usePrefetchNextChapter } from './usePrefetch';
 import { useChapterLoader } from './useChapterLoader';
@@ -46,7 +46,11 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     next: searchParams.get('n'),
   });
 
-  const prefs = usePrefs(DEFAULT_PREFS);
+  /*
+   * 偏好按书存：key 就是这本书在书架上的主键。
+   * 插件还没同步到（plugin 为 null）时先只吃全局那份，别乱写记录。
+   */
+  const prefs = usePrefs(plugin ? `${plugin.meta.id}/${slug}` : null);
   const [mode, setMode] = useState<ReaderMode>(
     () => localStorage.getItem('readerMode') === 'paged' ? 'paged' : 'scroll',
   );
@@ -143,7 +147,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   }
 
   return (
-    <div className="reader" style={{ background: bg }}>
+    <div className="reader" data-fit={prefs.value.fit} style={{ background: bg }}>
       <ReaderBar
         visible={bar.visible}
         title={`${fromCache ? '离线 · ' : ''}${
@@ -188,6 +192,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           filter={filter}
           markedPages={bookmarks.markedPages}
           rtl={isRTL}
+          anim={prefs.value.turnAnim}
           turnKey={chapterId}
           hudVisible={bar.visible}
           onToggleHud={bar.toggle}

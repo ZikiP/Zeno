@@ -48,6 +48,14 @@
   margin-top: 6px;
   padding-left: 2px;
 }
+/* 一节里要塞第二组选项时，给它一个自己的小标题（如「翻页设置」里的「翻页动画」）。
+   刻意和 .prefs-section__title 一模一样 —— 半个档次的小标题只会看着像没对齐。 */
+.prefs-sublabel {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin: 16px 0 6px;
+  padding-left: 2px;
+}
 
 .seg {
   display: flex;

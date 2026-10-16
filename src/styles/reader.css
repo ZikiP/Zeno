@@ -129,11 +129,21 @@
   z-index: 2;
   will-change: transform;
 }
+/*
+ * 双缓冲里空着的那个槽位。用 visibility 而不是 display:none：
+ * 它保住了上一张图的布局和已解码状态，下一次轮到它当台面时不用重来一遍。
+ * 绝对定位是为了不占 flex 的位置 —— 两个槽位不能并排把画面挤成半宽。
+ */
+.reader__spread.is-hidden {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
 
 .reader__spread.turn-out {
   animation: page-lift var(--d-flip) var(--e-turn) both;
-}
-.reader__spread.turn-in {
+}.reader__spread.turn-in {
   animation: page-lay var(--d-flip) var(--e-turn) both;
 }
 @keyframes page-lift {
@@ -154,6 +164,62 @@
 }
 
 /*
+ * 平移（推动式）：两页同向同速横移，谁都不盖谁 —— Kindle / 微信读书的「左右滑动」。
+ *
+ * 位移量由 JS 按「前进还是回退 × 左起还是右起」算成 CSS 变量，样式表只负责动。
+ * 比折页短一档（300 vs 420ms）：没有纸要掀，横推一页本来就该更快，
+ * 连着点的时候这个差别最明显。
+ */
+.reader__spread.slide-leave {
+  animation: page-leave var(--d-slide) var(--e-turn) both;
+}
+.reader__spread.slide-enter {
+  animation: page-enter var(--d-slide) var(--e-turn) both;
+}
+@keyframes page-leave {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--slide-leave-to, -100%));
+  }
+}
+@keyframes page-enter {
+  from {
+    transform: translateX(var(--slide-enter-from, 100%));
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/*
+ * 被露出来的那一页也跟着轻微移一下。
+ *
+ * 只有上面那张在动、底下那张纹丝不动，看着就是"两张无关的图在切换"，
+ * 而不是"一本书被掀过一页" —— 用户说的不协调主要是这个。CSS 做不了纸张弯曲
+ * （那是 Canvas/WebGL 的顶点形变），但刚体层面让两层共享同一次运动是做得到、
+ * 也是应该做的。只动 transform，不动 filter：动 filter 等于每帧重绘整张高清图。
+ *
+ * **只在往前翻时给底下那页做视差**。往前翻时底下那张是还没露过面的新页，
+ * 起点偏 10px 没人看得见；回翻时底下那张正是你盯着看的那一页，
+ * animation 的 both 会让它在第 0 帧就偏出去 —— 整页凭空跳 10px、
+ * 边上还露出一条底色，那就是"一顿 + 闪"。书也不是这么翻的：
+ * 回翻时躺着不动的是旧页，落下来盖住它的是新页。
+ */
+.reader__paged[data-anim='flip'][data-turn='fwd'] .reader__spread.is-under {
+  animation: page-approach var(--d-flip) var(--e-turn) both;
+}
+@keyframes page-approach {
+  from {
+    transform: translateX(var(--turn-parallax, 0));
+  }
+  to {
+    transform: none;
+  }
+}
+
+/*
  * 暗面在**动**的那一张上：纸面转离光源，本来就该越来越暗。
  * 回翻时反过来 —— 落平的那一刻才重新吃到光。
  * 用一层覆盖物的 opacity，不动图片 filter，否则每帧重绘整张高清图。
@@ -162,7 +228,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.55), transparent 58%);
+  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.34), transparent 62%);
 }
 .turn-out .reader__turn-shade {
   animation: shade-in var(--d-flip) var(--e-turn) both;
@@ -195,7 +261,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.5), transparent 46%);
+  background: linear-gradient(var(--turn-shade-dir, to left), rgba(0, 0, 0, 0.3), transparent 52%);
   animation: cast-sweep var(--d-flip) var(--e-turn) both;
 }
 @keyframes cast-sweep {
@@ -230,7 +296,10 @@
 }
 
 /* 单页且图片较宽时留白，避免贴边 */
-.reader__spread:not(.is-double) img {
+/* 这条"别把竖幅页放得太宽"的收幅是给适应屏幕准备的启发式，
+   用户明确要按宽/按高铺满时不能再拿它拦，否则那两档等于没生效 */
+.reader:not([data-fit]) .reader__spread:not(.is-double) img,
+.reader[data-fit='screen'] .reader__spread:not(.is-double) img {
   max-width: min(100%, calc((100vh - 80px) * 1.4));
 }
 
@@ -321,3 +390,71 @@
   flex-shrink: 0;
 }
 
+/* ── 图片适配四档 ───────────────────────────────────
+   同一档在两种阅读方式下的含义不同，分开定义：滚动是"往下翻"，分页是"一屏一张"。
+   默认（screen / 无属性）就是原来的 contain，加这一档不改变任何人的现状。
+
+   分页模式下必须**连 .reader__cell 一起定尺寸**：cell 是 flex 子项，默认按内容
+   收缩，图片 width:100% 是相对"被这张图自己撑出来的父级"算的 —— 等于没写。
+   实测三档量出来都是 690×690 就是这么来的。 */
+
+/* 适应宽度：宽为准，高的按比例溢出 —— 分页模式下必须允许上下滚，
+   否则比屏高的那一截凭空消失（裁掉内容不是选项） */
+.reader[data-fit='width'] .reader__page {
+  width: 100%;
+  height: auto;
+}
+.reader[data-fit='width'] .reader__paged {
+  overflow-y: auto;
+}
+.reader[data-fit='width'] .reader__spread {
+  align-items: flex-start;
+}
+.reader[data-fit='width'] .reader__spread .reader__cell {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.reader[data-fit='width'] .reader__spread img {
+  width: 100%;
+  height: auto;
+  max-height: none;
+}
+
+/* 适应高度：一屏正好一张。滚动模式下就是"一页占一屏"，往下翻是一页一页 */
+.reader[data-fit='height'] .reader__page {
+  width: auto;
+  height: 100vh;
+  max-width: 100%;
+  margin: 0 auto;
+}
+.reader[data-fit='height'] .reader__spread {
+  height: 100%;
+}
+.reader[data-fit='height'] .reader__spread .reader__cell {
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+.reader[data-fit='height'] .reader__spread img {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+/* 原始尺寸：不缩不放，超出就滚。看精细线条和字多的页时有用 */
+.reader[data-fit='original'] .reader__page,
+.reader[data-fit='original'] .reader__spread img {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+}
+.reader[data-fit='original'] .reader__scroll,
+.reader[data-fit='original'] .reader__paged {
+  overflow: auto;
+}
+.reader[data-fit='original'] .reader__spread {
+  /* 原尺寸可能比屏宽，居中会把左边够不着 —— 改成从左上开始，靠滚动看 */
+  justify-content: flex-start;
+  align-items: flex-start;
+}

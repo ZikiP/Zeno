@@ -1,6 +1,7 @@
 import EdgeHint from './EdgeHint';
 import PagedView from './PagedView';
 import type { Paging } from '@/pages/reader/usePaging';
+import type { TurnAnim } from '@/reader/prefs';
 
 /**
  * 分页舞台：一屏（或双屏）图片 + 边界提示。
@@ -14,6 +15,7 @@ export default function PagedStage({
   filter,
   markedPages,
   rtl,
+  anim,
   turnKey,
   hudVisible,
   onToggleHud,
@@ -27,6 +29,8 @@ export default function PagedStage({
   filter?: string;
   markedPages: Set<number>;
   rtl: boolean;
+  /** 翻页动画演哪一档，从阅读设置里来 */
+  anim: TurnAnim;
   /** 换章时变一下，翻页动画只在章内演 */
   turnKey: string;
   /** 顶部菜单是否展开 */
@@ -45,6 +49,7 @@ export default function PagedStage({
       markedPages={markedPages}
       filter={filter}
       rtl={rtl}
+      anim={anim}
       turnKey={turnKey}
       /*
        * 中间那块不翻页，只开关悬浮件（顶部条 + 章末胶囊）。

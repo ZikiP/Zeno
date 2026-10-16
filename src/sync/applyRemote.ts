@@ -16,7 +16,7 @@ import type { RemoteRow, RemoteSnapshot } from './transfer';
  * UI 继续显示旧数据，用户完全看不出同步半途而废了。
  */
 
-const STORES = ['plugins', 'shelf', 'bookmarks', 'tombstones'] as const;
+const STORES = ['plugins', 'shelf', 'bookmarks', 'tombstones', 'bookPrefs'] as const;
 type Stores = typeof STORES;
 type Tx = IDBPTransaction<ReaderDB, Stores, 'readwrite'>;
 
@@ -33,6 +33,7 @@ export async function applyRemote(data: RemoteSnapshot): Promise<void> {
   await applyShelf(t, data.shelf ?? []);
   await applyProgress(t, data.positions ?? [], data.lastChapter ?? []);
   await applyBookmarks(t, data.bookmarks ?? []);
+  await applyBookPrefs(t, data.bookPrefs ?? []);
   /*
    * 删除放在最后：快照里"还存在"的行先落库，然后才按墓碑清理。
    * 反过来会先删掉、再被同一批里的旧数据加回来。
@@ -115,6 +116,26 @@ async function applyShelf(t: Tx, rows: RemoteRow[]) {
       lastChapterAt: existing?.lastChapterAt,
     };
     await store.put(value);
+  }
+}
+
+/**
+ * 单书显示偏好：按 (pluginId, slug) 一行，各自 LWW。
+ *
+ * 服务端没这一行的时候本地保留原样 —— 别用"远端没提就是没有"的语义，
+ * 那等于任何一次不带该实体的推送都会清空所有书的设置。
+ */
+async function applyBookPrefs(t: Tx, rows: RemoteRow[]) {
+  const store = t.objectStore('bookPrefs');
+  for (const row of rows) {
+    const pluginId = String(row.plugin_id ?? '');
+    const slug = String(row.slug ?? '');
+    if (!pluginId || !slug) continue;
+    const key = `${pluginId}/${slug}`;
+    const remoteTs = Number(row.updated_at ?? 0);
+    const existing = await store.get(key);
+    if (existing && existing.updatedAt >= remoteTs) continue;
+    await store.put({ key, data: String(row.data ?? '{}'), updatedAt: remoteTs });
   }
 }
 

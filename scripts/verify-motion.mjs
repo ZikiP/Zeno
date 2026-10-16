@@ -9,6 +9,10 @@
  *      数字上会掉到 0，肉眼看到的就是闪白（黑底上是黑一下）。
  *   2. **主观**：把一次翻页按固定间隔截成一组帧图，落盘给人看。
  *      另外再演一遍"放慢 5 倍"的版本，帧与帧之间的差别才看得出来。
+ *   3. **每一档**：翻页动画三档（无 / 平移 / 翻页）各跑一遍前进和回退，
+ *      外加"没选过时的默认档跟系统减少动效走"这一条。
+ *      顺带验真正跑起来的是哪组关键帧 —— 只查 class 会被别处样式表悄悄改写，
+ *      上一版就是这么漏的。
  *
  * 跑法：node scripts/verify-motion.mjs [--keep]
  * 依赖本机浏览器 + 外网（要真的抓一章图）。不进 npm test。
@@ -78,6 +82,15 @@ await fetch(`${BASE}/api/sync/push`, {
   }),
 });
 
+/*
+ * 舞台上有几张图 —— 必须把双缓冲那个还没露面的槽位排除掉。
+ *
+ * 那个槽位用 visibility:hidden 留着上一页（就是为了下次不用重新解码），
+ * 它是真实存在的 <img>：算进来的话"空帧"永远测不出来，Playwright 等"图片可见"
+ * 也会因为先命中这张隐藏图而一直等不到（约一半概率，看这次轮到哪个槽位当台面）。
+ */
+const LIVE_IMG = '.reader__spread:not(.is-hidden) img';
+
 const ctx = await chromium.launchPersistentContext(join(tmp, 'profile'), {
   executablePath: found.exe,
   headless: true,
@@ -105,43 +118,70 @@ const tapZone = (dir) =>
   );
 
 /**
- * 从 computed transform 里取出绕 Y 轴的实际角度。
+ * 从 computed transform 里取出绕 Y 轴的实际角度，以及横向位移量。
  *
  * 不要用 getBoundingClientRect().width 判断翻页连不连续 —— 带 perspective 的
  * 投影矩形在 70~90° 之间会先缩到零再涨回来（抬起那条边被透视放大了），
  * 于是"单调旋转"会被量成"反弹"。matrix3d 的 [0]=cosθ、[8]=sinθ，
- * 直接反解角度才是真相。
+ * 直接反解角度才是真相。位移同理，取 matrix 的 tx 分量而不是 rect.left。
  */
 async function sampleTurn({ dir = 'forward', slowFactor = 1, budget = 900 } = {}) {
   if (slowFactor !== 1) {
     await page.addStyleTag({
-      content: `:root{--d-flip:${Math.round(520 * slowFactor)}ms !important}`,
+      content: `:root{--d-flip:${Math.round(420 * slowFactor)}ms !important;--d-slide:${Math.round(300 * slowFactor)}ms !important}`,
     });
   }
   const zone = await tapZone(dir);
   return page.evaluate(
     ({ zone, ms }) => {
-      const angle = (el) => {
-        const t = getComputedStyle(el).transform;
-        const m = /^(?:matrix3d|matrix)\(([^)]+)\)$/.exec(t ?? '');
-        if (!m) return 0;
+      /*
+       * 一次把旋转角和横向位移都解出来，三档动画共用这套采样：
+       * 折页看 deg 单不单调，平移看 x 单不单调，无那一档两个都不该出现。
+       */
+      const parts = (el) => {
+        const m = /^(?:matrix3d|matrix)\(([^)]+)\)$/.exec(getComputedStyle(el).transform ?? '');
+        if (!m) return { deg: 0, x: 0 };
         const v = m[1].split(',').map(Number);
-        /* matrix(2D) 时 v[0]=cos、v[2]=sin；matrix3d 时是 v[0] 与 v[8] */
-        const [c, s] = v.length >= 16 ? [v[0], v[8]] : [v[0], v[2]];
-        return Math.round(Math.atan2(s, c) * (180 / Math.PI) * 10) / 10;
+        const wide = v.length >= 16;
+        return {
+          /* matrix(2D) 时 v[0]=cos、v[2]=sin、tx=v[4]；matrix3d 时是 v[0]、v[8]、tx=v[12] */
+          deg: Math.round(Math.atan2(wide ? v[8] : v[2], v[0]) * (180 / Math.PI) * 10) / 10,
+          x: Math.round(wide ? v[12] : v[4]),
+        };
       };
       return new Promise((done) => {
         const stage = document.querySelector('.reader__paged');
+        /*
+         * 只盯「离场那一层」：它从 0 走到 ±整整一页，是单调性最好的信号。
+         * 注意 querySelector 是按文档顺序返回的，两层都在动时它不认选择器先后 ——
+         * 所以先单独找 leave，再退回折页和 enter。
+         */
+        const moving = () =>
+          stage.querySelector('.slide-leave') ??
+          stage.querySelector('.turn-out,.turn-in') ??
+          stage.querySelector('.slide-enter');
         const out = [];
         let t0 = 0;
         const record = () => {
-          const imgs = [...stage.querySelectorAll('.reader__spread img')];
-          const over = stage.querySelector('.reader__spread.is-over');
+          const imgs = [...stage.querySelectorAll('.reader__spread:not(.is-hidden) img')];
+          const mv = moving();
+          const mvParts = mv ? parts(mv) : null;
           out.push({
-            t: Math.round(performance.now() - t0),
+            /* 时间戳不能取整：两帧只差 1ms 时，取整会把速率放大十倍，量出假"跳帧" */
+            t: Math.round((performance.now() - t0) * 10) / 10,
             n: imgs.length,
-            over: !!over,
-            deg: over ? angle(over) : null,
+            anim: stage.dataset.anim ?? '?',
+            cls: mv ? mv.className.replace('reader__spread', '').trim() : null,
+            /*
+             * 实际跑起来的关键帧名字。这一条专门盯着"被别处的样式表悄悄改写"：
+             * 上一版就是 a11y 在 reduce 下把折页换成 page-fade，屏幕上什么都不转，
+             * 只看 class 和 data-turn 全都正常，根本查不出来。
+             */
+            an: mv ? getComputedStyle(mv).animationName : null,
+            deg: mvParts ? mvParts.deg : null,
+            x: mvParts ? mvParts.x : null,
+            /* 演动画这一层自己的宽度 —— 平移要量"走满一页没有" */
+            w: mv ? Math.round(mv.getBoundingClientRect().width) : 0,
             /*
              * 有几张图还在透明状态。翻页闪白（这里是闪黑，底色是黑的）的
              * 真正来源就是这个：新页刚挂载时 opacity 是 0，露出来的那一帧
@@ -182,53 +222,126 @@ const frameShots = async (label, count, gap) => {
 };
 
 /**
- * 逐帧判一次翻页。
+ * 一条 cubic-bezier 缓动的最大斜率（相对匀速）。
  *
- * 前进时演动画那层从 0° 转到侧立（|deg| 一路涨到 90），回退反过来。
- * 判"连不连续"要看角度而不是投影宽度，理由见 sampleTurn 上面那段。
- * 每帧步长超过 15° 就是肉眼可见的"跳"，反向超过 1° 就是过冲回弹。
+ * 用它当"跳帧"的尺子：曲线本身中段就比平均快好几倍（--e-turn 是 2.6 倍），
+ * 拿匀速的固定倍数去卡，要么天天误报、要么形同虚设。超过曲线允许的峰值才算跳。
+ */
+function easePeakSlope([x1, y1, x2, y2]) {
+  let mx = 0;
+  for (let i = 0; i <= 2000; i++) {
+    const t = i / 2000;
+    const dx = 3 * (1 - t) ** 2 * x1 + 6 * (1 - t) * t * (x2 - x1) + 3 * t * t * (1 - x2);
+    const dy = 3 * (1 - t) ** 2 * y1 + 6 * (1 - t) * t * (y2 - y1) + 3 * t * t * (1 - y2);
+    if (dx > 0) mx = Math.max(mx, dy / dx);
+  }
+  return mx;
+}
+
+/**
+ * 逐帧判一次翻页。三档各有各的"单调"要看：
+ *
+ *   翻页 —— 演动画那层绕书脊从 0° 转到侧立（回退反过来），看旋转角；
+ *   平移 —— 离场那层从原位走到整整一页宽，看横向位移；
+ *   无   —— 压根不该出现动画层，只验"没演 + 只翻一页 + 没空帧"。
+ *
+ * 判"跳没跳"看的是按时间归一的速率，不是相邻两帧的差值（理由见 report 里那段）；
+ * 中途反向就是过冲回弹。
  */
 function report(frames, dir) {
-  const growing = dir === 'forward';
-  const during = frames.filter((f) => f.over && f.deg !== null);
+  const anim = frames[0].anim;
+  const label = `${anim}·${dir}`;
+  const isFlip = anim === 'flip';
+  const during = frames.filter((f) => f.cls);
   const empty = frames.filter((f) => f.n === 0).length;
-  const degs = during.map((f) => Math.abs(f.deg));
-  let maxStep = 0;
-  let backwards = 0;
-  for (let i = 1; i < degs.length; i++) {
-    const d = degs[i] - degs[i - 1];
-    maxStep = Math.max(maxStep, Math.abs(d));
-    if (Math.abs(d) > 1 && d > 0 !== growing) backwards++;
-  }
   const span = during.length ? during.at(-1).t - during[0].t : 0;
   /*
-   * 页号单独看：只看角度的话，"多演了一次翻页"会伪装成"动画不单调"。
+   * 页号单独看：只看轨迹的话，"多演了一次翻页"会伪装成"动画不单调"。
    * 一次点击应当只让页号变一次。
    */
   const pageAt = (f) => Number(f.p.match(/^\d+/)?.[0] ?? NaN);
   const pageChanges = frames.slice(1).filter((f, i) => pageAt(f) !== pageAt(frames[i])).length;
-  console.log(`  ${frames.length} 帧 / ${frames.at(-1).t}ms，其中 ${during.length} 帧两页同时在场（${span}ms）`);
-  console.log('  旋转角轨迹：', during.filter((_, i) => i % 4 === 0).map((f) => f.deg).join(' '));
+
+  console.log(
+    `  [${label}] ${frames.length} 帧 / ${frames.at(-1).t}ms，其中 ${during.length} 帧在演动画（${span}ms），动画层 ${during[0]?.cls ?? '无'}`,
+  );
   console.log('  页号：', pageAt(frames[0]), '→', pageAt(frames.at(-1)), `（变了 ${pageChanges} 次）`);
-  check(during.length > 8, `${dir}：前后两页同时在场 ${during.length} 帧 / ${span}ms`);
-  check(empty === 0, `${dir}：没有"空帧"（舞台上 0 张图的帧共 ${empty} 个）`);
-  check(maxStep < 15, `${dir}：单帧最大转角步长 ${maxStep.toFixed(1)}°，没有跳帧`);
-  check(backwards === 0, `${dir}：没有反向回弹（${backwards} 次）`);
-  check(pageChanges === 1, `${dir}：一次点击只翻一页（页号变了 ${pageChanges} 次）`);
+  check(empty === 0, `${label}：没有"空帧"（舞台上 0 张图的帧共 ${empty} 个）`);
+  check(pageChanges === 1, `${label}：一次点击只翻一页（页号变了 ${pageChanges} 次）`);
   /*
    * 这一条才是"闪"的直接证据：动画再平滑，只要露出来的那一页有哪怕
    * 一帧是透明的，用户看到的就是一次闪烁。
    */
-  const dimFrames = during.filter((f) => f.dim > 0);
+  const dimFrames = frames.filter((f) => f.dim > 0);
   check(
     dimFrames.length === 0,
     dimFrames.length
-      ? `${dir}：有 ${dimFrames.length} 帧存在透明图片（首现于 ${dimFrames[0].t}ms）—— 会闪`
-      : `${dir}：全程没有透明帧（露出来的那一页一直是实的）`,
+      ? `${label}：有 ${dimFrames.length} 帧存在透明图片（首现于 ${dimFrames[0].t}ms）—— 会闪`
+      : `${label}：全程没有透明帧（露出来的那一页一直是实的）`,
+  );
+
+  if (anim === 'none') {
+    check(during.length === 0, `${label}：「无」这一档确实什么都不演（演了 ${during.length} 帧）`);
+    return;
+  }
+
+  check(during.length > 8, `${label}：前后两页同时在场 ${during.length} 帧 / ${span}ms`);
+  /*
+   * 真跑起来的是哪组关键帧 —— 只查 class 会被"悄悄改写"骗过去，
+   * 上一版就是这么漏的（见 record 里那段注释）。
+   */
+  const names = [...new Set(during.map((f) => f.an))];
+  console.log(`  [${label}] 关键帧：`, names.join(' / '));
+  check(
+    names.every((n) => (isFlip ? /^page-(lift|lay)$/.test(n) : /^page-(leave|enter)$/.test(n))),
+    `${label}：演的是${isFlip ? '折页' : '平移'}那组关键帧，没被别处的样式表改写（${names.join(' / ')}）`,
+  );
+
+  /* 折页量角度，平移量位移，两者都是"离原点越来越远/越来越近"的一条单调曲线 */
+  const track = (f) => (isFlip ? Math.abs(f.deg) : Math.abs(f.x));
+  const vals = during.map(track);
+  /* 往前翻是掀起来（角度涨），往后翻是落下去（角度缩）；平移两种都是离场那页越走偏远 */
+  const growing = isFlip ? dir === 'forward' : true;
+  const width = during.find((f) => f.w > 0)?.w ?? 0;
+  /*
+   * 速率要按时间归一，并且取 95 分位而不是最大值。
+   *
+   * 直接比"相邻两帧差多少"量的其实是采样密度：headless 里偶发掉一帧，两帧间隔从
+   * 16ms 变 33ms，差值当场翻倍，于是曲线明明平滑也报"跳帧"。改成按毫秒归一以后
+   * 还剩一个坑：单帧最大值同样是采样毛刺的放大器（同一份代码连跑两次，最大值在
+   * 0.56 和 1.11 之间跳），而真"跳帧"是整段都走得快 —— 95 分位两头都对。
+   */
+  const rates = [];
+  let backwards = 0;
+  for (let i = 1; i < during.length; i++) {
+    const dt = during[i].t - during[i - 1].t;
+    const d = vals[i] - vals[i - 1];
+    /* 同一帧里被回调两次（dt≈0）会把速率炸成无穷大，那不是跳帧是采样噪声 */
+    if (dt >= 4) rates.push(Math.abs(d) / dt);
+    if (Math.abs(d) > (isFlip ? 1 : 2) && d > 0 !== growing) backwards++;
+  }
+  rates.sort((a, b) => a - b);
+  const peak = rates.length ? rates[Math.min(rates.length - 1, Math.floor(rates.length * 0.95))] : 0;
+  /* 匀速走完这一趟的速率，再乘上曲线本身允许的峰值 */
+  const cruise = (isFlip ? 90 : width) / (span || 1);
+  const limit = cruise * easePeakSlope([0.35, 0.05, 0.2, 1]) * 1.3;
+  console.log(
+    `  ${isFlip ? '旋转角' : '位移px'}轨迹：`,
+    during.filter((_, i) => i % 4 === 0).map(track).join(' '),
+  );
+  console.log(
+    `  95 分位速率 ${peak.toFixed(2)}，曲线允许的峰值 ${(cruise * 2.61).toFixed(2)} ${isFlip ? '°/ms' : 'px/ms'}（匀速 ${cruise.toFixed(2)}）`,
   );
   check(
-    degs.length > 1 && (growing ? degs.at(-1) > 85 : degs[0] > 85),
-    `${dir}：转到了侧立再收摊（起始 ${degs[0]}°、结束 ${degs.at(-1)}°），撤掉那一帧不会留下半张纸`,
+    peak < limit,
+    `${label}：没有任何一帧跑得比这条缓动允许的更快（95 分位 ${peak.toFixed(2)} vs 上限 ${limit.toFixed(2)}）`,
+  );
+  check(backwards === 0, `${label}：没有反向回弹（${backwards} 次）`);
+  check(
+    during.length > 1 && (growing ? vals.at(-1) : vals[0]) > (isFlip ? 85 : width * 0.9),
+    isFlip
+      ? `${label}：转到了侧立再收摊（起始 ${vals[0]}°、结束 ${vals.at(-1)}°），撤掉那一帧不会留下半张纸`
+      : `${label}：离场那页走满了整整一页（起点 ${vals[0]}px、终点 ${vals.at(-1)}px，屏宽 ${width}px）`,
   );
 }
 
@@ -241,30 +354,93 @@ await page.locator('.card').first().click();
 await page.waitForURL(/\/comic\//, { timeout: 20_000 });
 await page.waitForSelector('.chapter-row', { timeout: 120_000 });
 /*
- * 挑最后一章。第一章往往是"序章"，只有一两张图 ——
- * 在那种章节上翻页测不出什么，还会因为退不动而误判成"动画坏了"。
+ * 挑正中间那一章。
+ *
+ * 两头都不能要：序章只有一两张图（翻不动、退不动，测不出任何东西），
+ * 而"最后一章"到底是序章还是最新话，取决于站点列表是正序还是倒序 ——
+ * 列表顺序一变，这个脚本就会在一张永远加载不完的图上超时。
+ * 中间那一章不管哪种顺序都是正文，图多、前后都翻得动。
  */
 const rows = await page.locator('.chapter-row').count();
-await page.locator('.chapter-row').nth(rows - 1).click();
+await page.locator('.chapter-row').nth(Math.floor(rows / 2)).click();
 await page.waitForURL(/\/read\//, { timeout: 20_000 });
-await page.waitForSelector('.reader__paged img', { timeout: 120_000 });
+/*
+ * 图取不到就直接说清楚，别拿两分钟的超时当结论。
+ *
+ * 这个脚本要真章节、真图片，所以它同时依赖上游站点活着 —— 站点反爬开始返回
+ * 403 时（2026-10-16 实测 baozimh 就是），这里会一直等一张永远加载不完的 <img>，
+ * 报出来的却是"翻页动画没验到"。那是环境，不是动效坏了。
+ */
+try {
+  await page.waitForSelector(LIVE_IMG, { timeout: 60_000 });
+} catch {
+  console.error(
+    '\n图片始终没加载出来 —— 大概率是上游站点拒了（反爬 / 403），不是阅读器坏了。\n' +
+      '先单独确认能不能抓到章节（例如 curl 站点页与一张图的返回码），再回来跑动效验证。',
+  );
+  process.exit(2);
+}
 await page.waitForTimeout(2500);
-console.log('  章节已载入，当前屏图片数：', await page.locator('.reader__spread img').count());
+console.log('  章节已载入，当前屏图片数：', await page.locator(LIVE_IMG).count());
 
-console.log('\n=== 2. 真实速度往前翻一页，逐帧统计 ===');
-const fwd = await sampleTurn({ dir: 'forward', budget: 900 });
-report(fwd, 'forward');
+/*
+ * 三档各测一遍。
+ *
+ * 换档必须重载页面：turnAnim 在挂载时读一次就定住了，不重载测的还是上一档 ——
+ * 而"设了没生效"恰恰是这次最容易出的错。
+ */
+const readerUrl = page.url();
+async function useTier(tier) {
+  await page.evaluate((t) => localStorage.setItem('readerTurnAnim', t), tier);
+  await page.goto(readerUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector(LIVE_IMG, { timeout: 120_000 });
+  await page.waitForTimeout(1500);
+  const onStage = await page.evaluate(() => document.querySelector('.reader__paged')?.dataset.anim);
+  check(onStage === tier, `切到「${tier}」后舞台上生效的就是这一档（实际 ${onStage}）`);
+}
 
-console.log('\n=== 2b. 往回翻一页（另一条动画路径）===');
-await page.waitForTimeout(400);
-const back = await sampleTurn({ dir: 'back', budget: 900 });
-report(back, 'back');
+for (const tier of ['flip', 'slide', 'none']) {
+  console.log(`\n=== 2.${tier} 翻页动画「${tier}」 ===`);
+  await useTier(tier);
 
-console.log('\n=== 3. 放慢 5 倍，截一组帧图给人看 ===');
-await page.waitForTimeout(400);
-const slowP = sampleTurn({ slowFactor: 5, budget: 2800 });
-await frameShots('turn', 9, 280);
-await slowP;
+  const fwd = await sampleTurn({ dir: 'forward', budget: 900 });
+  report(fwd, 'forward');
+
+  await page.waitForTimeout(400);
+  const back = await sampleTurn({ dir: 'back', budget: 900 });
+  report(back, 'back');
+
+  if (tier === 'none') break;
+  /* 帧图只在会动的两档上截 —— 「无」没有中间帧可看 */
+  await page.waitForTimeout(400);
+  const slowP = sampleTurn({ slowFactor: 5, budget: 2800 });
+  await frameShots(`${tier}`, 9, 280);
+  await slowP;
+  console.log(`  帧图已存 ${shots}`);
+}
+
+/*
+ * 没选过时那一次默认值。这一条是这次改动的主要卖点：
+ * 上一版是样式表在 reduce 下把折页改成交叉淡入，界面看不出来、也没法解释，
+ * 现在改成只在"从没选过"时决定档位，选过之后完全按用户选的来。
+ */
+console.log('\n=== 2c. 没选过时的默认档跟随系统「减少动效」 ===');
+await page.evaluate(() => localStorage.removeItem('readerTurnAnim'));
+await page.goto(readerUrl, { waitUntil: 'domcontentloaded' });
+await page.waitForSelector(LIVE_IMG, { timeout: 120_000 });
+const { reduced, onStage } = await page.evaluate(() => ({
+  reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+  onStage: document.querySelector('.reader__paged')?.dataset.anim,
+}));
+check(
+  onStage === (reduced ? 'slide' : 'flip'),
+  `系统 reduce=${reduced} 时默认档为 ${reduced ? 'slide' : 'flip'}（实际 ${onStage}）`,
+);
+/*
+ * 这一台机器上系统「减少动效」到底开没开，直接决定上面那组折页测试算不算
+ * 在 reduce 环境下验过 —— 开着还照样演折页，才是这次要的结果。
+ */
+console.log(`  本机系统 reduce=${reduced}；开着也照样演折页，见上面 flip 那组的关键帧`);
 console.log(`  帧图已存 ${shots}`);
 
 console.log('\n=== 4. 底栏选中态与按压态 ===');

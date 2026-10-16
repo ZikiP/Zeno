@@ -58,6 +58,18 @@ export function openDb() {
       PRIMARY KEY (plugin_id, slug)
     );
 
+    -- 每本书自己的显示偏好（图片适配、方向、单双页、底色、灰度）。
+    -- 为什么不塞进 settings 那个大 blob：那样两台设备各改一本不同的书，
+    -- 整块 LWW 必然压掉其中一台的其它书。按书一行才谈得拢。
+    CREATE TABLE IF NOT EXISTS book_prefs (
+      plugin_id  TEXT NOT NULL,
+      slug       TEXT NOT NULL,
+      data       TEXT NOT NULL,        -- JSON：Partial<BookPrefs>
+      updated_at INTEGER NOT NULL,
+      device_id  TEXT,
+      PRIMARY KEY (plugin_id, slug)
+    );
+
     -- 阅读进度
     CREATE TABLE IF NOT EXISTS positions (
       plugin_id  TEXT NOT NULL,
@@ -214,6 +226,7 @@ export function pull(sinceSeq = 0) {
     positions: d.prepare('SELECT * FROM positions ORDER BY updated_at').all(),
     lastChapter: d.prepare('SELECT * FROM last_chapter').all(),
     bookmarks: d.prepare('SELECT * FROM bookmarks ORDER BY created_at DESC').all(),
+    bookPrefs: d.prepare('SELECT * FROM book_prefs').all(),
     settings: d.prepare('SELECT * FROM settings').all(),
     deletes: d.prepare('SELECT * FROM deletes ORDER BY updated_at').all(),
     sinceSeq,

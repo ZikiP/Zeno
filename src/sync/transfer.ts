@@ -1,4 +1,5 @@
 import { listPlugins } from '@/store/plugins';
+import { listBookPrefs } from '@/store/bookPrefs';
 import { getShelf } from '@/store/shelf';
 import { getBookmarks } from '@/store/bookmarks';
 import { listTombstones } from '@/store/tombstones';
@@ -23,6 +24,8 @@ export interface RemoteSnapshot {
   lastChapter: RemoteRow[];
   bookmarks: RemoteRow[];
   settings: RemoteRow[];
+  /** 每本书自己的显示偏好，一行一本 */
+  bookPrefs?: RemoteRow[];
   deletes?: { kind: string; id: string; updated_at: number }[];
 }
 
@@ -42,11 +45,12 @@ const SYNCED_KEYS = [
 
 /** 把 IndexedDB + localStorage 整成推送格式 */
 export async function collectLocal(): Promise<Record<string, unknown>> {
-  const [plugins, shelf, bookmarks, tombstones] = await Promise.all([
+  const [plugins, shelf, bookmarks, tombstones, bookPrefs] = await Promise.all([
     listPlugins(),
     getShelf(),
     getBookmarks(''),
     listTombstones(),
+    listBookPrefs(),
   ]);
 
   return {
@@ -85,6 +89,12 @@ export async function collectLocal(): Promise<Record<string, unknown>> {
       // 用真实的修改时间。用 createdAt 的话，改了笔记也永远"不比服务端新"。
       updatedAt: b.updatedAt ?? b.createdAt,
     })),
+    /* 一行一本。拆成这个粒度而不是并进 readerPrefs 那个 blob，
+       是为了让"我在平板上调了书 A、手机上调了书 B"两件事都能活下来。 */
+    bookPrefs: bookPrefs.map((r) => {
+      const [pluginId, ...rest] = r.key.split('/');
+      return { pluginId, slug: rest.join('/'), data: r.data, updatedAt: r.updatedAt };
+    }),
     settings: collectSettings(),
     deletes: tombstones.map((t) => ({ kind: t.kind, id: t.id, deletedAt: t.deletedAt })),
   };

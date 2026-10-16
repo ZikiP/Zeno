@@ -169,6 +169,51 @@ await api('/api/sync/push', {
 const reordered = await api('/api/sync/pull?since=0&deviceId=x');
 check(reordered.body.shelf[0]?.sort_order === 0, `更新顺序生效（实际 ${reordered.body.shelf[0]?.sort_order}）`);
 
+console.log('\n=== 5c. 单书显示偏好');
+await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({
+    deviceId: 'phone',
+    bookPrefs: [
+      { pluginId: 'baozimh', slug: 'abc', data: JSON.stringify({ fit: 'width', direction: 'ltr' }), updatedAt: 14000 },
+      { pluginId: 'baozimh', slug: 'other', data: JSON.stringify({ fit: 'height' }), updatedAt: 14000 },
+    ],
+  }),
+});
+const bp1 = await api('/api/sync/pull?since=0&deviceId=x');
+const rowOf = (snap, slug) => (snap.body.bookPrefs ?? []).find((r) => r.slug === slug);
+check(!!rowOf(bp1, 'abc') && JSON.parse(rowOf(bp1, 'abc').data).fit === 'width', '单书偏好按书存住并回读');
+check(!!rowOf(bp1, 'other') && JSON.parse(rowOf(bp1, 'other').data).fit === 'height', '两本书各自一条，互不覆盖');
+
+/*
+ * 这一组用例守的就是"为什么不塞进 readerPrefs 那个 blob"：整块 LWW 的话，
+ * 手机调书 A、平板调书 B，谁后同步谁把对方那本一起盖掉。按书一行才谈得拢。
+ */
+await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({
+    deviceId: 'tablet',
+    bookPrefs: [{ pluginId: 'baozimh', slug: 'abc', data: JSON.stringify({ fit: 'original' }), updatedAt: 13000 }],
+  }),
+});
+const bpOld = await api('/api/sync/pull?since=0&deviceId=x');
+const stillWidth = JSON.parse(rowOf(bpOld, 'abc')?.data ?? '{}').fit;
+check(stillWidth === 'width', `较旧的单书偏好不覆盖（fit=${stillWidth}）`);
+
+await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({
+    deviceId: 'tablet',
+    bookPrefs: [{ pluginId: 'baozimh', slug: 'abc', data: JSON.stringify({ fit: 'screen' }), updatedAt: 15000 }],
+  }),
+});
+const bpNew = await api('/api/sync/pull?since=0&deviceId=x');
+const fitAfterNew = JSON.parse(rowOf(bpNew, 'abc')?.data ?? '{}').fit;
+check(fitAfterNew === 'screen', `较新的单书偏好生效（fit=${fitAfterNew}）`);
+const untouched = JSON.parse(rowOf(bpNew, 'other')?.data ?? '{}').fit;
+check(untouched === 'height', `改一本不影响另一本（其它那本仍是 ${untouched}）`);
+
+
 console.log('\n=== 6. 静态文件与 SPA 回退 ===');
 const root = await fetch(BASE + '/');
 check(root.ok, `根路径 200（${root.headers.get('content-type')}）`);

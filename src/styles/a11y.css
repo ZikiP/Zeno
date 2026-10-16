@@ -45,14 +45,12 @@
     --d-press: 1ms;
     --d-micro: 160ms;
     --d-bounce: 1ms;
-    --d-flip: 160ms;
     --d-sheet: 160ms;
     --e-out: linear;
     --e-inout: linear;
     --e-drawer: linear;
     --e-settle: linear;
     --e-bounce: linear;
-    --e-turn: linear;
   }
   .icon-btn:active,
   .theme-option:active,
@@ -70,27 +68,15 @@
   .search {
     transition: none;
   }
-  /* 掀页换成交叉淡入：两页同时在场时只淡上面那张，暗面和投影都不要 */
-  .reader__spread.turn-out,
-  .reader__spread.turn-in {
-    animation: page-fade 160ms linear both;
-  }
-  .reader__turn-shade,
-  .reader__turn-cast {
-    display: none;
-  }
+  /*
+   * 翻页动画**不在这里改写**。上一版在这儿把折页无条件换成 160ms 交叉淡入，
+   * 结果就是「翻页莫名消失了」—— 用户查不出原因，界面上也没有一句提示。
+   * 现在系统偏好只决定阅读设置里那三档的**初始值**（reader/prefs.ts 的
+   * defaultTurnAnim），选过之后完全按选的那档来，所以 --d-flip / --e-turn 不动。
+   */
   /* 章末胶囊只淡入淡出，不上滑下滑 */
   .reader__nav[data-hidden='true'] {
     transform: translateX(-50%);
-  }
-}
-
-@keyframes page-fade {
-  from {
-    opacity: 0.25;
-  }
-  to {
-    opacity: 1;
   }
 }
 

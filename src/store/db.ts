@@ -108,6 +108,16 @@ export interface ReaderDB extends DBSchema {
     value: { key: string; value: unknown };
   };
   /**
+   * 每本书自己的显示偏好（图片适配、方向、单双页、底色、灰度）。
+   *
+   * 单独一张表而不是塞进 readerPrefs 那个 blob：blob 是整块 LWW 的，
+   * 两台设备各调一本不同的书，必然压掉另一台的所有书。按书一行才谈得拢。
+   */
+  bookPrefs: {
+    key: string; // `${pluginId}/${slug}`，和书架同键
+    value: { key: string; data: string; updatedAt: number };
+  };
+  /**
    * 删除墓碑。
    *
    * 没有它，删除只发生在本地：A 设备删了一本漫画，服务端那行还在，
@@ -132,7 +142,7 @@ export interface ReaderDB extends DBSchema {
 export type DeleteKind = 'shelf' | 'bookmark' | 'position' | 'lastChapter' | 'plugin';
 
 const DB_NAME = 'zeno-reader';
-const DB_VER = 4;
+const DB_VER = 5;
 
 let dbp: Promise<IDBPDatabase<ReaderDB>> | null = null;
 
@@ -183,6 +193,10 @@ export function db(): Promise<IDBPDatabase<ReaderDB>> {
         if (!d.objectStoreNames.contains('settings')) {
           d.createObjectStore('settings', { keyPath: 'key' });
         }
+        if (!d.objectStoreNames.contains('bookPrefs')) {
+          d.createObjectStore('bookPrefs', { keyPath: 'key' });
+        }
+
         if (!d.objectStoreNames.contains('tombstones')) {
           const s = d.createObjectStore('tombstones', { keyPath: 'key' });
           s.createIndex('deletedAt', 'deletedAt');
@@ -202,7 +216,7 @@ export async function deletePluginData(pluginId: string) {
    * \uffff 是 UTF-16 里可比的最大码元，任何同前缀的键都排在它前面。
    */
   const range = IDBKeyRange.bound(`${pluginId}/`, `${pluginId}/\uffff`);
-  for (const store of ['shelf', 'chapters', 'bookmarks', 'chapterCache'] as const) {
+  for (const store of ['shelf', 'chapters', 'bookmarks', 'chapterCache', 'bookPrefs'] as const) {
     const t = d.transaction(store, 'readwrite');
     await t.store.delete(range);
     await t.done;
