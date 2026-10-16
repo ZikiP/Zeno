@@ -101,6 +101,12 @@ export default function PagedView({
           <RetryableImage
             src={src}
             alt={`第 ${abs + 1} 页`}
+            /*
+             * 分页模式下的这一张就是视口内容本身，必须 eager：
+             * lazy 的 <img> 刚挂上去时浏览器可能推迟到下一帧才开始解码，
+             * 翻页动画正跑到一半，那半帧的空白就是"闪"。
+             */
+            eager
             onDoubleClick={() => onZoom(src, abs)}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -161,45 +167,40 @@ export default function PagedView({
       {/*
         双页时 rtl 用 row-reverse 而不是重排数组：DOM 顺序保持原样，
         startIndex + i 算出的绝对页号才不会错，书签标记和 alt 也就不会错位。
+
+        **当前页永远渲染在第一个位置上。**这是这一版的关键：
+        以前翻页演完，React 会把当前页从"覆盖层里的那一份"换成"第一个位置上的新的一份" ——
+        等于把整屏 <img> 原地重建，哪怕地址全在缓存里也要重新挂一遍、重新解码一次，
+        那一帧就是用户说的"闪一下"。现在演完只是少了一个覆盖层、自己去掉一个 class，
+        图片元素从头到尾没被重建过。
       */}
-      {!turn && <div className={spreadClass('')}>{cells(images, startIndex)}</div>}
+      <div
+        className={spreadClass(turn ? (turn.forward ? ' is-under' : ' is-over turn-in') : '')}
+        style={turn ? turnStyle : undefined}
+        onAnimationEnd={turn && !turn.forward ? endTurn : undefined}
+      >
+        {cells(images, startIndex)}
+        {/* 抬起页投在底下的那片影子，画在被露出来的这一页上 */}
+        {turn?.forward && <div className="reader__turn-cast" aria-hidden="true" />}
+      </div>
 
       {turn?.forward && (
-        <>
-          {/* 新页躺在下面，一动不动 —— 它不需要演，被露出来就是它的动画 */}
-          <div className={spreadClass(' is-under')}>
-            {cells(images, startIndex)}
-            <div className="reader__turn-cast" aria-hidden="true" />
-          </div>
-          {/* 旧页抬起来让位 */}
-          <div
-            className={spreadClass(' is-over turn-out')}
-            style={turnStyle}
-            onAnimationEnd={endTurn}
-          >
-            {cells(turn.images, turn.startIndex)}
-            <div className="reader__turn-shade" aria-hidden="true" />
-          </div>
-        </>
+        /* 往前翻：旧页盖在上面抬起来，新页就在下面稳稳接着，它不需要演 */
+        <div
+          className={spreadClass(' is-over turn-out')}
+          style={turnStyle}
+          onAnimationEnd={endTurn}
+        >
+          {cells(turn.images, turn.startIndex)}
+          <div className="reader__turn-shade" aria-hidden="true" />
+        </div>
       )}
 
       {turn && !turn.forward && (
-        <>
-          {/* 回翻：旧页在下面等着被盖住 */}
-          <div className={spreadClass(' is-under')}>
-            {cells(turn.images, turn.startIndex)}
-            <div className="reader__turn-cast" aria-hidden="true" />
-          </div>
-          {/* 新页从折痕里落下去 */}
-          <div
-            className={spreadClass(' is-over turn-in')}
-            style={turnStyle}
-            onAnimationEnd={endTurn}
-          >
-            {cells(images, startIndex)}
-            <div className="reader__turn-shade" aria-hidden="true" />
-          </div>
-        </>
+        /* 回翻：旧页躺在下面等着被盖住，新页（上面那一层）从折痕里落下去 */
+        <div className={spreadClass(' is-under')}>
+          {cells(turn.images, turn.startIndex)}
+        </div>
       )}
 
       {/*
