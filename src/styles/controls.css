@@ -67,6 +67,38 @@
 }
 
 /*
+ * 选项太多的维度收成一颗写着当前值的摘要按钮，点开再铺满挑。
+ * 判据在 ExplorePage 的 INLINE_MAX；这里是表现 —— 名字浅、当前值重，
+ * 一眼能读出"现在筛的是哪个"，不用点开。
+ */
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.filter-pill__name {
+  color: var(--text-faint);
+}
+.filter-pill b {
+  font-weight: 600;
+  color: var(--text);
+}
+.filter-pill svg {
+  flex-shrink: 0;
+  /* 借右箭头转成向下：为一个符号再造一个图标不值当 */
+  transform: rotate(90deg);
+  opacity: 0.5;
+}
+
+/* 弹层里的选项换行铺满 —— 横滚正是我们要修掉的那个毛病 */
+.filter-sheet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/*
  * 发现页的源切换器也是 filters 那一排 chip，但两排 chip 上下贴着会看不出
  * 上面那排是"看哪个站"、下面那排是"站里怎么筛"。垫一层底色分开 ——
  * 和 chip 同一档玻璃，靠整排的面积差读出"这是一条带"。

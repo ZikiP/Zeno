@@ -3,10 +3,19 @@ import { Link } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
 import type { Plugin, PluginFilter } from '@/site/types';
 import { usePlugin } from '@/store/PluginContext';
-import { IconEmpty, IconSearch } from '@/components/Icons';
+import { IconChevronRight, IconEmpty, IconSearch } from '@/components/Icons';
 import BottomNav from '@/components/BottomNav';
 import SourceSwitcher from '@/components/SourceSwitcher';
-import { ErrorBox, Loading } from '@/components/UI';
+import { ErrorBox, Loading, Sheet } from '@/components/UI';
+
+/**
+ * 超过这个选项数的维度收成一颗摘要按钮，点开才铺满。
+ *
+ * 定在 8：包子漫画那两排（5 + 3）和拷貝漫畫的地区/状态/排序（4/4/3）都直接点得到，
+ * 而 69 项的题材在手机上横滚到第七个就没了、也没有任何"还能滑"的暗示，
+ * 看着就像被裁掉了 —— 这种不如给人一屏挑完。
+ */
+const INLINE_MAX = 8;
 
 /**
  * 没写 `filters` 的老插件的兜底预设：分类页模板里出现这两个名字，就按这一套画按钮。
@@ -59,6 +68,8 @@ export default function ExplorePage() {
   const [submitted, setSubmitted] = useState('');
   /** 用户点过的维度。没点过的走各维度自己声明的 default，所以换源不必逐个重置 */
   const [picked, setPicked] = useState<Record<string, string>>({});
+  /** 正摊开挑选项的那个维度（选项太多，一排放不下） */
+  const [openFilter, setOpenFilter] = useState<PluginFilter | null>(null);
   const [comics, setComics] = useState<Comic[] | null>(null);
   const [exact, setExact] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -66,6 +77,8 @@ export default function ExplorePage() {
 
   const groups = useMemo(() => (plugin ? filterGroups(plugin) : []), [plugin]);
   const activeOf = useCallback((f: PluginFilter) => picked[f.key] ?? f.default ?? '', [picked]);
+  const labelOf = (f: PluginFilter, value: string) =>
+    f.options.find((o) => o.value === value)?.label ?? value;
   const vars = useMemo(
     () => Object.fromEntries(groups.map((f) => [f.key, activeOf(f)])),
     [groups, activeOf],
@@ -113,6 +126,7 @@ export default function ExplorePage() {
     setQ('');
     setSubmitted('');
     setPicked({});
+    setOpenFilter(null);
   }, []);
 
   if (!plugin?.meta.id) return null;
@@ -145,24 +159,56 @@ export default function ExplorePage() {
 
       <SourceSwitcher onPick={resetForSource} />
 
-      {/* 一个维度一行：题材这种几十项的塞进一行横滚，等于没有筛选 */}
+      {/*
+       * 一个维度一行。选项多的收成一颗摘要按钮点开挑 ——
+       * 69 项的题材塞进横滚，手机上滚到第七个就没了，还看不出能滚。
+       */}
       {!submitted &&
-        groups.map((g) => (
-          <div className="filter-row" key={g.key}>
-            {g.label && <span className="filter-row__label">{g.label}</span>}
-            <div className="filters">
-              {g.options.map((o) => (
-                <button
-                  key={o.value}
-                  className={`chip${activeOf(g) === o.value ? ' on' : ''}`}
-                  onClick={() => setPicked((p) => ({ ...p, [g.key]: o.value }))}
-                >
-                  {o.label}
-                </button>
-              ))}
+        groups.map((g) =>
+          g.options.length > INLINE_MAX ? (
+            <div className="filter-row" key={g.key}>
+              <button type="button" className="chip filter-pill" onClick={() => setOpenFilter(g)}>
+                <span className="filter-pill__name">{g.label ?? '筛选'}</span>
+                <b>{labelOf(g, activeOf(g))}</b>
+                <IconChevronRight size={14} />
+              </button>
             </div>
+          ) : (
+            <div className="filter-row" key={g.key}>
+              {g.label && <span className="filter-row__label">{g.label}</span>}
+              <div className="filters">
+                {g.options.map((o) => (
+                  <button
+                    key={o.value}
+                    className={`chip${activeOf(g) === o.value ? ' on' : ''}`}
+                    onClick={() => setPicked((p) => ({ ...p, [g.key]: o.value }))}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ),
+        )}
+
+      {openFilter && (
+        <Sheet title={openFilter.label ?? '筛选'} onClose={() => setOpenFilter(null)}>
+          <div className="filter-sheet">
+            {openFilter.options.map((o) => (
+              <button
+                key={o.value}
+                className={`chip${activeOf(openFilter) === o.value ? ' on' : ''}`}
+                onClick={() => {
+                  setPicked((p) => ({ ...p, [openFilter.key]: o.value }));
+                  setOpenFilter(null);
+                }}
+              >
+                {o.label}
+              </button>
+            ))}
           </div>
-        ))}
+        </Sheet>
+      )}
 
       {submitted && (
         <div
