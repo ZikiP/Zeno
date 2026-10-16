@@ -27,7 +27,16 @@ export interface RemoteSnapshot {
 }
 
 /** 会同步的 localStorage 键 */
-const SYNCED_KEYS = ['themeMode', 'readerPrefs', 'readerMode', 'enabledPluginIds'] as const;
+const SYNCED_KEYS = [
+  'themeMode',
+  'readerPrefs',
+  'readerMode',
+  'enabledPluginIds',
+  // 书架排法与格子数：换设备打开应该看到同一个架子（格子数按各设备自己的视口取用）
+  'shelfSort',
+  'shelfColsSm',
+  'shelfColsLg',
+] as const;
 
 /* ── 本地 → 服务端 ─────────────────────────────────── */
 
@@ -53,6 +62,9 @@ export async function collectLocal(): Promise<Record<string, unknown>> {
       title: e.title,
       cover: e.cover,
       addedAt: e.addedAt,
+      // 手动顺序。没排过就是 null —— 服务端用 COALESCE 保住原值，
+      // 免得一台从没拖拽过的设备把别处排好的顺序抹掉。
+      order: e.order ?? null,
       // LWW 时钟用 updatedAt；没写过的旧数据退回 addedAt，
       // 但绝不能退回 Date.now() —— 那等于每轮同步都宣称"我这份最新"，
       // 会把别处的删除和更新统统压掉。

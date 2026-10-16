@@ -12,9 +12,11 @@
   gap: var(--s-1);
   padding: 0 calc(var(--s-3) + var(--safe-r)) 0 calc(var(--s-3) + var(--safe-l));
   overflow-x: auto;
-  background: var(--glass-bg-bar);
+  /* 材质（底色、模糊、镜面）在 glass.css 的常驻条那一档。
+     分隔线留在这里用真 border：这一条自己能横向滚，::after 的渐隐线会跟着滚走。 */
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
+  box-shadow: var(--rim-glass);
   border-bottom: 1px solid var(--border);
   /* 手机上五个栏刚好挤满：能滑，但不许露出滚动条（它会顶起内容） */
   scrollbar-width: none;
@@ -97,12 +99,12 @@
   margin-top: 0;
 }
 
+/* 这一组是**一整块玻璃**，不是一叠白卡：底色/模糊/折射都在 glass.css 的载板档，
+   行本身透明，只靠渐隐分隔线分行。原来 .settings-rows 填 --border、行填 --bg-elev，
+   等于在浅画布上摆了块白板 —— 那就是"设置里的选项都是普通白色"的由来。 */
 .settings-rows {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  background: var(--border);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
 }
@@ -114,7 +116,6 @@
   width: 100%;
   padding: 12px;
   border: 0;
-  background: var(--bg-elev);
   color: var(--text);
   font: inherit;
   font-size: 14px;
@@ -126,7 +127,12 @@
   cursor: default;
 }
 .settings-row:active {
-  background: var(--bg-elev-2);
+  background: var(--r-hover);
+}
+/* 分隔线走渐隐：实线会把那块玻璃切成一格一格 */
+.settings-row + .settings-row {
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, var(--edge) 14%, var(--edge) 86%, transparent) 1;
 }
 .settings-row__name {
   flex: 1;
@@ -187,4 +193,53 @@
   font-size: 13px;
   line-height: 1.7;
   color: var(--text-dim);
+}
+
+/* ── 数字加减器 ───────────────────────────────────── */
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+/* 压在玻璃板上，所以底是"更亮一档的白"而不是实色：整块板还是一个材质 */
+.stepper__btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg-control-hi);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+  transition:
+    background var(--d-press) var(--e-out),
+    transform var(--d-press) var(--e-out);
+}
+.stepper__btn:active {
+  transform: scale(0.92);
+  background: var(--glass-bg-bar);
+}
+.stepper__btn:disabled {
+  color: var(--text-faint);
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.stepper__value {
+  min-width: 26px;
+  text-align: center;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* 纯展示的行（不是一枚按钮）：不抢焦点、不给按压反馈 */
+.settings-row--still {
+  cursor: default;
+}
+.settings-row--still:active {
+  background: none;
 }

@@ -8,6 +8,12 @@ export interface ShelfEntry {
   cover: string;
   addedAt: number;
   /**
+   * 手动排出来的顺序，**小的在前**。没排过序的条目是 undefined，
+   * 读的时候按 addedAt 兜底 —— 所以不需要为它升 IndexedDB 版本：
+   * 这张表本来就没有"列"，缺字段是正常状态而不是旧数据。
+   */
+  order?: number;
+  /**
    * 这条书架记录（标题 / 封面 / 是否在册）最近一次变动的时间，同步的 LWW 时钟。
    *
    * 必须和 addedAt 分开。addedAt 同时要当书架排序依据（用户什么时候加的），

@@ -51,6 +51,9 @@ export function openDb() {
       cover      TEXT NOT NULL DEFAULT '',
       added_at   INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
+      -- 用户手动排出来的顺序，小的在前。不叫 order：那是 SQL 关键字，
+      -- 裸写在 SELECT/ALTER 里迟早撞语法。
+      sort_order INTEGER,
       device_id  TEXT,
       PRIMARY KEY (plugin_id, slug)
     );
@@ -155,15 +158,19 @@ export function openDb() {
    * 所以已有的 client_state 不会凭空长出 label/role —— 不补的话
    * 部署过一版的机器升级后，设备列表一直是空的，而且没有任何报错。
    */
+  const hasColumn = (table, col) =>
+    !!db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(table, col);
+  const addColumn = (table, col, type) => {
+    if (!hasColumn(table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+  };
+
   for (const [col, type] of [
     ['label', 'TEXT'],
     ['role', 'TEXT'],
   ]) {
-    const has = db
-      .prepare("SELECT 1 FROM pragma_table_info('client_state') WHERE name = ?")
-      .get(col);
-    if (!has) db.exec(`ALTER TABLE client_state ADD COLUMN ${col} ${type}`);
+    addColumn('client_state', col, type);
   }
+  addColumn('shelf', 'sort_order', 'INTEGER');
 
   return db;
 }

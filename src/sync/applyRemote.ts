@@ -101,6 +101,13 @@ async function applyShelf(t: Tx, rows: RemoteRow[]) {
       cover: String(row.cover ?? ''),
       // 已有条目保留原添加时间，那决定书架排序
       addedAt: existing ? existing.addedAt : Number(row.added_at ?? remoteTs),
+      /*
+       * 手动顺序：远端没带值时保住本地已有的 —— 服务端那列可能是 NULL
+       * （另一台设备还没拖拽过），直接覆盖会把这里排好的顺序清空。
+       */
+      order: row.sort_order === null || row.sort_order === undefined
+        ? existing?.order
+        : Number(row.sort_order),
       updatedAt: remoteTs,
       positions: existing?.positions ?? {},
       positionsAt: existing?.positionsAt,

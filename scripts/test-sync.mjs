@@ -131,6 +131,44 @@ check(
 );
 check(revert.body?.applied?.positions === 0, '覆盖被拒绝');
 
+console.log('\n=== 5b. 书架手动顺序');
+await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({
+    deviceId: 'phone',
+    shelf: [
+      { pluginId: 'baozimanga', slug: 'abc', title: '测试漫画', addedAt: 1000, updatedAt: 11000, order: 3 },
+    ],
+  }),
+});
+const withOrder = await api('/api/sync/pull?since=0&deviceId=x');
+check(withOrder.body.shelf[0]?.sort_order === 3, `手动顺序存住并回读（实际 ${withOrder.body.shelf[0]?.sort_order}）`);
+
+/*
+ * 关键的一条：从没拖拽过的设备推上来的行**没有 order 字段**。
+ * 服务端要是直接覆盖，它一同步就把别人排好的架子抹成 NULL 了。
+ */
+await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({
+    deviceId: 'tablet',
+    shelf: [{ pluginId: 'baozimanga', slug: 'abc', title: '改了标题', addedAt: 1000, updatedAt: 12000 }],
+  }),
+});
+const noOrder = await api('/api/sync/pull?since=0&deviceId=x');
+check(noOrder.body.shelf[0]?.sort_order === 3, `没带 order 的推送不会抹掉已有顺序（实际 ${noOrder.body.shelf[0]?.sort_order}）`);
+check(noOrder.body.shelf[0]?.title === '改了标题', '同一行的其它字段照常更新');
+
+await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({
+    deviceId: 'phone',
+    shelf: [{ pluginId: 'baozimanga', slug: 'abc', title: '改了标题', addedAt: 1000, updatedAt: 13000, order: 0 }],
+  }),
+});
+const reordered = await api('/api/sync/pull?since=0&deviceId=x');
+check(reordered.body.shelf[0]?.sort_order === 0, `更新顺序生效（实际 ${reordered.body.shelf[0]?.sort_order}）`);
+
 console.log('\n=== 6. 静态文件与 SPA 回退 ===');
 const root = await fetch(BASE + '/');
 check(root.ok, `根路径 200（${root.headers.get('content-type')}）`);

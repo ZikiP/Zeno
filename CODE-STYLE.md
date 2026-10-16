@@ -203,7 +203,7 @@ interface Props {
 | 文件 | 行数 | 说明 |
 |---|---|---|
 | `server/render.mjs` | 299 | 贴着 300。浏览器池与结果缓存；等内容到位的三个判据在 `render-wait.mjs`，页面内 JSON 捕获在 `capture.mjs`，缓存在 `render-cache.mjs` |
-| `sync/client.ts` | 298 | 贴着 300。设备身份与服务端地址（deviceId、显示名、endpoint、token）已拆到 `sync/device.ts`；状态条是 `SyncBar.tsx`，配置那一栏在 `pages/settings/SyncPanel.tsx` |
+| `sync/client.ts` | 298 | 贴着 300。设备身份与服务端地址（deviceId、显示名、endpoint、token）已拆到 `sync/device.ts`；顶栏那颗状态泡是 `SyncPill.tsx`，配置那一栏在 `pages/settings/SyncPanel.tsx` |
 | `site/fetch.ts` | 295 | 纯文本工具（decodeEntities / stripTags / escapeRe）拆到 `site/text.ts`，parse 与 fetch 共用同一份 |
 | `site/validate.ts` | 283 | 类型定义和校验规则各自演进；URL 模板的占位符表拆到 `site/url-template.ts` |
 | `server/cache-store.mjs` | 270 | 图片缓存的盘上机制。配置在 `cache-config.mjs`、对外的脸在 `cache.mjs` |
@@ -221,7 +221,12 @@ interface Props {
 样式原先是单个 `src/styles.css`（1777 行，一个文件里塞了令牌、材质、外壳、
 阅读器、弹层、无障碍降级），已按域拆成 `src/styles/` 下 14 个文件，
 入口只留 `@import`。拆分是**按原行序切段**的，拼回去与拆分前逐字节一致，
-层叠关系一点没动。最大的一段 `browse.css` 291 行。
+层叠关系一点没动。最大的一段 `browse.css` 462 行（漫画网格 + 详情页 + 章节列表，
+三件事本来就挤在一个域里）。
+
+`store/shelf.ts` 加了手动顺序、排序方式与格子数之后冲到 359 行，
+"架子怎么摆"那一半（`sortShelf` / `setShelfOrder` / 格子数偏好）拆到了
+`store/shelfOrder.ts`，那边只留"这本书在不在架上、读到哪了"的存储。
 
 拆分的判据始终是「一个文件有几件事」，不是行数。几个例子：
 `site/types.ts` 377 行时超限，不是因为长，是因为里面同时有格式定义和校验规则；

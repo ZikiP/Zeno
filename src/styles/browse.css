@@ -22,6 +22,24 @@
   }
 }
 
+/*
+ * 书架那一格用**显式列数**，不跟着 auto-fill 走。
+ *
+ * auto-fill 是"能塞几列塞几列"，用户没法指定 —— 而"我这屏正好 3 本"这件事
+ * 恰恰是书架最在意的：它是一面架子，不是搜索结果流。
+ * 列数由设置写进 :root 的 --shelf-cols-sm / --shelf-cols-lg，
+ * 700px 这条线两边各取一个（和 store/shelf.ts 里的 SHELF_COLS_BREAKPOINT 一致）。
+ * minmax(0, 1fr) 而不是 1fr：1fr 的下限是 min-content，长标题会把格子撑破。
+ */
+.grid--shelf {
+  grid-template-columns: repeat(var(--shelf-cols-sm, 3), minmax(0, 1fr));
+}
+@media (min-width: 700px) {
+  .grid--shelf {
+    grid-template-columns: repeat(var(--shelf-cols-lg, 4), minmax(0, 1fr));
+  }
+}
+
 .card {
   display: flex;
   flex-direction: column;
@@ -57,36 +75,108 @@
  */
 .card--plate {
   position: relative;
-  padding: 6px 6px 8px;
+  /* 载板那一圈"框边"：太窄了读不出是一块板，太宽又浪费封面以外的每一格 */
+  padding: 7px 7px 9px;
   border-radius: var(--radius-card);
   box-shadow:
-    inset 0 0 0 1px var(--edge),
+    var(--rim-glass),
     var(--shadow-2);
   transition:
     transform var(--d-press) var(--e-out),
     box-shadow var(--d-micro) var(--e-out);
+  -webkit-user-select: none;
+  user-select: none;
 }
-/* 斜向受光。玻璃之所以像玻璃，一半靠这道从左上角衰减掉的高光 */
+/* 键盘走到哪一格：玻璃上没有边框可借，靠这圈焦点环 */
+.card--plate:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/*
+ * 跟着手指的那张克隆体。
+ *
+ * 它挂在 body 上、position: fixed —— 不占网格的格子，所以它的"布局位置"根本不存在。
+ * 上一版是让原元素自己 translate 跟着走，而 translate 是相对它的布局位置算的：
+ * 列表一换位，布局位置变了，同一个偏移直接把它甩到屏幕外（实测 x=513，视口才 390）。
+ * pointer-events: none 是必须的 —— 否则它挡在手指下面，后面的 move 全落在它自己身上。
+ */
+.card--plate.card--dragging {
+  position: fixed;
+  z-index: 60;
+  margin: 0;
+  pointer-events: none;
+  cursor: grabbing;
+  transition: none;
+  box-shadow:
+    var(--rim-glass),
+    var(--shadow-3);
+}
+.card--plate.card--dragging .card__cover img {
+  transform: none;
+}
+
+/*
+ * 原卡片留在流里当"可以放这里"的格子。
+ *
+ * 内容整块隐掉但**保留占位**（visibility 不是 display:none）——
+ * 这样格子的尺寸天然和一张卡一模一样，不用另算虚线框该多高。
+ * 它随着手指在列表里滑来滑去，就是落点。
+ */
+.card--plate.card--slot {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  /*
+   * 用 outline 而不是 border：border 会吃掉 padding（border-box 下内容区变窄），
+   * 封面按 3:4 算出来的高度就少 4px，于是松手去掉 border 的那一瞬间整行高度变了 ——
+   * 用户会看到"松手后卡片又动了一下"。outline 不参与布局，格子尺寸和卡片严格一致。
+   */
+  outline: 1.5px dashed color-mix(in oklab, var(--accent) 60%, transparent);
+  outline-offset: -1.5px;
+  box-shadow: none;
+}
+.card--slot .card__cover,
+.card--slot .card__name {
+  visibility: hidden;
+}
+/* 拖动中给其它卡片各描一圈淡虚线：整个可用区域一眼看得清 */
+.grid--shelf.is-dragging .card--plate:not(.card--slot) {
+  outline: 1px dashed color-mix(in oklab, var(--text) 22%, transparent);
+  outline-offset: 3px;
+}
+.grid--shelf.is-dragging .card--plate:not(.card--slot) .card__cover img {
+  opacity: 0.72;
+}
+/* 斜向受光。玻璃之所以像玻璃，一半靠这道从左上角衰减掉的高光。
+   强度和别处共用 --specular-sheen，不再自己乘一个 opacity */
 .card--plate::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: linear-gradient(150deg, var(--edge-hi) 0%, transparent 34%);
-  opacity: 0.22;
+  background: linear-gradient(150deg, var(--specular-sheen) 0%, transparent 34%);
 }
 .card--plate:active {
   transform: scale(0.975);
 }
+/* 内圈半径 = 外半径 - 板边宽，两个圆才同心；差太多会看出"框歪了" */
 .card--plate .card__cover {
   border: none;
-  border-radius: calc(var(--radius-card) - 5px);
+  border-radius: calc(var(--radius-card) - 7px);
   box-shadow: var(--shadow-1);
 }
 .card--plate .card__name {
   position: relative;
   padding: 0 2px;
+  /* 名字是这格里唯一的文字，给它一档比正文更紧的行高，两行时不会散开 */
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  /*
+   * 固定占两行的高（2 × 1.35 行高）。不占的话一行标题和两行标题的卡片
+   * 高度差一整行，同一格里两张板底边对不齐 —— 书架是一面架子，
+   * 底边参差比封面不好看更扎眼。
+   */
+  min-height: 2.7em;
 }
 
 /* 进度环：压在封面右上角 */
@@ -232,6 +322,16 @@
   overflow: hidden;
 }
 
+/* :not(.btn--ghost) 不是冗余：样式表按「改哪块看哪个文件」拆，browse.css 排在
+   glass.css 之后，这里一条无修饰的 .btn 会把控件档的底色盖掉 —— 幽灵按钮会变成实心蓝。
+   实心主按钮和玻璃档是两种材质，本来就不该共用同一条底色声明。 */
+.btn:not(.btn--ghost) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.btn:not(.btn--ghost):active {
+  background: var(--accent-dim);
+}
 .btn {
   display: inline-flex;
   align-items: center;
@@ -240,19 +340,19 @@
   height: 40px;
   padding: 0 18px;
   border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: var(--on-accent);
   font-size: 14px;
   font-weight: 600;
-  transition: opacity 0.15s;
+  /* 按下的形变 + 材质变化都要跟着令牌走；opacity 那种"整块变淡"在玻璃上读不出深度 */
+  transition:
+    background var(--d-press) var(--e-out),
+    transform var(--d-press) var(--e-out);
 }
 .btn:active {
-  opacity: 0.8;
+  transform: scale(0.97);
 }
+/* 底色、镜面、按压档都在 glass.css 的控件档 */
 .btn--ghost {
-  background: var(--bg-elev-2);
   color: var(--text);
-  border: 1px solid var(--border);
 }
 .btn--sm {
   height: 32px;

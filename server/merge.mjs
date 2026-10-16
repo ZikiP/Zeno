@@ -57,10 +57,13 @@ export function upsertShelf(rows, deviceId) {
   const gone = goneStmt(d);
   const touch = d.prepare('SELECT updated_at FROM shelf WHERE plugin_id = ? AND slug = ?');
   const apply = d.prepare(
-    `INSERT INTO shelf (plugin_id, slug, title, cover, added_at, updated_at, device_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO shelf (plugin_id, slug, title, cover, added_at, updated_at, sort_order, device_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(plugin_id, slug) DO UPDATE SET
        title = excluded.title, cover = excluded.cover,
+       /* 没带 sort_order 的旧客户端不该把已经排好的顺序抹成 NULL ——
+          所以是 COALESCE(excluded, 原值)，而不是直接覆盖。 */
+       sort_order = COALESCE(excluded.sort_order, shelf.sort_order),
        updated_at = excluded.updated_at, device_id = excluded.device_id`,
   );
 
@@ -79,6 +82,8 @@ export function upsertShelf(rows, deviceId) {
       r.cover ?? '',
       num(r.addedAt, ts),
       ts,
+      // 手动顺序：没有就留 NULL，让"没排过序"和"排在第 0 位"是两件事
+      Number.isFinite(r.order) ? Math.trunc(r.order) : null,
       deviceId ?? null,
     );
     changed++;

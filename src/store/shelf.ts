@@ -39,6 +39,13 @@ export async function addToShelf(
 ): Promise<void> {
   const d = await db();
   const now = Date.now();
+  /*
+   * 新书插到最前：取现有最小 order 再减一。
+   * 一本都没排过序时**不补编号** —— 那等于凭空把整架记录的 updatedAt 顶新，
+   * 会把另一台设备上更新的标题/封面压掉。
+   */
+  const all = (await d.getAll('shelf')) as ShelfEntry[];
+  const numbered = all.map((e) => e.order).filter((o): o is number => o !== undefined);
   await d.put('shelf', {
     key: shelfKey(pluginId, comic.slug),
     pluginId,
@@ -48,6 +55,7 @@ export async function addToShelf(
     addedAt: now,
     updatedAt: now,
     positions: {},
+    ...(numbered.length ? { order: Math.min(...numbered) - 1 } : {}),
   });
 }
 

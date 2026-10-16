@@ -1,15 +1,27 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getShelf, bookProgress } from '@/store/shelf';
+import {
+  sortShelf,
+  getShelfSort,
+  setShelfSort,
+  setShelfOrder,
+  getShelfCols,
+  SHELF_SORTS,
+  type ShelfSort,
+} from '@/store/shelfOrder';
 import { getCachedChapterLists } from '@/store/chapters';
 import type { ShelfEntry } from '@/store/types';
 import { usePlugin } from '@/store/PluginContext';
 import { useReloadOnChange } from '@/store/useDataVersion';
+import { emitDataChange } from '@/store/dataEvents';
 import { coverUrl } from '@/site/engine';
-import { IconEmpty, IconExplore, IconSettings } from '@/components/Icons';
+import { IconEmpty, IconExplore, IconSettings, IconSort, IconCheck } from '@/components/Icons';
 import BottomNav from '@/components/BottomNav';
 import ProgressRing from '@/components/ProgressRing';
-import { ErrorBox, Loading } from '@/components/UI';
+import { ErrorBox, Loading, Sheet } from '@/components/UI';
+import { sync } from '@/sync/client';
+import { useShelfDrag } from './shelf/useShelfDrag';
 
 export default function ShelfPage() {
   const { enabled, loading } = usePlugin();
@@ -17,6 +29,9 @@ export default function ShelfPage() {
   /** 章节表缓存，按 `${pluginId}/${slug}` 索引，全书进度要用 */
   const [lists, setLists] = useState<Record<string, { id: string; index: number }[]>>({});
   const [err, setErr] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<ShelfSort>(getShelfSort);
+  const [showSort, setShowSort] = useState(false);
+  const [cols, setCols] = useState(getShelfCols);
 
   /*
    * 书架跨所有已启用的源，不再只看"当前那一个"。
@@ -35,6 +50,9 @@ export default function ShelfPage() {
       const [shelf, cached] = await Promise.all([getShelf(), getCachedChapterLists()]);
       setItems(shelf.filter((e) => byId[e.pluginId]));
       setLists(Object.fromEntries(cached.map((c) => [c.key, c.chapters])));
+      // 排法和格子数都可能在同步里被别人改了，每次重读都跟着刷新
+      setSortMode(getShelfSort());
+      setCols(getShelfCols());
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -43,6 +61,103 @@ export default function ShelfPage() {
   // 同步写完本地库后自动重读，不用手动刷新页面
   useReloadOnChange(load);
 
+  /*
+   * 列数写成 CSS 变量而不是内联 style：网格的断点在样式表里（700px 那一档），
+   * 由谁来生效应该是 CSS 的事。JS 只负责把"这台设备该是几列"的两个数递过去。
+   */
+  useEffect(() => {
+    const style = document.documentElement.style;
+    style.setProperty('--shelf-cols-sm', String(cols.sm));
+    style.setProperty('--shelf-cols-lg', String(cols.lg));
+  }, [cols]);
+
+  const progressOf = useCallback(
+    (e: ShelfEntry) => bookProgress(lists[e.key], e) ?? 0,
+    [lists],
+  );
+
+  const ordered = useMemo(
+    () => (items ? sortShelf(items, sortMode, progressOf) : []),
+    [items, sortMode, progressOf],
+  );
+  const keys = useMemo(() => ordered.map((e) => e.key), [ordered]);
+  const byKey = useMemo(() => Object.fromEntries(ordered.map((e) => [e.key, e])), [ordered]);
+
+  const commitOrder = useCallback(
+    (next: string[]) => {
+      /*
+       * 先就地乐观更新内存里那份顺序，再落库。
+       *
+       * 少了这一步就会看到"松手之后又交换了一下"：松手那一刻 dragKey 清空，
+       * 钩子里"跟外部顺序对齐"的效果马上跑，而它拿到的 keys 还是**拖之前**的
+       * 那份（落库和重读都还没回来）—— 于是界面先弹回旧顺序，等重读回来再动回
+       * 新位置。实测位移正好是两格（±292px），用户看到的就是那个多余的动作。
+       */
+      const at = new Map(next.map((k, i) => [k, i]));
+      setItems((prev) => (prev ? prev.map((e) => (at.has(e.key) ? { ...e, order: at.get(e.key) } : e)) : prev));
+      void (async () => {
+        const moved = await setShelfOrder(next);
+        // 一行都没变就别去打扰服务端：拖了一下又放回原处是常事
+        if (!moved) return;
+        emitDataChange();
+        void sync.sync();
+      })();
+    },
+    [setItems],
+  );
+
+  /* 只有「自定义顺序」下才挂拖拽：自动排法下手拽的结果会被规则盖掉，那是骗人 */
+  const drag = useShelfDrag({ keys, enabled: sortMode === 'custom', onCommit: commitOrder });
+  /* 拖拽中：drag.order 已经把被拖那张放在它应落的位置上，
+     那张卡片本身描成虚线格子，跟着手指的是钩子造的克隆 */
+  const sortLabel = SHELF_SORTS.find((s) => s.key === sortMode)?.label ?? '';
+
+  const pickSort = (mode: ShelfSort) => {
+    setSortMode(mode);
+    setShelfSort(mode);
+    setShowSort(false);
+    void sync.sync();
+  };
+
+  /*
+   * 一格书。抽出来是因为拖拽时同一张卡要出现在两个位置逻辑里
+   * （流里的占位框旁边、以及列表末尾那个脱离流的本体），不能复制两份。
+   */
+  const renderCard = (it: ShelfEntry) => {
+    /*
+     * 全书进度 =（读到第几章 + 本章读到几成）/ 总章数。
+     * 以前直接拿"最近一章读到几成"当进度，等于把本章进度条
+     * 缩小一圈摆在封面上：200 话读到第 12 话明明是 6%，环上显示 42%。
+     * 算不出来（章节表没缓存、或那章已从表里掉了）就不画 ——
+     * 环上没有数字，画错了用户看不出来，宁缺。
+     */
+    const pct = bookProgress(lists[it.key], it);
+    const source = byId[it.pluginId];
+    return (
+      <Link
+        key={it.key}
+        to={`/comic/${it.pluginId}/${it.slug}`}
+        data-key={it.key}
+        draggable={false}
+        className={`card card--plate${it.key === drag.dragKey ? ' card--slot' : ''}`}
+      >
+        <div className="card__cover">
+          {it.cover && source && (
+            <img
+              src={coverUrl(source, it.cover, 300, 400)}
+              alt={it.title}
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+            />
+          )}
+          {pct !== null && pct > 0 && <ProgressRing percent={pct} size={30} label={`全书 ${pct}%`} />}
+        </div>
+        <div className="card__name">{it.title}</div>
+      </Link>
+    );
+  };
+
   return (
     <>
       <header className="topbar">
@@ -50,6 +165,19 @@ export default function ShelfPage() {
           我的书架{items && items.length > 0 ? ` (${items.length})` : ''}
         </div>
         <div className="topbar__spacer" />
+        {items && items.length > 1 && (
+          <>
+            <span className="topbar__hint">{sortLabel}</span>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="书架排序方式"
+              onClick={() => setShowSort(true)}
+            >
+              <IconSort />
+            </button>
+          </>
+        )}
       </header>
 
       <main className="main">
@@ -74,45 +202,49 @@ export default function ShelfPage() {
             )}
           </div>
         ) : (
-          <div className="grid">
-            {items.map((it) => {
-              /*
-               * 全书进度 =（读到第几章 + 本章读到几成）/ 总章数。
-               * 以前直接拿"最近一章读到几成"当进度，等于把本章进度条
-               * 缩小一圈摆在封面上：200 话读到第 12 话明明是 6%，环上显示 42%。
-               * 算不出来（章节表没缓存、或那章已从表里掉了）就不画 ——
-               * 环上没有数字，画错了用户看不出来，宁缺。
-               */
-              const pct = bookProgress(lists[it.key], it);
-              const source = byId[it.pluginId];
-              return (
-                <Link
-                  key={it.key}
-                  to={`/comic/${it.pluginId}/${it.slug}`}
-                  className="card card--plate"
-                >
-                  <div className="card__cover">
-                    {it.cover && source && (
-                      <img
-                        src={coverUrl(source, it.cover, 300, 400)}
-                        alt={it.title}
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    )}
-                    {pct !== null && pct > 0 && (
-                      <ProgressRing percent={pct} size={30} label={`全书 ${pct}%`} />
-                    )}
-                  </div>
-                  <div className="card__name">{it.title}</div>
-                </Link>
-              );
+          /*
+           * onDragStart 一律拦掉：<a href> 和 <img> 默认都是可拖的，
+           * 浏览器一旦起手就发 pointercancel 接管这一串指针事件 ——
+           * 表现是"鼠标拖不动，可代码是好的"（合成 PointerEvent 能拖，真鼠标不行）。
+           */
+          <div
+            className={`grid grid--shelf${drag.dragKey ? ' is-dragging' : ''}`}
+            ref={drag.containerRef}
+            onDragStart={(e) => e.preventDefault()}
+          >
+            {drag.order.map((k) => {
+              const it = byKey[k];
+              return it ? renderCard(it) : null;
             })}
           </div>
         )}
       </main>
 
       <BottomNav />
+
+      {showSort && (
+        <Sheet title="书架排序" onClose={() => setShowSort(false)}>
+          <div className="settings-rows">
+            {SHELF_SORTS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className="settings-row"
+                onClick={() => pickSort(s.key)}
+              >
+                <span className="settings-row__name">{s.label}</span>
+                <span className="settings-row__value settings-row__value--accent">
+                  {sortMode === s.key ? <IconCheck size={16} /> : s.hint}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="settings-note">
+            选「自定义顺序」后，长按卡片就能拖着摆；换别的排法时拖拽不可用，
+            因为排完也会被规则盖回去。
+          </p>
+        </Sheet>
+      )}
     </>
   );
 }

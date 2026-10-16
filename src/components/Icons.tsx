@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpNarrowWide,
+  ArrowUpDown,
   Bookmark,
   Check,
   CheckCheck,
@@ -59,6 +60,8 @@ export const IconGrid = (p: P) => <LayoutGrid strokeWidth={SW} {...p} />;
 export const IconList = (p: P) => <List strokeWidth={SW} {...p} />;
 /** 竖向滚动条 —— 阅读模式的「切到竖向滚动」用它，避免和章节目录的 IconList 撞 */
 export const IconRows = (p: P) => <Rows3 strokeWidth={SW} {...p} />;
+/** 书架的排序入口：上下两个箭头 = "顺序可调"，比再画一个列表图标好认 */
+export const IconSort = (p: P) => <ArrowUpDown strokeWidth={SW} {...p} />;
 
 /** 空状态插画 —— 比正文图标细一档，避免在 44px 下显得过重 */
 export const IconEmpty = ({ size = 44, ...p }: P) => (
