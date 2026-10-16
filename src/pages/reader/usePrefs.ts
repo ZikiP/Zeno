@@ -51,7 +51,7 @@ export function usePrefs(bookKey: string | null) {
       if ('keepAwake' in delta) devPart.keepAwake = delta.keepAwake;
       if ('brightness' in delta) devPart.brightness = delta.brightness;
       if ('turnAnim' in delta) devPart.turnAnim = delta.turnAnim;
-      if ('turnAnim' in delta) devPart.turnAnim = delta.turnAnim;
+      if ('immersive' in delta) devPart.immersive = delta.immersive;
 
       if (bookKey && Object.keys(bookPart).length) {
         await saveBookPrefs(bookKey, bookPart);

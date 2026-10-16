@@ -27,6 +27,8 @@ import {
   Library,
   LibraryBig,
   List,
+  Maximize,
+  Minimize,
   MonitorSmartphone,
   Moon,
   NotebookText,
@@ -88,6 +90,9 @@ export const IconDirection = ({ rtl = false, ...p }: P & { rtl?: boolean }) =>
 /** 双页显示 —— 左右两栏 */
 export const IconDouble = (p: P) => <Columns2 strokeWidth={SW} {...p} />;
 export const IconZoom = (p: P) => <ZoomIn strokeWidth={SW} {...p} />;
+/** 进/出全屏。两个形状差得够远，不会认错 */
+export const IconExpand = (p: P) => <Maximize strokeWidth={SW} {...p} />;
+export const IconContract = (p: P) => <Minimize strokeWidth={SW} {...p} />;
 /** 书签与笔记面板 —— 和「收藏本页」的 IconBookmark 区分开：一个是看集合，一个是切当前页状态 */
 export const IconNotes = (p: P) => <NotebookText strokeWidth={SW} {...p} />;
 

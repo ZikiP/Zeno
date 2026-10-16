@@ -14,6 +14,7 @@ import { HOTKEY_HELP } from '@/pages/reader/useReaderHotkeys';
 import {
   IconDouble,
   IconDirection,
+  IconExpand,
   IconMoon,
   IconSun,
   IconZoom,
@@ -125,7 +126,8 @@ export default function ReaderPrefsSheet({
       {/* ── 显示 ── */}
       <Section title="显示">
         <div className="prefs-hint">
-          这一页里的显示项每本书各自记一份；亮度与常亮属于这台设备。
+          这一页里的显示项每本书各自记一份；亮度、常亮与沉浸式属于这台设备，
+          而且沉浸式只存在本机，不会同步到别的设备。
         </div>
         <div className="pref-row pref-row--static">
           <div className="pref-row__text">
@@ -186,6 +188,14 @@ export default function ReaderPrefsSheet({
           hint="阅读时不自动锁屏，省得反复点亮"
           control={<div className={`switch${prefs.keepAwake ? ' on' : ''}`} />}
           onClick={() => onChange({ keepAwake: !prefs.keepAwake })}
+        />
+
+        <Row
+          icon={<IconExpand size={18} />}
+          label="沉浸式阅读"
+          hint="一进阅读器就自动全屏。iPhone 的 Safari 没有网页全屏接口，请改用浏览器菜单的「添加到主屏幕」"
+          control={<div className={`switch${prefs.immersive ? ' on' : ''}`} />}
+          onClick={() => onChange({ immersive: !prefs.immersive })}
         />
       </Section>
 

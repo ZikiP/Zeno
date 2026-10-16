@@ -54,6 +54,11 @@ export interface DevicePrefs {
    * 动画顺不顺滑取决于这台机器的屏幕和性能，把手机上选的那档搬到显示器上是灾难。
    */
   turnAnim: TurnAnim;
+  /**
+   * 沉浸式：一进阅读器就自动全屏。同样**不进同步**（见 IMMERSIVE_KEY）——
+   * 全屏是这台设备的屏幕的事，而且手机撑得起、桌面浏览器多半直接被拒。
+   */
+  immersive: boolean;
 }
 
 /** 阅读器实际用的那份 = 单书 + 设备 */
@@ -75,12 +80,14 @@ export const DEFAULT_DEVICE: DevicePrefs = {
   keepAwake: true,
   brightness: null,
   turnAnim: 'flip',
+  immersive: false,
 };
 
 export const DEFAULT_PREFS: ReaderPrefs = { ...DEFAULT_BOOK, ...DEFAULT_DEVICE };
 
 const KEY = 'readerPrefs';
 const TURN_KEY = 'readerTurnAnim';
+const IMMERSIVE_KEY = 'readerImmersive';
 
 /** 属于单书的那几个键。写单书记录时只带这些，别把亮度也塞进去 */
 export const BOOK_KEYS = ['fit', 'direction', 'pageMode', 'bgColor', 'grayscale'] as const;
@@ -119,17 +126,24 @@ export function loadPrefs(): ReaderPrefs {
     const raw = localStorage.getItem(KEY);
     // 与默认值合并，新增字段在旧版本数据上也能正常生效
     const blob = raw ? (JSON.parse(raw) as Partial<ReaderPrefs>) : {};
-    return { ...DEFAULT_PREFS, ...blob, turnAnim: loadTurnAnim() };
+    return { ...DEFAULT_PREFS, ...blob, turnAnim: loadTurnAnim(), immersive: loadImmersive() };
   } catch {
     return DEFAULT_PREFS;
   }
 }
 
+/** 单独一个键，和 turnAnim 同理：这台设备的事，不跟着 readerPrefs 同步 */
+export function loadImmersive(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(IMMERSIVE_KEY) === '1';
+}
+
 export function savePrefs(p: ReaderPrefs) {
   try {
-    const { turnAnim, ...synced } = p;
+    const { turnAnim, immersive, ...synced } = p;
     setLocalPref(KEY, JSON.stringify(synced));
     localStorage.setItem(TURN_KEY, turnAnim);
+    localStorage.setItem(IMMERSIVE_KEY, immersive ? '1' : '0');
   } catch {
     /* 隐私模式下写不进去，忽略 */
   }

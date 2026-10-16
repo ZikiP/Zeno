@@ -5,7 +5,6 @@ import SourcesPanel from './SourcesPanel';
 import CachePanel from './CachePanel';
 import SyncPanel from './SyncPanel';
 import AboutPanel from './AboutPanel';
-import { useTheme } from '@/hooks/useTheme';
 
 /**
  * 设置
@@ -40,15 +39,12 @@ export default function SettingsPage({
   onTabChange: (key: string) => void;
 }) {
   const value = tabFromParam(tab);
-  const { resolved } = useTheme();
 
   return (
     <>
       <header className="topbar">
         <div className="topbar__title">设置</div>
         <div className="topbar__spacer" />
-        {/* 只是提示当前深浅色，切换在「外观」栏里 —— 这里再放一颗按钮会让人以为别处不能改 */}
-        <span className="topbar__hint">{resolved === 'light' ? '浅色' : '深色'}</span>
       </header>
 
       <Tabs items={TABS} value={value} onChange={onTabChange} label="设置分区" />

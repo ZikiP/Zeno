@@ -10,6 +10,7 @@ import { useBookmarks } from './useBookmarks';
 import {
   useAutoDismiss,
   useImagePreload,
+  useImmersiveFullscreen,
   useKeepAwake,
   useRestoreProgress,
   useShelfProgress,
@@ -113,6 +114,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
 
   /* ── 副作用 ── */
   useKeepAwake(prefs.value.keepAwake, !!images);
+  const fs = useImmersiveFullscreen(prefs.value.immersive);
   useImagePreload(images, paging.startIndex, paging.perPage, mode === 'paged');
   usePrefetchNextChapter({ plugin, slug, nextId, ready: !!images && !loading && !error });
 
@@ -158,12 +160,15 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         rtl={isRTL}
         mode={mode}
         marked={bookmarks.markedPages.has(paging.currentImageIndex)}
+        canFullscreen={fs.supported}
+        fullscreen={fs.active}
         onBack={() => nav(-1)}
         onSettings={() => panels.open('prefs')}
         onChapters={() => panels.open('chapters')}
         onBookmarks={() => panels.open('bookmarks')}
         onToggleMark={() => void toggleMark()}
         onToggleMode={() => switchMode(mode === 'scroll' ? 'paged' : 'scroll')}
+        onToggleFullscreen={fs.toggle}
       />
 
       {error ? (

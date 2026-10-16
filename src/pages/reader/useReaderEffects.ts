@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getShelf } from '@/store/shelf';
 import { markImageReady } from '@/components/RetryableImage';
+import {
+  fullscreenSupported,
+  isFullscreen,
+  onFullscreenChange,
+  toggleFullscreen,
+} from '@/reader/fullscreen';
 import { useRestoreScrollPosition } from './useChapterLoader';
 
 /**
@@ -182,4 +188,44 @@ export function useImagePreload(
   useEffect(() => {
     done.current.clear();
   }, [images]);
+}
+
+/**
+ * 全屏（沉浸式阅读）
+ *
+ * 状态必须跟着系统手势走：安卓拉下状态栏、桌面无障碍退出、按 ESC 都会掉出全屏，
+ * 那时按钮图标得一起变，所以订阅 fullscreenchange，而不是只在点击回调里读一次。
+ *
+ * `auto` 为真时进阅读器试一次自动全屏。requestFullscreen 要用户手势 —— 从书架
+ * 点进来那一下的激活还在有效期内，通常能成；被拒就算了，全屏是锦上添花，
+ * 不该为此报错或反复重试。
+ */
+export function useImmersiveFullscreen(auto: boolean): {
+  supported: boolean;
+  active: boolean;
+  toggle: () => void;
+} {
+  const supported = fullscreenSupported();
+  const [active, setActive] = useState(false);
+  const tried = useRef(false);
+
+  useEffect(() => {
+    if (!supported) return;
+    setActive(isFullscreen());
+    return onFullscreenChange(() => setActive(isFullscreen()));
+  }, [supported]);
+
+  useEffect(() => {
+    if (!auto || !supported || tried.current) return;
+    tried.current = true;
+    if (isFullscreen()) return;
+    void toggleFullscreen().then(setActive);
+  }, [auto, supported]);
+
+  const toggle = useCallback(() => {
+    if (!supported) return;
+    void toggleFullscreen().then(setActive);
+  }, [supported]);
+
+  return { supported, active, toggle };
 }

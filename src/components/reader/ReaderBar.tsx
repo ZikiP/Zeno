@@ -1,7 +1,9 @@
 import {
   IconBack,
   IconBookmark,
+  IconContract,
   IconDouble,
+  IconExpand,
   IconList,
   IconNotes,
   IconRows,
@@ -17,12 +19,16 @@ export interface ReaderBarProps {
   mode: 'scroll' | 'paged';
   /** 当前页是否已收藏 */
   marked: boolean;
+  /** 这台设备有没有元素级 Fullscreen API。没有就不画这颗按钮，别摆一个点了没反应的 */
+  canFullscreen: boolean;
+  fullscreen: boolean;
   onBack: () => void;
   onSettings: () => void;
   onChapters: () => void;
   onBookmarks: () => void;
   onToggleMark: () => void;
   onToggleMode: () => void;
+  onToggleFullscreen: () => void;
 }
 
 export default function ReaderBar(p: ReaderBarProps) {
@@ -67,6 +73,16 @@ export default function ReaderBar(p: ReaderBarProps) {
       >
         {p.mode === 'scroll' ? <IconDouble /> : <IconRows />}
       </button>
+      {p.canFullscreen && (
+        <button
+          className={`icon-btn${p.fullscreen ? ' is-on' : ''}`}
+          onClick={p.onToggleFullscreen}
+          aria-label={p.fullscreen ? '退出全屏' : '全屏阅读'}
+          title={p.fullscreen ? '退出全屏' : '全屏阅读'}
+        >
+          {p.fullscreen ? <IconContract /> : <IconExpand />}
+        </button>
+      )}
     </div>
   );
 }
