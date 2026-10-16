@@ -39,6 +39,14 @@
   white-space: nowrap;
 }
 
+/* 同步状态泡的挂载点。由 SyncPill 在运行时插进当前顶栏的末尾，
+   所以它天然排在最右；本身不画任何东西，触摸目标交给里面的按钮。 */
+.topbar__sync {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .icon-btn {
   width: 38px;
   height: 38px;

@@ -1,13 +1,5 @@
 ﻿import { useEffect, useState, type ReactNode } from 'react';
-import {
-  Link,
-  Navigate,
-  Route,
-  Routes,
-  useParams,
-  useNavigate,
-  useSearchParams,
-} from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 import ShelfPage from '@/pages/ShelfPage';
 import ExplorePage from '@/pages/ExplorePage';
 import GlobalSearchPage from '@/pages/GlobalSearchPage';
@@ -18,7 +10,7 @@ import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { useTheme } from '@/hooks/useTheme';
 import { Loading, OfflineBar } from '@/components/UI';
 import { IconEmpty } from '@/components/Icons';
-import SyncBar from '@/sync/SyncBar';
+import SyncPill from '@/sync/SyncPill';
 import { sync } from '@/sync/client';
 
 function useOnline() {
@@ -138,12 +130,9 @@ function ThemeApplier() {
 
 function Shell() {
   const online = useOnline();
-  const nav = useNavigate();
   return (
     <div className="app">
       <OfflineBar online={online} />
-      {/* 状态条一直点不动是没意义的：它报的就是同步的事，点进去就该到那一栏 */}
-      <SyncBar onConfigure={() => nav('/settings?tab=sync')} />
       <Routes>
         <Route path="/" element={<Navigate to="/shelf" replace />} />
         <Route path="/shelf" element={<ShelfPage />} />
@@ -182,6 +171,8 @@ function Shell() {
         <Route path="/settings" element={<SettingsRoute />} />
         <Route path="*" element={<Navigate to="/shelf" replace />} />
       </Routes>
+      {/* 顶栏右端那颗同步泡，逻辑见 SyncPill：它自己找到当前这一页的顶栏挂进去 */}
+      <SyncPill />
     </div>
   );
 }

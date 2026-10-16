@@ -8,8 +8,8 @@ import { sync, type SyncState } from '@/sync/client';
  * 多端同步
  *
  * 地址、令牌、这台的显示名，以及服务端记下的设备列表。
- * 顶栏那条状态读数在 SyncBar.tsx —— 那是同一件事的两面，分开两个文件，
- * 合起来早就过了组件的 250 行上限。
+ * 顶栏那颗状态泡在 SyncPill.tsx —— 那是同一件事的两面，分开两个文件，
+ * 合起来早就过了组件的 250 行上限。点泡上的状态会落到这一栏。
  */
 export default function SyncPanel() {
   const [s, setS] = useState<SyncState>(sync.getState());

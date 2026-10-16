@@ -186,22 +186,22 @@ await page.keyboard.press('End');
 await page.waitForTimeout(400);
 check(new URL(page.url()).searchParams.get('tab') === 'about', 'End 走到最后一栏');
 
-console.log('\n=== 3. 深链到某一栏 + 状态条入口');
+console.log('\n=== 3. 深链到某一栏 + 顶栏状态泡入口');
 await page.goto(`${BASE}/settings?tab=cache`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1200);
 check(await page.$eval('[role=tabpanel]', (el) => el.textContent?.includes('缓存目录') ?? false), '?tab=cache 直接落到缓存栏');
 await page.goto(`${BASE}/shelf`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1500);
-const bar = await page.$('.sync-bar');
-if (bar) {
-  await bar.click();
+const pill = await page.$('.topbar__sync .sync-pill');
+if (pill) {
+  await pill.click();
   await page.waitForTimeout(900);
   check(
     new URL(page.url()).pathname === '/settings' && new URL(page.url()).searchParams.get('tab') === 'sync',
-    `点同步状态条落到「同步」栏（当前 ${page.url().replace(BASE, '')}）`,
+    `点顶栏状态泡落到「同步」栏（当前 ${page.url().replace(BASE, '')}）`,
   );
 } else {
-  check(false, '没看到同步状态条（这台没配服务端地址时本来就没有，算通过要看实际）');
+  check(false, '没看到顶栏状态泡（这台没配服务端地址时本来就没有，算通过要看实际）');
 }
 
 console.log('\n=== 4. 关于里的版本号是真的');

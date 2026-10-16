@@ -161,13 +161,13 @@
   text-align: left;
   padding: 9px 34px 9px 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
   color: var(--text);
-  transition: background var(--d-press) var(--e-out);
+  transition:
+    background var(--d-press) var(--e-out),
+    transform var(--d-press) var(--e-out);
 }
 .field-btn:active {
-  background: var(--bg-elev-2);
+  transform: scale(0.99);
 }
 .field-btn__label {
   display: block;
@@ -218,8 +218,6 @@
   height: 38px;
   padding: 0 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg);
   color: var(--text);
   font-size: 13px;
   outline: none;
@@ -242,4 +240,81 @@
   /* 弹窗里列表按视口高度给，别把「取消 / 选这里」挤出屏幕 */
   max-height: 42vh;
   overflow-y: auto;
+}
+
+
+/* ── 同步状态泡 ─────────────────────────────────────
+   顶栏右端一颗泡：颜色说状态，文字只在鼠标停住/键盘聚焦时展开。
+   材质（背景、模糊、边光）在 glass.css，这里只有形状和读数。 */
+
+.sync-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  /* 收起时是正圆：左右各 9px 把 6px 的点框成 24+ 的圆，padding 不参与展开过渡 */
+  padding: 0 9px;
+  border: none;
+  border-radius: var(--radius-pill);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background var(--d-micro) var(--e-out);
+}
+
+.sync-pill__label {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition:
+    max-width var(--d-sheet) var(--e-out),
+    opacity var(--d-micro) var(--e-out);
+}
+
+.sync-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-faint);
+}
+
+.sync-pill:hover .sync-pill__label,
+.sync-pill:focus-visible .sync-pill__label {
+  max-width: 150px;
+  opacity: 1;
+}
+
+/* 26px 高的东西在手机上按不准，外扩热区到 44px，外观不动 */
+@media (pointer: coarse) {
+  .sync-pill {
+    position: relative;
+  }
+  .sync-pill::after {
+    content: '';
+    position: absolute;
+    inset: 50% 0 auto 0;
+    transform: translateY(-50%);
+    height: 44px;
+  }
+}
+
+.sync-pill--ok .sync-pill__dot {
+  background: var(--ok);
+}
+.sync-pill--busy .sync-pill__dot {
+  background: var(--accent);
+  animation: sync-pill-pulse 1.2s var(--e-inout) infinite;
+}
+.sync-pill--error .sync-pill__dot {
+  background: var(--danger);
+}
+.sync-pill--error {
+  color: var(--danger);
+}
+@keyframes sync-pill-pulse {
+  50% {
+    opacity: 0.3;
+  }
 }
