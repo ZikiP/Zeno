@@ -43,9 +43,58 @@ export function validatePlugin(p: unknown): string[] {
     }
   }
 
+  /*
+   * 发现页的筛选维度。这一段比别处拦得严，因为写错的代价是**静默的**：
+   * 声明了维度但 classify 里没有对应的 {key}，按钮照样画、点了照样请求同一个地址 ——
+   * 拷贝漫画那五个死按钮就是这么来的。
+   */
+  const filterKeys: string[] = [];
+  if (pl.filters !== undefined) {
+    const classifyTpl = String(pl.urls?.classify ?? '');
+    if (!Array.isArray(pl.filters)) {
+      errs.push('filters 应为数组（每项是一个筛选维度）；不要筛选就把整个字段省略掉');
+    } else {
+      for (const [i, f] of pl.filters.entries()) {
+        const at = `filters[${i}]`;
+        if (!f || typeof f !== 'object') {
+          errs.push(`${at} 应为对象`);
+          continue;
+        }
+        if (typeof f.key !== 'string' || !/^\w+$/.test(f.key)) {
+          errs.push(`${at}.key 要能当占位符名用（字母数字下划线），例 "theme"`);
+        } else {
+          if (filterKeys.includes(f.key)) errs.push(`${at}.key 重复：${f.key}`);
+          else filterKeys.push(f.key);
+          if (classifyTpl && !classifyTpl.includes(`{${f.key}}`)) {
+            errs.push(
+              `${at} 声明了维度 "${f.key}"，但 urls.classify 里没有 {${f.key}} —— ` +
+                '这个按钮点了不会改变地址，看着就像站点的筛选坏了',
+            );
+          }
+        }
+        if (f.default !== undefined && typeof f.default !== 'string') {
+          errs.push(`${at}.default 应为字符串（省略 = 空串，也就是不传这个参数）`);
+        }
+        if (!Array.isArray(f.options) || f.options.length < 2) {
+          errs.push(`${at}.options 至少要有两项 —— 只有一项的维度没有可选项，不如不写`);
+          continue;
+        }
+        for (const [j, o] of f.options.entries()) {
+          if (!o || typeof o !== 'object') {
+            errs.push(`${at}.options[${j}] 应为 { value, label }`);
+          } else if (typeof o.value !== 'string') {
+            errs.push(`${at}.options[${j}].value 应为字符串（站点的「全部」通常就是空串）`);
+          } else if (!String(o.label ?? '').trim()) {
+            errs.push(`${at}.options[${j}].label 不能为空`);
+          }
+        }
+      }
+    }
+  }
+
   for (const k of ['search', 'classify', 'detail', 'chapter'] as const) {
     if (!pl.urls?.[k]) errs.push(`缺少 urls.${k}`);
-    else validateTemplate(k, pl.urls[k], errs);
+    else validateTemplate(k, pl.urls[k], errs, k === 'classify' ? filterKeys : []);
   }
 
   if (!pl.parse?.card) errs.push('缺少 parse.card（卡片起始片段）');

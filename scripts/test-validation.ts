@@ -102,6 +102,49 @@ check(
   `模板用到的占位符都在 URL_VARS 里（实际：${[...tplVars].join(' ')}）`,
 );
 
+console.log('\n=== 3.5 发现页的筛选维度 ===');
+/*
+ * 这一组规则的代价全是静默的：按钮照样画、点了照样请求同一个地址，
+ * 或者模板里的变量没人填 —— 用户只会得出"这个站的筛选坏了"的结论。
+ * 拷贝漫画那五个死 chip 就是缺了下面第一条的反面教材。
+ */
+const themeFilter = {
+  key: 'theme',
+  default: '',
+  options: [
+    { value: '', label: '全部' },
+    { value: 'danmei', label: '耽美' },
+  ],
+};
+expectOk(
+  { ...base, urls: { ...base.urls, classify: '/comics?theme={theme}' }, filters: [themeFilter] },
+  '声明维度并在模板里引用（拷貝漫畫就是这个形态）',
+);
+expectErr(
+  { ...base, filters: [{ ...themeFilter, key: 'year' }] },
+  '声明了 filters 但 classify 里没有 {year}',
+  '这个按钮点了不会改变地址',
+);
+expectErr(
+  { ...base, urls: { ...base.urls, classify: '/comics?theme={theme}' } },
+  'classify 用了未声明的 {theme}',
+  '不认识的占位符',
+);
+expectErr(
+  {
+    ...base,
+    urls: { ...base.urls, classify: '/comics?theme={theme}' },
+    filters: [{ ...themeFilter, options: [{ value: 'a', label: '甲' }] }],
+  },
+  'options 只有一项（没有可选项的维度不该占一排）',
+  '至少要有两项',
+);
+expectErr(
+  { ...base, urls: { ...base.urls, classify: '/comics?theme={theme}' }, filters: [{ ...themeFilter, key: 'the-me' }] },
+  'key 不能当占位符名',
+  '要能当占位符名用',
+);
+
 console.log('\n=== 4. 其余字段 ===');
 expectErr({ ...base, chapterHost: 'not a url' }, 'chapterHost 非法', 'chapterHost');
 expectErr({ ...base, parse: { ...base.parse, title: {} as never } }, 'title 空对象', 'parse.title');

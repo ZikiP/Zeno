@@ -39,6 +39,34 @@
 }
 
 /*
+ * 一个筛选维度一行。
+ *
+ * 原来地区 + 状态挤在同一行 .filters 里，靠一根竖线分开。维度能由插件自带之后
+ * 这就不成立了：拷貝漫畫光题材就有 69 项，全塞进一行横滚等于没有筛选。
+ * 竖线换成每排前面挂一个维度名，排与排之间用原来的下边框分。
+ */
+.filter-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.filter-row .filters {
+  border-bottom: none;
+  padding-block: 8px;
+  /* flex 子项默认不收缩，不加这条里面的 overflow-x 永远不会真的滚起来 */
+  min-width: 0;
+}
+.filter-row__label {
+  flex-shrink: 0;
+  padding-left: 12px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.filter-row__label + .filters {
+  padding-left: 6px;
+}
+
+/*
  * 发现页的源切换器也是 filters 那一排 chip，但两排 chip 上下贴着会看不出
  * 上面那排是"看哪个站"、下面那排是"站里怎么筛"。垫一层底色分开 ——
  * 和 chip 同一档玻璃，靠整排的面积差读出"这是一条带"。

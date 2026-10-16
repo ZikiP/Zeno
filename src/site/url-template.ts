@@ -13,6 +13,10 @@ import type { Plugin } from './types';
  *
  * 这是唯一一份定义 —— fillTemplate 的调用方（engine.ts）和导入校验都从这里取，
  * 不会出现在「引擎多支持了一个变量但校验还当它是错的」那种漂移。
+ *
+ * classify 那一行只是**内置的**几个名字：插件自己 `filters` 里声明的 key 会由
+ * validate.ts 追加进来。分类页的维度本来就随站点而定，写死一张表等于要求
+ * 所有站点的筛选长成一个样。
  */
 export const URL_VARS: Record<keyof Plugin['urls'], string[]> = {
   search: ['q'],
@@ -28,15 +32,23 @@ export const URL_VARS: Record<keyof Plugin['urls'], string[]> = {
  * 于是把 {slug} 写成 {slugg}、或者 detail 里干脆没有 {slug}，
  * 插件照样导得进来，但每一本漫画都会打开同一个页面 ——
  * 看上去像站点坏了，实际是配置里的一个打字错误。
+ *
+ * @param extraVars 该插件通过 filters 声明的占位符名，只对 classify 有意义
  */
-export function validateTemplate(kind: keyof Plugin['urls'], tpl: string, errs: string[]) {
+export function validateTemplate(
+  kind: keyof Plugin['urls'],
+  tpl: string,
+  errs: string[],
+  extraVars: string[] = [],
+) {
   const used = [...tpl.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
-  const allowed = URL_VARS[kind];
+  const allowed = [...URL_VARS[kind], ...extraVars];
 
   for (const v of used) {
     if (!allowed.includes(v)) {
       errs.push(
-        `urls.${kind} 里有不认识的占位符 {${v}}，可用的是 ${allowed.map((a) => `{${a}}`).join(' ')}`,
+        `urls.${kind} 里有不认识的占位符 {${v}}，可用的是 ${allowed.map((a) => `{${a}}`).join(' ')}` +
+          (kind === 'classify' ? '；分类页的维度请写进 filters，界面才会画出这一排按钮' : ''),
       );
     }
   }

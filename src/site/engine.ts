@@ -57,27 +57,47 @@ export interface ChapterPage {
   truncated?: boolean;
 }
 
-/** 搜索 / 分类列表 */
+/**
+ * 没声明 filters 的老插件里，这三个名字历史上由框架代填 all。
+ * 新插件请自己在 filters 里写 default —— 空值和不传在实测的站点上是等价的。
+ */
+const LEGACY_CLASSIFY_DEFAULTS: Record<string, string> = { type: 'all', region: 'all', state: 'all' };
+
+/** 拼分类页的变量表：界面给的 > 插件声明的 default > 内置兜底 */
+function classifyVars(plugin: Plugin, given: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of plugin.filters ?? []) {
+    out[f.key] = given[f.key] ?? f.default ?? '';
+  }
+  for (const [k, v] of Object.entries(given)) {
+    if (v !== undefined && !(k in out)) out[k] = v;
+  }
+  for (const { 1: name } of plugin.urls.classify.matchAll(/\{(\w+)\}/g)) {
+    if (!(name in out) && name in LEGACY_CLASSIFY_DEFAULTS) out[name] = LEGACY_CLASSIFY_DEFAULTS[name];
+  }
+  return out;
+}
+
+/**
+ * 搜索 / 分类列表。
+ *
+ * `filter` 里除 `query` 之外的键就是 `urls.classify` 的占位符名 —— 有哪些维度
+ * 由插件的 `filters` 说了算，这里不认识任何具体的站点参数。
+ */
 export async function listComics(
   plugin: Plugin,
-  filter: { query?: string; type?: string; region?: string; state?: string } = {},
+  filter: { query?: string } & Record<string, string | undefined> = {},
 ): Promise<ListResult> {
-  const url = filter.query
-    ? new URL(fillTemplate(plugin.urls.search, { q: filter.query }), plugin.entry).toString()
-    : new URL(
-        fillTemplate(plugin.urls.classify, {
-          type: filter.type ?? 'all',
-          region: filter.region ?? 'all',
-          state: filter.state ?? 'all',
-        }),
-        plugin.entry,
-      ).toString();
+  const { query, ...given } = filter;
+  const url = query
+    ? new URL(fillTemplate(plugin.urls.search, { q: query }), plugin.entry).toString()
+    : new URL(fillTemplate(plugin.urls.classify, classifyVars(plugin, given)), plugin.entry).toString();
 
   const html = await fetchText(plugin, url, 'list');
   const comics = parseCards(html, plugin.parse);
 
   // 分类页永远是精确结果
-  if (!filter.query) return { comics, exact: true };
+  if (!query) return { comics, exact: true };
 
   return { comics, exact: isSearchExact(html, plugin.parse, comics.length) };
 }

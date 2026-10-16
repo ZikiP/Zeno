@@ -17,6 +17,33 @@ export type FetchMode = 'fetch' | 'browser';
 /** 需要取 HTML 的页面类型。图片不属于任何一类 —— 它永远走 fetch */
 export type PageKind = 'list' | 'detail' | 'chapter';
 
+/** 发现页筛选按钮的一项 */
+export interface PluginFilterOption {
+  /**
+   * 填进 `urls.classify` 同名占位符的值。
+   *
+   * 站点自己的「全部」链接通常**根本不带这个参数**，所以这一项就填 `""` ——
+   * 实测拷貝漫畫 `?theme=&region=&status=` 与不带参数返回的是同一批内容。
+   */
+  value: string;
+  /** 按钮上的文字 */
+  label: string;
+}
+
+/** 发现页的一个筛选维度 */
+export interface PluginFilter {
+  /**
+   * 占位符名，必须与 `urls.classify` 里写的 `{key}` 对上。
+   * 对不上的话这个按钮点了不会改变地址 —— 看着就是"筛选坏了"，所以导入时直接拦。
+   */
+  key: string;
+  /** 维度名，画在这一排按钮前面。省略则不画 */
+  label?: string;
+  /** 未选择时的取值，一般就是「全部」那一项。省略 = 空串 */
+  default?: string;
+  options: PluginFilterOption[];
+}
+
 /** 插件格式版本，用于将来做兼容 */
 export const PLUGIN_FORMAT = 'zeno-plugin@1';
 
@@ -54,13 +81,31 @@ export interface Plugin {
   urls: {
     /** 搜索，例：/search?q={q} */
     search: string;
-    /** 分类列表。{type} {region} {state} */
+    /**
+     * 分类列表。占位符由 `filters` 声明，名字随站点而定 ——
+     * 例：包子漫画 `/classify?type={type}&region={region}&state={state}`，
+     * 拷貝漫畫 `/comics?theme={theme}&region={region}&status={status}&ordering={ordering}`。
+     */
     classify: string;
     /** 漫画详情，例：/comic/{slug} */
     detail: string;
     /** 章节正文。{slug} {id} */
     chapter: string;
   };
+
+  /**
+   * 发现页的筛选维度。**每个站点长得不一样，所以由插件自己声明。**
+   *
+   * 为什么不给一套通用预设：同一个词在不同站点根本不是一回事。
+   * 实测两个站 —— 包子漫画的地区是 `region=cn/jp/kr/en`、状态叫 `state=serial/pub`；
+   * 拷貝漫畫的地区是 `region=0/1/2`（日漫/韓漫/美漫）、状态叫 `status=0/1/2`
+   * 还多一档短篇，另外有 69 个 `theme=` 题材值和两档排序。
+   * 框架硬塞一套预设，多出来的按钮点了只会重复请求同一个地址，
+   * 用户看到的是"这个站的筛选全是坏的"。
+   *
+   * 省略整个 `filters` = 发现页不画任何筛选，只出默认列表。
+   */
+  filters?: PluginFilter[];
 
   /** HTML 解析规则 */
   parse: {

@@ -128,6 +128,20 @@ npm run dev
     "detail": "/comic/{slug}",
     "chapter": "/comic/chapter/{slug}/{id}.html"
   },
+  "filters": [
+    {
+      "key": "region",
+      "label": "地区",
+      "default": "all",
+      "options": [{ "value": "all", "label": "全部" }, { "value": "cn", "label": "国漫" }]
+    },
+    {
+      "key": "state",
+      "label": "状态",
+      "default": "all",
+      "options": [{ "value": "all", "label": "全部" }, { "value": "serial", "label": "连载中" }]
+    }
+  ],
   "parse": {
     "card": "<div class=\"comic-card",
     "slugFrom": "href=\"/comic/([^\"?]+)\"",
@@ -149,7 +163,8 @@ npm run dev
 |---|---|
 | `entry` | 入口域名 |
 | `chapterHost` | 章节页域名，留空则同入口 |
-| `urls.*` | URL 模板。`{q}` 搜索词、`{slug}` 漫画标识、`{id}` 章节 id |
+| `urls.*` | URL 模板。`{q}` 搜索词、`{slug}` 漫画标识、`{id}` 章节 id；`classify` 里的变量名由 `filters` 声明 |
+| `filters` | 发现页的筛选维度，**每个站点自己声明**。`key` 必须与 `classify` 里的 `{key}` 对上（对不上导入就被拦：那会画出一个点了不会变地址的死按钮）；`value` 填 `""` 就是"不传这个参数"，多数站点的「全部」正是这样。整个字段省略 = 发现页不画筛选 |
 | `parse.card` | **字符串切分点，必须填标签开头** |
 | `parse.slugFrom` | 提取漫画标识，需一个捕获组 |
 | `parse.title` | `{attr:"title"}` 按属性，或 `{tag:"h3"}` 按标签 |

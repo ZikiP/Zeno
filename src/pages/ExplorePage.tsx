@@ -1,6 +1,7 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
+import type { Plugin, PluginFilter } from '@/site/types';
 import { usePlugin } from '@/store/PluginContext';
 import { IconEmpty, IconSearch } from '@/components/Icons';
 import BottomNav from '@/components/BottomNav';
@@ -8,23 +9,47 @@ import SourceSwitcher from '@/components/SourceSwitcher';
 import { ErrorBox, Loading } from '@/components/UI';
 
 /**
- * 分类维度。这些值会填进站点配置的 URL 模板变量，
- * 所以是否有效取决于目标站点支持哪些取值 —— 不支持时列表会返回空。
- * 用户可以直接在站点配置里改 URL 模板来匹配自己站点的实际参数。
+ * 没写 `filters` 的老插件的兜底预设：分类页模板里出现这两个名字，就按这一套画按钮。
+ *
+ * 它只服务"升级格式之前导入的插件"，不是新插件该走的路 —— 别的站点的地区
+ * 压根不是这几个值（拷貝漫畫用 region=0/1/2），状态也叫 status 不叫 state。
  */
-const REGIONS = [
-  { key: 'all', label: '全部' },
-  { key: 'cn', label: '国漫' },
-  { key: 'jp', label: '日本' },
-  { key: 'kr', label: '韩国' },
-  { key: 'en', label: '欧美' },
-];
+const LEGACY_FILTERS: Record<string, PluginFilter> = {
+  region: {
+    key: 'region',
+    options: [
+      { value: 'all', label: '全部' },
+      { value: 'cn', label: '国漫' },
+      { value: 'jp', label: '日本' },
+      { value: 'kr', label: '韩国' },
+      { value: 'en', label: '欧美' },
+    ],
+  },
+  state: {
+    key: 'state',
+    options: [
+      { value: 'all', label: '全部' },
+      { value: 'serial', label: '连载中' },
+      { value: 'pub', label: '已完结' },
+    ],
+  },
+};
 
-const STATES = [
-  { key: 'all', label: '全部' },
-  { key: 'serial', label: '连载中' },
-  { key: 'pub', label: '已完结' },
-];
+/**
+ * 这一站发现页画哪几排按钮。
+ *
+ * 顺序照插件声明的来；模板里用了内置名字而插件没声明的，补在后面，
+ * 这样老插件不会因为格式升级突然没了筛选。模板里没出现的维度一律不画 ——
+ * 画了就是点了不会变的死按钮。
+ */
+function filterGroups(plugin: Plugin): PluginFilter[] {
+  const used = [...(plugin.urls.classify ?? '').matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+  const out = (plugin.filters ?? []).filter((f) => used.includes(f.key));
+  for (const name of used) {
+    if (!out.some((f) => f.key === name) && LEGACY_FILTERS[name]) out.push(LEGACY_FILTERS[name]);
+  }
+  return out;
+}
 
 export default function ExplorePage() {
   const { plugin } = usePlugin();
@@ -32,12 +57,19 @@ export default function ExplorePage() {
   const pid = plugin?.meta.id ?? '';
   const [q, setQ] = useState('');
   const [submitted, setSubmitted] = useState('');
-  const [region, setRegion] = useState('all');
-  const [state, setState] = useState('all');
+  /** 用户点过的维度。没点过的走各维度自己声明的 default，所以换源不必逐个重置 */
+  const [picked, setPicked] = useState<Record<string, string>>({});
   const [comics, setComics] = useState<Comic[] | null>(null);
   const [exact, setExact] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const groups = useMemo(() => (plugin ? filterGroups(plugin) : []), [plugin]);
+  const activeOf = useCallback((f: PluginFilter) => picked[f.key] ?? f.default ?? '', [picked]);
+  const vars = useMemo(
+    () => Object.fromEntries(groups.map((f) => [f.key, activeOf(f)])),
+    [groups, activeOf],
+  );
 
   const load = useCallback(async () => {
     if (!plugin?.meta.id) return;
@@ -46,7 +78,7 @@ export default function ExplorePage() {
     try {
       const result = submitted
         ? await listComics(plugin, { query: submitted })
-        : await listComics(plugin, { region, state });
+        : await listComics(plugin, vars);
       /*
        * 搜索无结果时，站点常常塞一堆推荐内容。
        * 这时把结果丢掉并明确告知「没找到」，比显示 91 部无关作品好得多。
@@ -64,7 +96,7 @@ export default function ExplorePage() {
     } finally {
       setLoading(false);
     }
-  }, [plugin, submitted, region, state]);
+  }, [plugin, submitted, vars]);
 
   useEffect(() => {
     load();
@@ -74,14 +106,13 @@ export default function ExplorePage() {
   useEffect(() => {
     setComics(null);
     setExact(true);
-  }, [submitted, region, state, plugin?.meta.id]);
+  }, [submitted, vars, plugin?.meta.id]);
 
   /* 换源等于换了个站：搜索词和筛选值带过去只会是别的站的参数，清空重来 */
   const resetForSource = useCallback(() => {
     setQ('');
     setSubmitted('');
-    setRegion('all');
-    setState('all');
+    setPicked({});
   }, []);
 
   if (!plugin?.meta.id) return null;
@@ -114,31 +145,24 @@ export default function ExplorePage() {
 
       <SourceSwitcher onPick={resetForSource} />
 
-      {!submitted && (
-        <>
-          <div className="filters">
-            {REGIONS.map((c) => (
-              <button
-                key={c.key}
-                className={`chip${region === c.key ? ' on' : ''}`}
-                onClick={() => setRegion(c.key)}
-              >
-                {c.label}
-              </button>
-            ))}
-            <span style={{ width: 1, background: 'var(--border)', margin: '4px', flexShrink: 0 }} />
-            {STATES.map((c) => (
-              <button
-                key={c.key}
-                className={`chip${state === c.key ? ' on' : ''}`}
-                onClick={() => setState(c.key)}
-              >
-                {c.label}
-              </button>
-            ))}
+      {/* 一个维度一行：题材这种几十项的塞进一行横滚，等于没有筛选 */}
+      {!submitted &&
+        groups.map((g) => (
+          <div className="filter-row" key={g.key}>
+            {g.label && <span className="filter-row__label">{g.label}</span>}
+            <div className="filters">
+              {g.options.map((o) => (
+                <button
+                  key={o.value}
+                  className={`chip${activeOf(g) === o.value ? ' on' : ''}`}
+                  onClick={() => setPicked((p) => ({ ...p, [g.key]: o.value }))}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </>
-      )}
+        ))}
 
       {submitted && (
         <div
