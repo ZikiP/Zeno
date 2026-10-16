@@ -24,10 +24,14 @@ body {
 }
 
 /*
- * 极淡的环境底色 —— 玻璃必须有东西可透。
- * 在纯色背景上 blur 出来的还是那个纯色，顶栏和玻璃卡片只会看着像蒙了层灰。
- * 这两团渐变就是给它们折的，强度压到只够让玻璃"活"起来，不抢内容。
- * 负 z-index 让它落在 body 背景之上、所有内容之下。
+ * 环境底色 —— 玻璃必须有东西可透。
+ * 在纯色背景上 blur 出来的还是那个纯色，边缘折射也无从折起，顶栏和玻璃卡片
+ * 就只会看着像蒙了层灰。这几团低频色斑就是给它们折的。
+ *
+ * 原来是两团，都挤在视口顶部（8% -4% 与 96% 10%，72% 处就衰减完）——
+ * 结果首屏往下整段画布是平的，书架卡片、设置那组行、底栏底下都没有东西可折，
+ * 玻璃感只在最上面那一小条成立。现在四团分踞四个方向，纵向铺满整屏。
+ * 强度仍然压到"只够让玻璃活起来"，不抢内容。负 z-index 让它落在 body 之上、内容之下。
  */
 body::before {
   content: '';
@@ -37,14 +41,29 @@ body::before {
   pointer-events: none;
   background:
     radial-gradient(
-      62% 44% at 8% -4%,
-      color-mix(in oklab, var(--accent) 20%, transparent),
+      78% 40% at 4% -6%,
+      color-mix(in oklab, var(--accent) 38%, transparent),
+      transparent 68%
+    ),
+    radial-gradient(
+      58% 32% at 100% 8%,
+      color-mix(in oklab, var(--accent) 22%, transparent),
       transparent 72%
     ),
     radial-gradient(
-      52% 36% at 96% 10%,
-      color-mix(in oklab, var(--accent) 11%, transparent),
-      transparent 74%
+      84% 44% at 96% 72%,
+      color-mix(in oklab, var(--accent) 26%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      64% 30% at 42% 46%,
+      color-mix(in oklab, var(--accent) 13%, transparent),
+      transparent 76%
+    ),
+    radial-gradient(
+      72% 38% at 2% 104%,
+      color-mix(in oklab, var(--accent) 20%, transparent),
+      transparent 68%
     );
 }
 

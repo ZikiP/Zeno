@@ -16,7 +16,10 @@
   color-scheme: light dark;
 
   /* 表面与文字 */
-  --bg: light-dark(#f4f5f8, #0d0f14);
+  /* 画布不能是纯色 —— 玻璃是靠折/糊背后的东西成立的，背后没结构就没有材质。
+     浅色这一档比原来的 #f4f5f8 深了一档，为的是让白色玻璃有得"浮"出来：
+     原来页底 rgb(244,245,248)、玻璃复色 rgb(251,251,252)，差 7 个单位，肉眼读不出边界。 */
+  --bg: light-dark(#e6eaf3, #0b0e13);
   --bg-elev: light-dark(#ffffff, #171b23);
   --bg-elev-2: light-dark(#eceef3, #21262f);
   --text: light-dark(#12151b, #eef1f6);
@@ -36,29 +39,63 @@
   --border-strong: light-dark(#c3c9d4, #3a4150);
 
   /* ── 材质 ──
-     --glass-bg 给骨架，--glass-bg-thick 给浮层（抽屉/弹窗要更压得住）。
-     浅色下饱和只给 1.4：再高会往青里偏。
-     通透度整体降了一档（骨架 .62→.52、浮层 .8→.70），相应把深色下的
-     饱和提到 2.0 顶回来 —— 玻璃更透之后靠饱和而不是靠压黑维持可读性。 */
-  --glass-bg: light-dark(rgba(255, 255, 255, 0.64), rgba(20, 23, 30, 0.52));
-  --glass-bg-thick: light-dark(rgba(255, 255, 255, 0.78), rgba(18, 21, 27, 0.7));
-  /* 常驻条不跟着一起松：底下永远有内容在滚。
-     实测把这一档也降到 0.68 时，一张白封面滚到底部导航下面，
-     未选中的标签对比只剩 2.58（要 4.5）—— 上一轮就是栽在 0.62 这档上。
-     通透感交给 --glass-bg / --glass-bg-thick 去要，条子保持压得住。 */
-  --glass-bg-bar: light-dark(rgba(255, 255, 255, 0.82), rgba(15, 18, 24, 0.78));
+     四档表面，从"压得住"到"透"：常驻条 > 浮层 > 载板 > 控件。
+     每一档的**底色**只管染色，光学（模糊 + 提饱和 + 边缘折射）在下面的 --glass-filter-* 里。
+
+     浅色这几档全部比 --bg 亮，深色全部比 --bg 更暗一点 —— 分层靠的是"表面和画布
+     必须真的差一档"，不是靠阴影猜。原来浅色各档和画布只差 7~9 个单位（对比 1.02~1.07:1），
+     那就是书架卡片、设置选项、底栏看着像普通白板的原因。 */
+  --glass-bg: light-dark(rgba(255, 255, 255, 0.62), rgba(22, 26, 34, 0.55));
+  --glass-bg-thick: light-dark(rgba(255, 255, 255, 0.74), rgba(18, 21, 27, 0.72));
+  /* 常驻条：底下永远有内容在滚，这一档最实 */
+  --glass-bg-bar: light-dark(rgba(252, 253, 255, 0.82), rgba(15, 18, 24, 0.8));
+  --glass-bg-bar-hi: light-dark(rgba(235, 239, 247, 0.82), rgba(38, 43, 53, 0.8));
+  /* 控件档：可以按的玻璃。它压在页面底上，底下没有正在滚的内容要压住，松一档 */
+  --glass-bg-control: light-dark(rgba(255, 255, 255, 0.66), rgba(32, 37, 46, 0.62));
+  --glass-bg-control-hi: light-dark(rgba(255, 255, 255, 0.82), rgba(54, 61, 73, 0.62));
+
   --glass-blur: 20px;
-  /* 深色下提饱和更有通透感；浅色压到 1.4，再高会往青里偏。
+  /* 深色下提饱和更有通透感；浅色压到 2.0，再高会往青里偏。
      注意 light-dark() 只能用在**颜色**值上 —— 拿它包 saturate() 的数字参数，
      整条 backdrop-filter 会静默失效成 none，玻璃直接没了。所以数字只能按主题写。 */
   --glass-sat: 2;
-  /* 滤镜也做成令牌：不支持 backdrop-filter 的浏览器、以及"减少透明"
-     这两种情况，只需要在这里把值换成 none，组件那边一行都不用动。 */
-  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-  --glass-filter-thick: blur(calc(var(--glass-blur) * 1.35)) saturate(var(--glass-sat));
+  /* 提色（vibrancy）：玻璃之所以"吸"进背后的颜色，靠的是把糊完的背景稍微拉对比、
+     提一档亮度，而不是只糊。浅色反过来压一点点亮度，否则糊完的白封面会把整块玻璃
+     顶成纯白，等于没有材质。 */
+  --glass-vibrancy: brightness(1.05) contrast(1.03);
+  /* 边缘折射：index.html 里那四张位移贴图，按玻璃的长宽比各画一张
+     （共用一张会让顶栏那条横带的折射带被压成一个像素）。
+     放在链尾：先糊再折，等于给磨砂玻璃磨了个凸边，比先折再糊更接近实物。 */
+  --lens-bar: url(#zeno-lens-bar);
+  --lens-pill: url(#zeno-lens-pill);
+  --lens-plate: url(#zeno-lens-plate);
+  --lens-sheet: url(#zeno-lens-sheet);
+  /* 滤镜按档拆开：每档的模糊量和折射强度本来就不是一回事 */
+  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) var(--glass-vibrancy) var(--lens-plate);
+  --glass-filter-bar: blur(var(--glass-blur)) saturate(var(--glass-sat)) var(--glass-vibrancy) var(--lens-bar);
+  --glass-filter-thick: blur(calc(var(--glass-blur) * 1.35)) saturate(var(--glass-sat)) var(--glass-vibrancy) var(--lens-sheet);
+  --glass-filter-control: blur(calc(var(--glass-blur) * 0.6)) saturate(var(--glass-sat)) var(--glass-vibrancy) var(--lens-pill);
+  /* 浏览器不认 backdrop-filter 里的 SVG 滤镜时，把折射摘掉退回纯模糊。
+     注意 @supports 只查"语法认不认"，不保证真渲染 —— 拿 iOS 看过一眼再定这条。 */
+  @supports not (backdrop-filter: url(#zeno-lens-bar) blur(1px)) {
+    :root {
+      --lens-bar: ;
+      --lens-pill: ;
+      --lens-plate: ;
+      --lens-sheet: ;
+    }
+  }
   /* 边光。玻璃的"厚度"全靠这一圈，不是装饰 */
-  --edge: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
-  --edge-hi: light-dark(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.14));
+  --edge: light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.09));
+  /* 镜面高光：玻璃"上亮下暗"的那两道反光，是厚度感的另一半。
+     顶边接光、底边压一道更淡的 —— 只有边光（一圈同亮度）看着像描边，不像玻璃。
+     深色下才给得起强度，浅色下这两道几乎透明，靠边光就够。 */
+  --specular-top: light-dark(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.22));
+  /* 下缘那道暗边在浅色下才是主力：白玻璃压在浅画布上，顶光几乎不可见，
+     读得出"这是一块有厚度的东西"的全靠下缘 + 外阴影。所以浅色这档给到 .11。 */
+  --specular-bottom: light-dark(rgba(0, 0, 0, 0.11), rgba(0, 0, 0, 0.3));
+  /* 斜向受光的整片高光，比 --specular-top 淡一档：它是"光泽"，不是"描边" */
+  --specular-sheen: light-dark(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.16));
   --scrim: light-dark(rgba(15, 18, 24, 0.34), rgba(0, 0, 0, 0.55));
 
   /* 浮在内容上的小胶囊（封面角标、书签角标、进度环底盘）。
@@ -69,6 +106,8 @@
   --chip-glass: rgba(8, 10, 14, 0.62);
   --chip-filter: blur(10px) saturate(1.4);
   --edge-photo: rgba(255, 255, 255, 0.18);
+  /* 照片上那颗小胶囊的顶光：比 --edge-photo 亮一档，负责"这是个玻璃片" */
+  --specular-photo-top: rgba(255, 255, 255, 0.3);
   --fg-photo: rgba(255, 255, 255, 0.92);
 
   /* 阅读器自成一套：底色由阅读偏好决定（纯黑/深灰/护眼/中性），跟 App 主题无关。
@@ -83,6 +122,9 @@
   --r-dim: rgba(242, 244, 248, 0.62);
   --r-glass: rgba(14, 16, 20, 0.6);
   --r-edge: rgba(255, 255, 255, 0.1);
+  /* 阅读器的镜面：画面永远是深的，两道反光只能从白里提 */
+  --r-specular-top: rgba(255, 255, 255, 0.16);
+  --r-specular-bottom: rgba(0, 0, 0, 0.35);
   /* 书签的金色：压在画面上，跟 --mark（浅主题里是棕色）不是一回事 */
   --r-mark: #ffc857;
   /* 阅读器里的按下载：画面永远是深的，所以按下的高亮也只能从白里提 */
@@ -151,7 +193,9 @@
 /* 手动选浅色/深色时只需要改 color-scheme，palette 由 light-dark() 自己切换 */
 [data-theme='light'] {
   color-scheme: light;
-  --glass-sat: 1.4;
+  /* 浅色下饱和给 1.8：再高会往青里偏，再低就吸不出颜色 */
+  --glass-sat: 1.8;
+  --glass-vibrancy: brightness(0.985) contrast(1.08) saturate(1.15);
 }
 [data-theme='dark'] {
   color-scheme: dark;
@@ -160,7 +204,8 @@
 /* 选「跟随系统」时 html 上没有 data-theme，浅色的饱和要另走一条媒体查询 */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
-    --glass-sat: 1.4;
+    --glass-sat: 1.8;
+    --glass-vibrancy: brightness(0.985) contrast(1.08) saturate(1.15);
   }
 }
 

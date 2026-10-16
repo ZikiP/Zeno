@@ -1,4 +1,6 @@
 /* 搜索框与筛选条 */
+/* 材质（背景、模糊、镜面边光）一律在 glass.css 的控件档，这里只有形状和排版。 */
+
 /* ── 搜索框 ─────────────────────────────────────── */
 
 .search {
@@ -8,8 +10,6 @@
   gap: 8px;
   height: 36px;
   padding: 0 10px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
 .search input {
@@ -40,30 +40,33 @@
 
 /*
  * 发现页的源切换器也是 filters 那一排 chip，但两排 chip 上下贴着会看不出
- * 上面那排是"看哪个站"、下面那排是"站里怎么筛"。垫一层底色分开。
+ * 上面那排是"看哪个站"、下面那排是"站里怎么筛"。垫一层底色分开 ——
+ * 和 chip 同一档玻璃，靠整排的面积差读出"这是一条带"。
  */
 .source-switch {
-  background: var(--bg-elev);
+  background: var(--glass-bg-control);
 }
 
 .chip {
   flex-shrink: 0;
   padding: 5px 12px;
   font-size: 13px;
-  border-radius: 999px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   color: var(--text-dim);
   white-space: nowrap;
-  transition: all 0.15s;
+  cursor: pointer;
+  /* 液态玻璃的按压感：收一点进去，松手回弹（曲线只给 scale 用） */
+  transition:
+    background var(--d-press) var(--e-out),
+    color var(--d-press) var(--e-out),
+    transform var(--d-press) var(--e-out);
 }
 .chip:hover {
-  border-color: var(--border-strong);
   color: var(--text);
 }
+.chip:active {
+  transform: scale(0.96);
+}
 .chip.on {
-  background: var(--accent-dim);
-  border-color: var(--accent);
   color: var(--on-accent);
 }
-

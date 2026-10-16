@@ -1,18 +1,36 @@
 /* 无障碍降级：减少透明 / 减少动效 / 增加对比 */
 /* ── 无障碍降级（跟材质和动效同等地位，不是可选项）───── */
 
-/* 减少透明：玻璃退成实心，但边光和阴影留着 —— 不然层级关系跟着一起没了，
-   用户只会觉得界面"糊成一片"。 */
+/* 减少透明：玻璃退成实心，但边光和镜面留着 —— 不然层级关系跟着一起没了，
+   用户只会觉得界面"糊成一片"。镜面是 1px 的高光，不是透明层，留住它不违反本意。 */
 @media (prefers-reduced-transparency: reduce) {
   :root {
     --glass-bg: var(--bg-elev);
     --glass-bg-thick: var(--bg-elev);
     --glass-bg-bar: var(--bg-elev);
+    --glass-bg-bar-hi: var(--bg-elev-2);
+    --glass-bg-control: var(--bg-elev-2);
+    --glass-bg-control-hi: var(--bg-elev);
     --glass-filter: none;
+    --glass-filter-bar: none;
     --glass-filter-thick: none;
+    --glass-filter-control: none;
     --chip-filter: none;
+    /* 提色和折射都属于"透"的一部分：既然不透了，就不该再把背景拉对比、磨边缘 */
+    --glass-vibrancy: none;
+    --lens-bar: ;
+    --lens-pill: ;
+    --lens-plate: ;
+    --lens-sheet: ;
     --r-glass: rgba(14, 16, 20, 0.94);
     --r-edge: rgba(255, 255, 255, 0.16);
+    /* 实心之后没有"透"可谈，镜面收干净，否则是在实底上画白线 */
+    --specular-top: transparent;
+    --specular-bottom: transparent;
+    --specular-sheen: transparent;
+    --r-specular-top: transparent;
+    --r-specular-bottom: transparent;
+    --specular-photo-top: transparent;
     /* 压在照片上的小胶囊：没有模糊就压深，否则细字在封面上会糊掉。
        进度环的底盘也吃这一个令牌，它本来就没有模糊。 */
     --chip-glass: rgba(8, 10, 14, 0.94);
@@ -38,9 +56,19 @@
   }
   .icon-btn:active,
   .theme-option:active,
+  .chip:active,
+  .tabs__item:active,
   .bottom-nav a.active svg,
   .bottom-nav a:active svg {
     transform: none;
+  }
+  /* 玻璃上的亮度档切换也算动效（0.72 → 0.6 的跳变），一并停掉 */
+  .chip,
+  .btn,
+  .btn--ghost,
+  .sync-pill,
+  .search {
+    transition: none;
   }
   /* 掀页换成交叉淡入：两页同时在场时只淡上面那张，暗面和投影都不要 */
   .reader__spread.turn-out,
@@ -67,12 +95,21 @@
 }
 
 /* 增加对比：边光、分隔线、次要文字各加深一档。玻璃本身变实是透明度的事，
-   这里只管对比，两件事不要混着改。 */
+   这里只管对比，两件事不要混着改。镜面跟着边光一起加深，否则高对比模式下
+   反而看不出每层玻璃的边界。 */
 @media (prefers-contrast: more) {
   :root {
     --edge: light-dark(rgba(0, 0, 0, 0.24), rgba(255, 255, 255, 0.28));
     --r-edge: rgba(255, 255, 255, 0.32);
     --edge-photo: rgba(255, 255, 255, 0.34);
+    --specular-top: light-dark(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.42));
+    --specular-bottom: light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.55));
+    --r-specular-top: rgba(255, 255, 255, 0.34);
+    --specular-photo-top: rgba(255, 255, 255, 0.5);
+    /* 高对比下玻璃要更压得住：每档提一档不透明度，否则色块背景会把字顶穿 */
+    --glass-bg: light-dark(rgba(255, 255, 255, 0.86), rgba(22, 26, 34, 0.82));
+    --glass-bg-bar: light-dark(rgba(252, 253, 255, 0.94), rgba(15, 18, 24, 0.92));
+    --glass-bg-control: light-dark(rgba(255, 255, 255, 0.9), rgba(32, 37, 46, 0.84));
     --border: light-dark(#a9b1bd, #525c6b);
     --border-strong: light-dark(#7d8794, #798393);
     --text-dim: light-dark(#3c4350, #b6bfcd);

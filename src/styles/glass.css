@@ -1,21 +1,27 @@
-/* 玻璃材质层：工具类、骨架表面、不支持时的回退 */
-/* ── 玻璃工具类 ─────────────────────────────────────
-   边光走 inset 阴影而不是真边框：真边框和 backdrop-filter 会打架，
-   边缘发虚甚至重影（Safari 尤其明显）。分隔线用渐隐的 ::after，
-   比一条 1px 实线轻，也不会把玻璃切成两块板。 */
-
+/* 玻璃材质层：材质配方、骨架与控件的表面、不支持时的回退 */
 /* ── 玻璃表面 ───────────────────────────────────────
-   列在这里的都是「界面骨架」，共用一份配方；内容层（封面、正文、章节行）
+   这个文件是材质的唯一出处：组件只写形状、排版、状态，不写背景 + 模糊。
+   列在这里的都是「界面骨架」和「可以按的控件」；内容层（封面、正文、章节行）
    永远实心 —— 给照片蒙一层雾等于毁掉照片。
-   边光走 inset 阴影而不是真边框：真边框和 backdrop-filter 会打架，
-   边缘发虚甚至重影（Safari 尤其明显）。 */
+
+   边光和镜面高光都走 inset 阴影，不用真边框：真边框和 backdrop-filter 会打架，
+   边缘发虚甚至重影（Safari 尤其明显）。上了玻璃就把真边框去掉。 */
+
+/* 一圈厚度 + 上亮下暗两道反光。合成一个令牌是为了让每档表面拿到同一份光学，
+   只有外阴影（浮层要压住整屏）在这一条之外另加。 */
+:root {
+  --rim-glass:
+    inset 0 0 0 1px var(--edge),
+    inset 0 1px 0 0 var(--specular-top),
+    inset 0 -1px 0 0 var(--specular-bottom);
+}
 
 .glass,
 .topbar,
 .bottom-nav,
-.sync-bar,
 .sheet,
 .drawer,
+.settings-rows,
 .card--plate,
 .detail__reading,
 .reader__bar,
@@ -25,26 +31,93 @@
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
-  box-shadow: inset 0 0 0 1px var(--edge);
+  box-shadow: var(--rim-glass);
 }
 
-/* 常驻条：底下永远有内容在滚，用更实的那一档 */
+/* 常驻条：底下永远有内容在滚，用更实的那一档。
+   设置页的分栏条也在内 —— 它吸在顶栏下面，同样一路有内容从它底下过去。 */
 .topbar,
 .bottom-nav,
-.sync-bar {
+.tabs {
   background: var(--glass-bg-bar);
+  -webkit-backdrop-filter: var(--glass-filter-bar);
+  backdrop-filter: var(--glass-filter-bar);
 }
 
-/* 浮层要更压得住：更厚的模糊 + 外阴影。
-   两个阴影写在一条里 —— 组件那边再写一次 box-shadow 会把边光顶掉。 */
+/* 顶栏里的同步状态泡：同属"浮在滚动内容上的常驻物"，吃同一档材质。
+   这里只写材质，形状/字号/展开动画在 overlays.css。 */
+.sync-pill {
+  background: var(--glass-bg-bar);
+  -webkit-backdrop-filter: var(--glass-filter-bar);
+  backdrop-filter: var(--glass-filter-bar);
+  box-shadow: var(--rim-glass);
+}
+.sync-pill:hover,
+.sync-pill:focus-visible {
+  /* 深色下往玻璃里混黑几乎看不见（底色本来就快黑了），所以靠"变亮"表达按下。
+     整档值写在令牌里：color-mix 会连 alpha 一起混，混完玻璃就不压得住内容了。 */
+  background: var(--glass-bg-bar-hi);
+}
+
+/* 浮层要更压得住：更厚的模糊 + 外阴影 + 顶部那道斜向受光。
+   受光走背景层而不是 ::before —— 这两个块本来不是定位元素，插一层绝对定位
+   会贴到视口上去；而 ::before 是第一个子节点，绝对定位还会盖住标题的行内框。
+   只有大块的浮层给得起这道光，控件上铺就成了灰蒙蒙一片。 */
 .sheet,
 .drawer {
-  background: var(--glass-bg-thick);
+  background:
+    linear-gradient(150deg, var(--specular-sheen) 0%, transparent 34%),
+    var(--glass-bg-thick);
   -webkit-backdrop-filter: var(--glass-filter-thick);
   backdrop-filter: var(--glass-filter-thick);
   box-shadow:
-    inset 0 0 0 1px var(--edge),
+    var(--rim-glass),
     var(--shadow-3);
+}
+
+/* ── 控件档：可以按的玻璃 ───────────────────────────
+   搜索框、筛选 chip、输入框、幽灵按钮。它们压在页面底上而不是压在
+   滚动内容上，所以比常驻条松一档，但仍比骨架厚 —— 页面底和控件底色本来就很
+   接近，太松就看不出边界。
+   实心主按钮（.btn）不进这一档：给 --accent 蒙一层白会把对比洗掉，它只借镜面。 */
+.search,
+.chip,
+.btn--ghost,
+.field-btn,
+.dirpick__path input {
+  background: var(--glass-bg-control);
+  -webkit-backdrop-filter: var(--glass-filter-control);
+  backdrop-filter: var(--glass-filter-control);
+  box-shadow: var(--rim-glass);
+  border: none;
+}
+/* 按到（:active）往实一档、聚焦（:focus）往亮一档 —— 刻意不用 :hover 改底色：
+   在浅底上 hover 提亮几乎看不见，而选中的 chip 一 hover 就会掉回灰玻璃，
+   等于"指一下就丢掉状态"。触屏更没有 hover 这回事。
+   :is() 不白写：browse.css 在后面有一条 .btn:active 把主按钮压成 --accent-dim，
+   同为 (0,2,0) 时后到的那条会赢，幽灵按钮一按就变蓝。抬一档让它管不到玻璃档。 */
+.search:focus-within,
+.dirpick__path input:focus,
+.field-btn:focus-visible {
+  background: var(--glass-bg-control-hi);
+}
+:is(.chip, .btn--ghost, .field-btn):active {
+  background: var(--glass-bg-bar);
+}
+/* 选中态不靠"更实的玻璃"表达，靠色相：这排 chip 是状态而不是可按的东西。
+   同样抬一档，否则上面那条 :active 会把按住瞬间的选中 chip 洗成灰。 */
+:is(.chip.on, .chip.on:active) {
+  background: var(--accent-dim);
+  color: var(--on-accent);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    inset 0 1px 0 0 var(--specular-top);
+}
+
+/* 主按钮：底色是内容级的实色（白字压在 --accent 上实测 5.17:1），
+   给 --accent 蒙一层玻璃会把字洗掉，所以它只借一圈镜面 */
+.btn:not(.btn--ghost) {
+  box-shadow: var(--rim-glass);
 }
 
 /* 阅读器自成一套：底色由阅读偏好决定，跟 App 主题无关 */
@@ -53,7 +126,10 @@
 .reader__toast,
 .edge-hint {
   background: var(--r-glass);
-  box-shadow: inset 0 0 0 1px var(--r-edge);
+  box-shadow:
+    inset 0 0 0 1px var(--r-edge),
+    inset 0 1px 0 0 var(--r-specular-top),
+    inset 0 -1px 0 0 var(--r-specular-bottom);
 }
 
 /* 浮在照片/画面上的小胶囊：材质同一份配方，边光用白的 ——
@@ -65,17 +141,24 @@
   background: var(--chip-glass);
   -webkit-backdrop-filter: var(--chip-filter);
   backdrop-filter: var(--chip-filter);
-  box-shadow: inset 0 0 0 1px var(--edge-photo);
+  box-shadow:
+    inset 0 0 0 1px var(--edge-photo),
+    inset 0 1px 0 0 var(--specular-photo-top);
 }
 
-/* 不支持 backdrop-filter：退成实心，但边光留着，否则层级关系直接消失 */
+/* 不支持 backdrop-filter：退成实心，但边光和镜面留着，否则层级关系直接消失。
+   没模糊的半透就是脏，所以每一档都往"压得住"的方向收。 */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root {
     --glass-bg: var(--bg-elev);
     --glass-bg-thick: var(--bg-elev);
     --glass-bg-bar: var(--bg-elev);
+    --glass-bg-control: var(--bg-elev-2);
+    --glass-bg-control-hi: var(--bg-elev-2);
     --glass-filter: none;
+    --glass-filter-bar: none;
     --glass-filter-thick: none;
+    --glass-filter-control: none;
     --r-glass: rgba(14, 16, 20, 0.94);
     /* 小胶囊压在照片上：没有模糊顶着一半透就是糊，直接压深 */
     --chip-glass: rgba(8, 10, 14, 0.88);
@@ -103,14 +186,3 @@
 .hairline-t::after {
   top: 0;
 }
-
-/* 顶部那道斜向高光：玻璃受光的暗示，只在深色下看得见 */
-.glass-sheen::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(150deg, var(--edge-hi) 0%, transparent 38%);
-  opacity: 0.35;
-}
-
