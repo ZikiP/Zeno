@@ -61,6 +61,11 @@
   object-fit: cover;
   display: block;
   transition: transform 0.25s;
+  /*
+   * 长按命中的要是 <img>，安卓会当成"长按了一张图"直接弹下载 sheet。
+   * 让命中落到外层那张 <a> 上，图只是被点的那格 —— 书架长按拖拽要的就是这个。
+   */
+  pointer-events: none;
 }
 .card:active .card__cover img {
   transform: scale(1.03);
@@ -86,6 +91,8 @@
     box-shadow var(--d-micro) var(--e-out);
   -webkit-user-select: none;
   user-select: none;
+  /* iOS 的长按呼出（预览/拷贝）和安卓的长按菜单，靠这一条掐掉一半 */
+  -webkit-touch-callout: none;
 }
 /* 键盘走到哪一格：玻璃上没有边框可借，靠这圈焦点环 */
 .card--plate:focus-visible {

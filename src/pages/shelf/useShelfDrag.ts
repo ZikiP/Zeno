@@ -258,8 +258,9 @@ export function useShelfDrag(args: {
       s.lattice = Array.from(box.querySelectorAll<HTMLElement>('[data-key]')).map((el) => layoutRect(el));
 
       /*
-       * 起拖这一刻才关触摸滚动。早了页面滚不动（用户只是想翻书架），
-       * 晚了浏览器已经开始滚、把指针流抢走，表现为"长按没反应"。
+       * 这一行管不到当前这一次手势 —— touch-action 是在 touchstart 那一刻定下来的，
+       * 手指已经按了 400ms 之后再改，浏览器不认。真正掐住滚动的是下面那个
+       * touchmove 的 preventDefault。留着它是为了下一次落指就不给滚。
        */
       box.style.touchAction = 'none';
       atRef.current = Math.max(0, liveOrder.current.indexOf(s.key));
@@ -334,12 +335,42 @@ export function useShelfDrag(args: {
       finish(false);
     };
 
+    /*
+     * 长按的浏览器菜单一定要掐掉。
+     *
+     * 安卓 Chrome/Edge 在 ~500ms 弹"打开链接 / 下载图片"那张 sheet，弹出来就顺手
+     * 发一次 pointercancel —— 我们 400ms 刚起拖，下一秒就被系统收走指针，
+     * 表现出来就是"按住了没反应，只出来浏览器菜单"。卡片是 <a> 里套 <img>，
+     * 正好是它最爱接管的那种结构。
+     */
+    const onContextMenu = (e: Event) => e.preventDefault();
+
+    /*
+     * 起拖之后要把这根手指从浏览器手里抢过来。
+     *
+     * 光改 touch-action 来不及（见 lift 里那段）：手指一动，浏览器按 touchstart
+     * 时定下的 pan 规则判定"这是要滚书架"，于是发 pointercancel 收走指针流 ——
+     * 手机上的表现就是卡片刚起来就弹回原位。
+     * 唯一还来得及的口子是 preventDefault 掉 touchmove：长按那 400ms 里手指没动，
+     * 滚动根本还没开始，第一次 move 掐掉，这一次手势就再也变不成滚动。
+     * 必须 passive:false，否则 preventDefault 无效（上面那个 pointermove 是 passive 的，
+     * 挂在那儿没用）。
+     */
+    const onTouchMove = (e: TouchEvent) => {
+      if (session.current?.active) e.preventDefault();
+    };
+
     box.addEventListener('pointerdown', onDown);
+    box.addEventListener('contextmenu', onContextMenu);
+    /* 挂 window 而不是网格上：拖到底边自动滚屏时手指会出格，出格之后也得掐得住 */
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('pointermove', onMove, { passive: true });
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
     return () => {
       box.removeEventListener('pointerdown', onDown);
+      box.removeEventListener('contextmenu', onContextMenu);
+      window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
