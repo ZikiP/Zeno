@@ -68,27 +68,22 @@
 
 /*
  * 选项太多的维度收成一颗写着当前值的摘要按钮，点开再铺满挑。
- * 判据在 ExplorePage 的 INLINE_MAX；这里是表现 —— 名字浅、当前值重，
- * 一眼能读出"现在筛的是哪个"，不用点开。
+ * 判据在 ExplorePage 的 INLINE_MAX。
+ *
+ * 它就是一个 chip：字号、内边距、玻璃材质、选中态全部沿用 .chip，
+ * 只多加一个向下的小箭头。任何一点自己的样式（加粗、改名、改字号）都会让
+ * 它和旁边几排的 chip 长得不一样，看着突兀。
  */
 .filter-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-}
-.filter-pill__name {
-  color: var(--text-faint);
-}
-.filter-pill b {
-  font-weight: 600;
-  color: var(--text);
+  gap: 4px;
 }
 .filter-pill svg {
   flex-shrink: 0;
   /* 借右箭头转成向下：为一个符号再造一个图标不值当 */
   transform: rotate(90deg);
-  opacity: 0.5;
+  opacity: 0.55;
 }
 
 /* 弹层里的选项换行铺满 —— 横滚正是我们要修掉的那个毛病 */

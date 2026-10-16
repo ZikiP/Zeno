@@ -167,11 +167,22 @@ export default function ExplorePage() {
         groups.map((g) =>
           g.options.length > INLINE_MAX ? (
             <div className="filter-row" key={g.key}>
-              <button type="button" className="chip filter-pill" onClick={() => setOpenFilter(g)}>
-                <span className="filter-pill__name">{g.label ?? '筛选'}</span>
-                <b>{labelOf(g, activeOf(g))}</b>
-                <IconChevronRight size={14} />
-              </button>
+              {/*
+               * 和短维度同一套结构：维度名在排首，按钮只放当前值。
+               * 把名字塞进按钮肚子里会立刻和旁边几排长得不一样 —— 同一排里
+               * 字号、粗细、内边距都变了，看着像另一个控件。
+               */}
+              <span className="filter-row__label">{g.label ?? '筛选'}</span>
+              <div className="filters">
+                <button
+                  type="button"
+                  className={`chip filter-pill${activeOf(g) === (g.default ?? '') ? '' : ' on'}`}
+                  onClick={() => setOpenFilter(g)}
+                >
+                  {labelOf(g, activeOf(g))}
+                  <IconChevronRight size={14} />
+                </button>
+              </div>
             </div>
           ) : (
             <div className="filter-row" key={g.key}>
