@@ -8,6 +8,7 @@ import ReaderPage from '@/pages/reader/ReaderPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { useTheme } from '@/hooks/useTheme';
+import { useUiFont } from '@/fonts/useUiFont';
 import { Loading, OfflineBar } from '@/components/UI';
 import { IconEmpty } from '@/components/Icons';
 import SyncPill from '@/sync/SyncPill';
@@ -125,6 +126,7 @@ function MissingSource({ id }: { id: string }) {
 function ThemeApplier() {
   const { mode } = useTheme();
   void mode;
+  useUiFont();
   return <span hidden data-theme-applier />;
 }
 

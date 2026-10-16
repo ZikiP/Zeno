@@ -17,11 +17,14 @@ export default function DirPicker({
   startPath,
   onPick,
   onClose,
+  title = '选服务端的缓存目录',
 }: {
   /** 打开时先展示哪个目录。空 = 从根（盘符/挂载点）开始 */
   startPath: string;
   onPick: (path: string) => void;
   onClose: () => void;
+  /** 弹窗标题。缓存和字体都用这一层，说清楚在选什么 */
+  title?: string;
 }) {
   /** 走过的路径，'' 表示根列表 */
   const [stack, setStack] = useState<string[]>([startPath || '']);
@@ -83,7 +86,7 @@ export default function DirPicker({
     <div className="sheet-mask" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="dirpick__head">
-          <h3>选服务端的缓存目录</h3>
+          <h3>{title}</h3>
           <button className="icon-btn" onClick={onClose} aria-label="关闭">
             ✕
           </button>

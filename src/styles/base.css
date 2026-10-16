@@ -13,9 +13,17 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', sans-serif;
+  /* 自定义字体在 <html> 上写 --ui-font（见 src/fonts/apply.ts），没选就是系统栈 */
+  font-family: var(
+    --ui-font,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif
+  );
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;

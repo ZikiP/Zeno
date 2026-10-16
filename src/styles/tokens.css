@@ -24,7 +24,9 @@
   --bg-elev-2: light-dark(#eceef3, #21262f);
   --text: light-dark(#12151b, #eef1f6);
   --text-dim: light-dark(#5b6472, #9aa4b5);
-  --text-faint: light-dark(#8a92a1, #6b7484);
+  /* 浅色档原来是 #8a92a1：压在浅色玻璃上只有 3.0:1，小字说明根本读不动。
+     #677183 到 4.7:1 过 AA，且仍比 --text-dim（5.8:1）浅一档，层级没塌。 */
+  --text-faint: light-dark(#677183, #6b7484);
 
   --accent: light-dark(#2563eb, #6ba6ff);
   --accent-dim: light-dark(#1d4ed8, #2d5a9e);

@@ -39,6 +39,8 @@ const SYNCED_KEYS = [
   'shelfSort',
   'shelfColsSm',
   'shelfColsLg',
+  // 界面字体：字体文件由服务端供给，任何设备都拉得到，所以选择跟着账号走
+  'uiFont',
 ] as const;
 
 /* ── 本地 → 服务端 ─────────────────────────────────── */

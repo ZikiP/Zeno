@@ -118,6 +118,16 @@ export interface ReaderDB extends DBSchema {
     value: { key: string; data: string; updatedAt: number };
   };
   /**
+   * 自定义字体的二进制，按服务端给的内容 id 存。
+   *
+   * 中文字体一包十几 MB，每次开页都重新拉一遍既慢又费流量；
+   * id 掺了源文件的 mtime，字体一换 id 就变，旧条目在下次进设置页时清掉。
+   */
+  fontFiles: {
+    key: string; // 服务端算出的字体 id
+    value: { id: string; data: ArrayBuffer; addedAt: number };
+  };
+  /**
    * 删除墓碑。
    *
    * 没有它，删除只发生在本地：A 设备删了一本漫画，服务端那行还在，
@@ -142,7 +152,7 @@ export interface ReaderDB extends DBSchema {
 export type DeleteKind = 'shelf' | 'bookmark' | 'position' | 'lastChapter' | 'plugin';
 
 const DB_NAME = 'zeno-reader';
-const DB_VER = 5;
+const DB_VER = 6;
 
 let dbp: Promise<IDBPDatabase<ReaderDB>> | null = null;
 
@@ -195,6 +205,9 @@ export function db(): Promise<IDBPDatabase<ReaderDB>> {
         }
         if (!d.objectStoreNames.contains('bookPrefs')) {
           d.createObjectStore('bookPrefs', { keyPath: 'key' });
+        }
+        if (!d.objectStoreNames.contains('fontFiles')) {
+          d.createObjectStore('fontFiles', { keyPath: 'id' });
         }
 
         if (!d.objectStoreNames.contains('tombstones')) {
