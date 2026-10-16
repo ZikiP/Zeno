@@ -18,8 +18,10 @@ export default function PagedStage({
   anim,
   turnKey,
   hudVisible,
+  resetToken,
   onToggleHud,
   onZoom,
+  onZoomedChange,
   prevId,
   nextId,
   onGoChapter,
@@ -35,8 +37,11 @@ export default function PagedStage({
   turnKey: string;
   /** 顶部菜单是否展开 */
   hudVisible: boolean;
+  /** 变一次还原一次：右下角那颗按钮 */
+  resetToken: number;
   onToggleHud: () => void;
   onZoom: (src: string, i: number) => void;
+  onZoomedChange: (zoomed: boolean) => void;
   prevId: string | null;
   nextId: string | null;
   onGoChapter: (id: string) => void;
@@ -51,6 +56,8 @@ export default function PagedStage({
       rtl={rtl}
       anim={anim}
       turnKey={turnKey}
+      hudVisible={hudVisible}
+      resetToken={resetToken}
       /*
        * 中间那块不翻页，只开关悬浮件（顶部条 + 章末胶囊）。
        * 分页模式没有滚动，bar 那套「向下滚隐藏、向上滚显示」永远不会被触发，
@@ -59,6 +66,7 @@ export default function PagedStage({
       onTapZone={(side) => (side === 'center' ? onToggleHud() : paging.tap(side, rtl))}
       onSwipe={(dir) => (dir === 'forward' ? paging.goForward() : paging.goBack())}
       onZoom={onZoom}
+      onZoomedChange={onZoomedChange}
       edgeHint={
         <EdgeHint
           page={paging.page}

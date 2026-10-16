@@ -78,6 +78,10 @@
   .reader__nav[data-hidden='true'] {
     transform: translateX(-50%);
   }
+  /* 还原钮同理，收起时不要从底下滑上来 */
+  .reader__zoom-reset[data-hidden='true'] {
+    transform: none;
+  }
 }
 
 /* 增加对比：边光、分隔线、次要文字各加深一档。玻璃本身变实是透明度的事，

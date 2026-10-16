@@ -26,6 +26,7 @@
 .detail__reading,
 .reader__bar,
 .reader__nav,
+.reader__zoom-reset,
 .reader__toast,
 .edge-hint {
   background: var(--glass-bg);
@@ -123,6 +124,7 @@
 /* 阅读器自成一套：底色由阅读偏好决定，跟 App 主题无关 */
 .reader__bar,
 .reader__nav,
+.reader__zoom-reset,
 .reader__toast,
 .edge-hint {
   background: var(--r-glass);

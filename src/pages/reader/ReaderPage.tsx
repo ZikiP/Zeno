@@ -24,6 +24,7 @@ import ScrollView from '@/components/reader/ScrollView';
 import PagedStage from '@/components/reader/PagedStage';
 import ZoomView from '@/components/reader/ZoomView';
 import ChapterNav from '@/components/reader/ChapterNav';
+import ZoomReset from '@/components/reader/ZoomReset';
 import ReaderProgress from '@/components/reader/ReaderProgress';
 import Toast from '@/components/reader/Toast';
 import { ErrorBox, Loading } from '@/components/UI';
@@ -59,6 +60,13 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const bar = useToolbarVisibility();
   const panels = useReaderPanels();
   const [zoom, setZoom] = useState<{ src: string; i: number } | null>(null);
+  /*
+   * 双指放大的状态由两种阅读视图各自持有（手势挂在自己的容器上），
+   * 这里只留一份镜像用来决定右下角那颗还原按钮露不露。
+   * zoomTick 变一次 = 视图里还原一次。
+   */
+  const [zoomed, setZoomed] = useState(false);
+  const [zoomTick, setZoomTick] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
 
   const isRTL = prefs.value.direction === 'rtl';
@@ -143,6 +151,12 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const filter = buildFilter(prefs.value);
   const bg = BG_VALUES[prefs.value.bgColor];
 
+  /*
+   * 换阅读方式时把手势所在的那个视图整个换掉了，它自己没机会说"我归位了"，
+   * 这里的镜像会留下一个放大的假状态 —— 按钮白挂在右下角。
+   */
+  useEffect(() => setZoomed(false), [mode]);
+
   /* ── 放大层独占整个界面 ── */
   if (zoom) {
     return <ZoomView src={zoom.src} index={zoom.i} background={bg} onClose={() => setZoom(null)} />;
@@ -186,9 +200,12 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           markedPages={bookmarks.markedPages}
           filter={filter}
           containerRef={scrollRef}
+          hudVisible={bar.visible}
+          resetToken={zoomTick}
           onScroll={(el) => paging.onScroll(el, images.length, record)}
           onTap={bar.toggle}
           onZoom={(src, i) => setZoom({ src, i })}
+          onZoomedChange={setZoomed}
         />
       ) : (
         <PagedStage
@@ -200,8 +217,10 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           anim={prefs.value.turnAnim}
           turnKey={chapterId}
           hudVisible={bar.visible}
+          resetToken={zoomTick}
           onToggleHud={bar.toggle}
           onZoom={(src, i) => setZoom({ src, i })}
+          onZoomedChange={setZoomed}
           prevId={prevId}
           nextId={nextId}
           onGoChapter={gotoChapter}
@@ -219,6 +238,11 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           visible={bar.visible}
           onGo={gotoChapter}
         />
+      )}
+
+      {/* 放大过才出现，跟菜单一起显隐：菜单一开就归位，这时候没有东西要还原 */}
+      {images && (
+        <ZoomReset visible={zoomed && !bar.visible} onReset={() => setZoomTick((t) => t + 1)} />
       )}
 
       {images && (

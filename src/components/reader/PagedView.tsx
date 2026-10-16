@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PagedCells } from './PagedCells';
 import { usePagedGesture } from './usePagedGesture';
+import { usePinchZoom } from './usePinchZoom';
 import { warmImages } from '@/reader/warmImages';
 import type { TurnAnim } from '@/reader/prefs';
 
@@ -42,9 +43,12 @@ export default function PagedView({
   rtl,
   anim,
   turnKey,
+  hudVisible,
+  resetToken,
   onTapZone,
   onSwipe,
   onZoom,
+  onZoomedChange,
   edgeHint,
 }: {
   /** 当前屏要显示的图片（已按 perPage 切好） */
@@ -60,13 +64,17 @@ export default function PagedView({
   anim: TurnAnim;
   /** 换章时变一下。翻页动画只在同一章内演 —— 跨章不该有"上一页" */
   turnKey: string;
+  /** 顶部菜单展开中：不收双指手势，已放大的顺手还原 */
+  hudVisible: boolean;
+  /** 变一次还原一次：右下角那颗按钮 */
+  resetToken: number;
   onTapZone: (side: 'left' | 'right' | 'center') => void;
   onSwipe: (dir: 'forward' | 'back') => void;
   onZoom: (src: string, index: number) => void;
+  /** 放大态变了要说给外面 —— 右下角那颗还原按钮跟着出现 */
+  onZoomedChange: (zoomed: boolean) => void;
   edgeHint: React.ReactNode;
 }) {
-  const { onTouchStart, onTouchEnd, tap } = usePagedGesture({ rtl, onSwipe, onTapZone });
-
   const [slots, setSlots] = useState<[Screen, Screen]>(() => [
     { images, startIndex },
     { images: [], startIndex: -1 },
@@ -75,8 +83,46 @@ export default function PagedView({
   const [turn, setTurn] = useState<Turn | null>(null);
   /** 内容已经写进槽位、正在等解码的那一次翻页 */
   const [armed, setArmed] = useState<{ slot: number; forward: boolean } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
   const shown = useRef({ images, startIndex, turnKey });
+
+  /*
+   * 双指放大。缩放作用在当前台面那一层 spread 上，用 transform 而不是改尺寸：
+   * 图片的显示尺寸是 object-fit 四档适配算出来的，只有 transform 能叠在它上面。
+   */
+  const apply = useCallback((el: HTMLElement, s: { scale: number; x: number; y: number }) => {
+    el.style.transform = s.scale > 1 ? `translate(${s.x}px, ${s.y}px) scale(${s.scale})` : '';
+    el.style.willChange = s.scale > 1 ? 'transform' : '';
+  }, []);
+
+  const { zoomed } = usePinchZoom({
+    container: stageRef,
+    /* 一屏就一张（双页时两张并排），放大的是整屏，不用挑元素 */
+    target: () => slotRefs.current[active] ?? null,
+    enabled: !hudVisible,
+    clampPan: true,
+    /* 换屏、换章都归位：放大是"看这一屏的细节"，跳到下一屏它就没意义了 */
+    resetKey: `${turnKey}:${startIndex}:${resetToken}`,
+    apply,
+    onZoomedChange,
+  });
+
+  const { onTouchStart, onTouchEnd, tap } = usePagedGesture({
+    rtl,
+    /* 放大后横向拖动是平移着看，不是翻页 */
+    enabled: !zoomed,
+    onSwipe,
+    /*
+     * 放大态下左右两块不翻页：在一张放大的图上点一下就跳走，人还没看完。
+     * 中间那块照旧 —— 点它是开菜单，菜单一开就顺手还原，等于给放大态留了个出口。
+     */
+    onTapZone: zoomed
+      ? (side) => {
+          if (side === 'center') onTapZone(side);
+        }
+      : onTapZone,
+  });
 
   useEffect(() => {
     const prev = shown.current;
@@ -215,9 +261,16 @@ export default function PagedView({
   return (
     <div
       className="reader__paged"
+      ref={stageRef}
       data-anim={anim}
       data-turn={turn ? (turn.forward ? 'fwd' : 'back') : undefined}
-      style={{ filter, touchAction: 'pan-y' }}
+      /*
+       * 平时只放开上下滚（适应宽度那一档图会比屏高）；放大之后一根手指是平移，
+       * 再放开滚动的话拖两下人就跑出这一屏了。
+       * 双指缩放本身靠 usePinchZoom 里的原生监听 + preventDefault 接管，
+       * 这里不写 pinch-zoom 就是在告诉浏览器：这一片的整页缩放别插手。
+       */
+      style={{ filter, touchAction: zoomed ? 'none' : 'pan-y' }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >

@@ -204,6 +204,40 @@
   background: var(--r-edge);
   flex: none;
 }
+/* 双指放大后的还原钮。材质同章末胶囊那一组玻璃，bottom 也用同一个偏移，
+   只是收成一圆、贴右下角；显隐照样走 data-hidden，不新写一套动效。
+   44px 是触摸热区，图标本身 18px。 */
+.reader__zoom-reset {
+  position: absolute;
+  right: calc(var(--s-4) + var(--safe-r));
+  bottom: calc(26px + var(--safe-b));
+  z-index: 13;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--r-fg);
+  box-shadow:
+    inset 0 0 0 1px var(--r-edge),
+    var(--shadow-2);
+  transition:
+    transform var(--d-sheet) var(--e-drawer),
+    opacity var(--d-micro) linear,
+    background var(--d-press) var(--e-out);
+}
+.reader__zoom-reset[data-hidden='true'] {
+  transform: translateY(180%);
+  opacity: 0;
+  pointer-events: none;
+}
+.reader__zoom-reset:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.reader__zoom-reset:active {
+  transform: scale(0.94);
+}
 /* ── 阅读器：书签 / 目录 / 提示 ───────────────────── */
 
 .reader__bm-mark {

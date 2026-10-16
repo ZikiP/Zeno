@@ -62,6 +62,12 @@
   scroll-behavior: auto;
 }
 
+/* 放大过才放开横向：图比屏宽的那一截得滚得到，不然等于裁掉了。
+   平时保持 hidden —— 谁都不想读着读着被人往右拽出一点空白。 */
+.reader__scroll.is-zoomed {
+  overflow-x: auto;
+}
+
 .reader__item {
   position: relative;
 }
