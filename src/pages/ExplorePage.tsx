@@ -137,16 +137,6 @@ export default function ExplorePage() {
               </button>
             ))}
           </div>
-          <div
-            style={{
-              padding: '6px 12px',
-              fontSize: 11,
-              color: 'var(--text-faint)',
-              borderBottom: '1px solid var(--border)',
-            }}
-          >
-            筛选值取自通用预设，若你的站点参数不同，请在设置里改 URL 模板
-          </div>
         </>
       )}
 
