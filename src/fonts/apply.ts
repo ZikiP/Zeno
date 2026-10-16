@@ -74,34 +74,44 @@ export function applyUiFont(force = false): Promise<void> {
   if (!force && want === applied) return Promise.resolve();
   if (running) return running;
 
-  running = (async () => {
-    try {
-      if (!want) {
-        paint('');
-        applied = '';
-      } else {
-        const { fonts } = await getFonts();
-        const fam = fonts.find((f) => f.family.toLowerCase() === want.toLowerCase());
-        if (fam) {
-          await loadFamily(fam);
-          paint(fam.family);
-        } else {
-          paint(''); // 服务端上这个字体没了：退回默认，而不是渲染成豆腐块
-        }
-        applied = want;
-      }
-    } catch {
-      // 服务端不可达等：留在系统字体上。也要记 applied，
-      // 否则末尾的补跑会立刻重试，变成对着连不上的服务端死循环刷请求。
-      // 下一次 onDataChange（同步落库）或 force 会再试。
-      applied = want;
-    } finally {
-      running = null;
-    }
-    // 跑这一趟期间用户又换了选择：补跑一次
-    if (readUiFont() !== applied) void applyUiFont();
-  })();
+  /*
+   * 先把 running 挂上去，再把活推到微任务里跑。
+   * 写成 `running = (async () => {...})()` 会漏：体内一条 await 都没有的那趟
+   * （开机时还没选过字体，走 !want 分支）会同步跑完、在 finally 里把 running
+   * 置 null，**然后**外层的赋值才发生 —— 于是留下一个已 settle 的 promise 卡在
+   * running 上，之后每次调用都被上面的 `if (running)` 挡掉。
+   * 表现就是设置页点了字体不生效、也不发请求，非刷新不可。
+   */
+  running = Promise.resolve().then(() => applyOnce(want));
   return running;
+}
+
+async function applyOnce(want: string): Promise<void> {
+  try {
+    if (!want) {
+      paint('');
+      applied = '';
+    } else {
+      const { fonts } = await getFonts();
+      const fam = fonts.find((f) => f.family.toLowerCase() === want.toLowerCase());
+      if (fam) {
+        await loadFamily(fam);
+        paint(fam.family);
+      } else {
+        paint(''); // 服务端上这个字体没了：退回默认，而不是渲染成豆腐块
+      }
+      applied = want;
+    }
+  } catch {
+    // 服务端不可达等：留在系统字体上。也要记 applied，
+    // 否则末尾的补跑会立刻重试，变成对着连不上的服务端死循环刷请求。
+    // 下一次 onDataChange（同步落库）或 force 会再试。
+    applied = want;
+  } finally {
+    running = null;
+  }
+  // 跑这一趟期间用户又换了选择：补跑一次
+  if (readUiFont() !== applied) void applyUiFont();
 }
 
 /** 清掉服务端已不存在的字体缓存。设置页扫完列表顺手调一次 */
