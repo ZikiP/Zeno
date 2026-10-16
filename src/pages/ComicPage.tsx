@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useBackToHome } from '@/hooks/useBackToHome';
 import { getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import { cacheChapterList } from '@/store/chapters';
 import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf } from '@/store/shelf';
@@ -24,6 +25,7 @@ import { ErrorBox, Loading } from '@/components/UI';
 export default function ComicPage() {
   const { slug = '' } = useParams();
   const nav = useNavigate();
+  const back = useBackToHome();
   const { plugin } = usePlugin();
 
   const [comic, setComic] = useState<Comic | null>(null);
@@ -126,7 +128,7 @@ export default function ComicPage() {
   return (
     <>
       <header className="topbar">
-        <button className="icon-btn" onClick={() => nav(-1)} aria-label="返回">
+        <button className="icon-btn" onClick={back} aria-label="返回">
           <IconBack />
         </button>
         <div className="topbar__title">{comic?.title ?? '加载中'}</div>

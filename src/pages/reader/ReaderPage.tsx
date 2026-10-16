@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useBackToHome } from '@/hooks/useBackToHome';
 import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
@@ -39,6 +40,7 @@ import { ErrorBox, Loading } from '@/components/UI';
  */
 export default function ReaderPage({ slug, chapterId }: { slug: string; chapterId: string }) {
   const nav = useNavigate();
+  const back = useBackToHome();
   const { plugin } = usePlugin();
   const [searchParams] = useSearchParams();
 
@@ -140,11 +142,11 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
       adjustBrightness: (d) => prefs.patch({ brightness: nextBrightness(prefs.value.brightness, d) }),
       escape: () => {
         if (zoom) setZoom(null);
-        else nav(-1);
+        else back();
       },
       zoomOpen: !!zoom,
     },
-    [paging, bar, isRTL, prefs, toggleMark, panels, zoom, nav],
+    [paging, bar, isRTL, prefs, toggleMark, panels, zoom, back],
   );
 
   /* ── 派生 ── */
@@ -176,7 +178,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         marked={bookmarks.markedPages.has(paging.currentImageIndex)}
         canFullscreen={fs.supported}
         fullscreen={fs.active}
-        onBack={() => nav(-1)}
+        onBack={back}
         onSettings={() => panels.open('prefs')}
         onChapters={() => panels.open('chapters')}
         onBookmarks={() => panels.open('bookmarks')}
