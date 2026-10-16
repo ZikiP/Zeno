@@ -109,8 +109,8 @@ export async function setShelfOrder(orderedKeys: string[]): Promise<number> {
  * 不用每台设备重说一遍。
  */
 export const SHELF_COLS = {
-  sm: { min: 2, max: 4, def: 3 },
-  lg: { min: 2, max: 6, def: 4 },
+  sm: { min: 2, max: 6, def: 3 },
+  lg: { min: 2, max: 12, def: 4 },
 } as const;
 
 /** 大屏的判定线，和 browse.css 里那条媒体查询必须一致 */
