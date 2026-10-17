@@ -52,13 +52,30 @@ export default function ComicPage() {
     chapters,
   );
 
+  /*
+   * 抓的是"哪个源的哪本书"，不是插件对象的那个身份。
+   *
+   * PluginContext 每 reload 一次就 listPlugins() 重读一遍 IndexedDB，
+   * 那份 JSON 是现 parse 的，对象身份必然跟着变；而一次进这个页面，
+   * 挂载、同步推完、同步拉完至少会 reload 几轮（每轮都发一次数据变更）。
+   * `load` 以前依赖整个 plugin 对象，于是同一本书被从头抓三遍
+   * —— 实测一次打开详情页是 3 个详情页的文档请求，而渲染槽一共才 3 格。
+   *
+   * 抓取规则还是要用最新那份对象，所以它放 ref 里现读，依赖只留 id 与 slug。
+   */
+  const livePlugin = useRef(plugin);
+  useEffect(() => {
+    livePlugin.current = plugin;
+  });
+
   /** 第几次 load。换书换源时，上一次的结果不该再写回来 */
   const seq = useRef(0);
 
   const load = useCallback(async () => {
-    if (!plugin?.meta.id) return;
+    const p = livePlugin.current;
+    if (!p?.meta.id) return;
     const mine = ++seq.current;
-    const pluginId = plugin.meta.id;
+    const pluginId = p.meta.id;
     setErr(null);
     /*
      * 「读到哪了」单独取，别跟着详情页一起等。
@@ -75,7 +92,7 @@ export default function ComicPage() {
       () => {},
     );
     try {
-      const c = await getComic(plugin, slug);
+      const c = await getComic(p, slug);
       if (mine !== seq.current) return;
       // 真内容到手，本地那份就再不该盖回来（见下面那个恢复用的 effect）
       fresh.current = true;
@@ -83,13 +100,13 @@ export default function ComicPage() {
       setChapters(c.chapters);
 
       // 顺手缓存章节表，阅读器内打开目录就不用再抓一次
-      void cacheChapterList(plugin.meta.id, slug, c.comic, c.chapters.map((x) => ({ id: x.id, index: x.index, title: x.title })));
+      void cacheChapterList(pluginId, slug, c.comic, c.chapters.map((x) => ({ id: x.id, index: x.index, title: x.title })));
       /*
        * 追更徽章在这里清零：把"我现在知道有几章"报回服务端去对齐基线。
        * 报的是解析出来的条数，跟服务端那边数的单位是同一个口径（有测试钉着），
        * 少这一步的话徽章会一直挂着，看起来像"永远有新章"。
        */
-      void reportSeen(`${plugin.meta.id}/${slug}`, c.chapters.length).catch(() => {});
+      void reportSeen(`${pluginId}/${slug}`, c.chapters.length).catch(() => {});
     } catch (e) {
       /*
        * 已经有内容（不管是刚抓到的还是从本地恢复的）就别把整页换成错误框：
@@ -98,7 +115,7 @@ export default function ComicPage() {
        */
       setErr((e as Error).message);
     }
-  }, [plugin, slug]);
+  }, [plugin?.meta.id, slug]);
 
   /*
    * 先用本地那份画出来，再去抓。

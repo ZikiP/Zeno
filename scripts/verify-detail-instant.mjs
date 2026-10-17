@@ -87,6 +87,18 @@ const page = await ctx.newPage();
 
 let hold = false;
 const held = [];
+/**
+ * 开一章要抓几遍章节文档，用 request 事件数（不按住，按住会把几十张图一起拖住）。
+ * 判据是"这条代理请求的目标是不是文档"：带图片扩展名的不算。
+ */
+let counting = false;
+const docs = [];
+const isDoc = (u) => u && !/\.(?:jpe?g|png|webp|gif|avif|svg)(?:\?|$)/i.test(u);
+page.on('request', (r) => {
+  if (!counting || !r.url().includes('/api/proxy')) return;
+  const t = new URL(r.url()).searchParams.get('url');
+  if (isDoc(t)) docs.push(t);
+});
 await page.route('**/api/proxy**', async (route) => {
   if (hold) {
     held.push(new URL(route.request().url()).searchParams.get('url') ?? '');
@@ -180,6 +192,8 @@ await page.waitForFunction(() => !!document.querySelector('.detail'), undefined,
   timeout: 60_000,
   polling: 50,
 });
+/* 同上：抓着抓着来一次数据变更，看它会不会把这一本再从头抓一遍 */
+await page.evaluate(() => window.dispatchEvent(new CustomEvent('zeno-data-change')));
 const tPaint = Date.now() - t0;
 const hasBtn = await page
   .waitForFunction(() => document.body.innerText.includes('继续阅读'), undefined, {
@@ -192,10 +206,17 @@ const tBtn = Date.now() - t0;
 hold = false;
 
 console.log(`  正文画好 ${tPaint}ms ｜ 「继续阅读」${hasBtn ? `出现在 ${tBtn}ms` : '30 秒内没出现'}`);
-console.log(`  这一遍真的按住了 ${held.length} 个代理请求`);
+console.log(`  这一遍按住的代理请求：\n    ${held.map((s) => s.slice(0, 92)).join('\n    ') || '(一个都没有)'}`);
+/** 详情页那一个文档被翻了几遍 —— 见 ComicPage 里 load 的依赖为什么不含整个 plugin 对象 */
+const detailHits = held.filter((s) => s.includes(`/comic/${SLUG}`)).length;
 check(
   held.length > 0,
   '按住那段真的发生过（SW 没关掉的话 route 一个请求都拦不到，数字全是假的）',
+);
+check(
+  detailHits === 1,
+  `一次打开只抓一遍详情页文档（实得 ${detailHits} 遍；插件对象每轮 reload 换个身份就被当成本源变化重抓，` +
+    `最坏时 3 个请求正好占满那 3 格渲染槽）`,
 );
 check(
   tPaint < HOLD_MS,
@@ -205,6 +226,37 @@ check(hasBtn, '「继续阅读」出来了（没出来的话下面那条空窗�
 check(
   hasBtn && tBtn - tPaint <= MAX_GAP_MS,
   `正文到按钮的空窗 ${tBtn - tPaint}ms ≤ ${MAX_GAP_MS}ms（捆在 Promise.all 里那版实测 2532ms）`,
+);
+
+/* ── 3. 开一章：章节文档同样只该抓一遍（阅读器里是同一类依赖问题，而且更热） ── */
+console.log('\n=== 3. 打开一章，数它抓了几遍章节文档');
+counting = true;
+await page.goto(`${BASE}/read/${PLUGIN}/${SLUG}/0_120`, { waitUntil: 'domcontentloaded' });
+/*
+ * 抓取还在半路时戳一下"数据变了"。
+ * 平时同步推完、拉完各发一次，插件对象就在那一刻换个身份 ——
+ * 靠碰运气的话这一节有时重复有时不重复（实测两种结果都见过），
+ * 所以把它做成可控的一步。
+ */
+await page.waitForTimeout(1200);
+await page.evaluate(() => window.dispatchEvent(new CustomEvent('zeno-data-change')));
+await page.waitForFunction(() => document.querySelectorAll('.reader__page').length > 3, undefined, {
+  timeout: 150_000,
+  polling: 500,
+});
+await page.waitForTimeout(4000);
+counting = false;
+/*
+ * 开一章抓好几个文档是**设计**：这一章在源站被切成 _2…_5 好几页，
+ * 末尾那一跳是下一章（提前备好，翻页不等网络）。
+ * 所以这里钉的不是"一共几跳"，而是"同一跳不许抓两遍"。
+ */
+const twice = docs.filter((d, i) => docs.indexOf(d) !== i);
+console.log(`  去重后 ${new Set(docs).size} 个文档，重复抓的 ${twice.length} 个`);
+check(
+  twice.length === 0,
+  `同一份章节文档不该被抓两遍（一共 ${docs.length} 跳，去重 ${new Set(docs).size} 跳；` +
+    `多出来那些就是 effect 整个重跑了一遍）`,
 );
 
 await browser.close();

@@ -109,9 +109,16 @@ export function useChapterLoader(
     return () => {
       cancelled = true;
     };
-    // plugin 对象引用变化频繁，用它的 id 做依赖即可
+    /*
+     * 依赖里只有 id，没有 plugin 那个对象 —— 它每轮 reload 都换个身份
+     * （PluginContext 重新 parse 一份 JSON），带上它就等于"同步推完、拉完，各重来一次"。
+     * 阅读器里重来一遍的代价比详情页大：cleanup 把正在飞的那次标成 cancelled，
+     * 那一轮的结果整个丢掉，读者等到的是从零再抓一遍。
+     * 实测开一章 6 跳（这一章在源站本来就分成几页，最后一跳是下一章预取）
+     * 被顶成 16 跳。
+     */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plugin, pluginId, slug, chapterId, nonce]);
+  }, [pluginId, slug, chapterId, nonce]);
 
   /**
    * 进度写入做 600ms 节流，连续滚动时不会疯狂写 IndexedDB。
