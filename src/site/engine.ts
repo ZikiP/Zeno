@@ -212,15 +212,70 @@ export async function getChapter(
 
   const images: string[] = [];
   const seen = new Set<string>();
-
-  let totalPages = 1;
-  let page = 1;
   let truncated = false;
 
+  const addImages = (html: string) => {
+    let added = 0;
+    for (const u of imageUrlsFromHtml(html, plugin)) {
+      if (seen.has(u)) continue;
+      seen.add(u);
+      images.push(proxied(u));
+      added++;
+    }
+    return added;
+  };
+
+  /*
+   * 页码标记形如标题里的 "(1/3)"。**只认第一个数是 1 的那种**：
+   * 它必须是"本页是整章的第 1 页"这个意思，而不是章节标题里恰好出现的
+   * 一串括号（"第2话 (3/5)" 那种会把我们骗到只取 5 页中的第 1 页去）。
+   */
+  const declaredPages = (html: string) => {
+    const m = html.match(/\(1\/(\d+)\)/);
+    return m ? Math.max(1, Number(m[1]) || 1) : null;
+  };
+
+  const firstUrl = urlFor(chapterId);
+  const firstHtml = await fetchText(plugin, firstUrl, 'chapter');
+  const totalPages = declaredPages(firstHtml) ?? 1;
+  addImages(firstHtml);
+
+  /*
+   * 站点自己说了这一章一共几页，就没什么好探的：剩下的页并发取。
+   *
+   * 之前这里是"一页一页串着取，取到 404 或重复为止"，于是一章的耗时是
+   * 每页上游往返的**和**（实测包子漫画单页 0.83s，三页章 2.9s）。
+   * 更要紧的是原来那条 `totalPages > 1 && page >= totalPages` 的收尾条件：
+   * 标称 1 页的章它不成立，于是照样多发一次"下一页"的请求 —— 而这类站点
+   * 对不存在的下一页根本不安抚地回 404，实测 twmanga 把第一页原样又回了一遍
+   * （200 + 同样的 128KB），只能靠去重认出来，白花一个往返。
+   *
+   * 没有标记的章不在这条路上：它们没有可信任的页数，只能继续探。
+   */
+  if (totalPages > 1) {
+    const last = Math.min(totalPages, limit, HARD_CAP);
+    const rest = await Promise.all(
+      Array.from({ length: last - 1 }, (_, i) => i + 2).map(async (p) => {
+        if (opts?.signal?.aborted) return null;
+        try {
+          return await fetchText(plugin, urlFor(`${chapterId}_${p}`), 'chapter');
+        } catch (e) {
+          const status = e instanceof FetchError ? e.status : undefined;
+          // 标称和实际不一致（站点自己数错了）：到这就算读完，不算截断
+          if (status !== 404 && status !== 410) truncated = true;
+          return null;
+        }
+      }),
+    );
+    for (const html of rest) if (html) addImages(html);
+    return { totalPages, images, truncated };
+  }
+
+  let page = 2;
   while (page <= limit && page <= HARD_CAP) {
     if (opts?.signal?.aborted) break;
 
-    const pageId = page === 1 ? chapterId : `${chapterId}_${page}`;
+    const pageId = `${chapterId}_${page}`;
     let html: string;
     try {
       html = await fetchText(plugin, urlFor(pageId), 'chapter');
@@ -230,39 +285,15 @@ export async function getChapter(
        * 404/410 = 这个内页真的不存在，章节到此为止。绝大多数单页章节都走这条，
        * 是正常的结束方式，不是错误。
        *
-       * 第一页就失败（任何原因）都必须抛 —— 那时一张图都没拿到，
-       * 静默返回空列表在界面上和"这章是空章节"长得一模一样。
-       *
        * 后面的页失败且不是 404（超时、5xx、渲染不出来），返回已有部分但标记
        * truncated：把网络抖动当成"这章就这么短"，用户读到最后也不会起疑。
        */
       if (status === 404 || status === 410) break;
-      if (page === 1) throw e;
       truncated = true;
       break;
     }
 
-    // 页面里的总页数标记，形如标题中的 "(1/4)"
-    const tp = html.match(/\((\d+)\/(\d+)\)/);
-    if (tp) {
-      const declared = Number(tp[2]) || 1;
-      if (page === 1) totalPages = Math.max(totalPages, declared);
-    }
-
-    const found = imageUrlsFromHtml(html, plugin);
-
-    if (found.length === 0) break;
-
-    let added = 0;
-    for (const u of found) {
-      if (seen.has(u)) continue;
-      seen.add(u);
-      images.push(proxied(u));
-      added++;
-    }
-    if (added === 0) break; // 本页全是重复，说明到头了
-
-    if (totalPages > 1 && page >= totalPages) break;
+    if (addImages(html) === 0) break; // 本页全是重复，说明到头了
     page++;
   }
 
