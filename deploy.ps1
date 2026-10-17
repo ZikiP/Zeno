@@ -93,12 +93,20 @@ Ok ("npm " + (npm -v))
 # 找不到不算失败 —— 只有 fetch.mode="browser" 的插件需要它，普通插件照常工作。
 Step '检查渲染浏览器（可选）'
 $env:RENDER_MOD = Join-Path $InstallDir 'server\render.mjs'
-$browserCheck = & node --input-type=module -e @'
+# 这一段对 stderr 特别脆弱，两个坑都是真撞过的：
+#   1. $ErrorActionPreference='Stop' 下，原生命令**往 stderr 写东西**就抛 NativeCommandError，
+#      `2>$null` 挡不住。render.mjs 现在引了 db.mjs，node:sqlite 那句
+#      ExperimentalWarning 就是这么把整个部署在"检查渲染浏览器"上炸掉的。
+#   2. 这个检查纯属诊断，它自己失败不该把部署拦下 —— 所以临时降到 Continue，跑完还原。
+$prevPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$browserCheck = & node --no-warnings --input-type=module -e @'
 import { pathToFileURL } from 'node:url';
 const m = await import(pathToFileURL(process.env.RENDER_MOD).href);
 const b = m.findBrowser();
 console.log(b ? 'FOUND|' + b.from + '|' + b.exe : 'NONE');
 '@ 2>$null
+$ErrorActionPreference = $prevPreference
 $browserFound = $false
 if ("$browserCheck" -like 'FOUND|*') {
     $parts = "$browserCheck" -split '\|'
