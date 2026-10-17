@@ -35,6 +35,45 @@ async function settleCaptures(page, deadlineLeftMs) {
   }
 }
 
+/** 站点的「正在验证浏览器」质询壳特征。小写后比对，所以中英混着写都行 */
+const CHALLENGE_MARKERS = [
+  '__gatekeeper_challenge',
+  '正在验证浏览器',
+  'data-state="checking"',
+  'just a moment',
+  'checking your browser',
+  'cf-chl',
+  'challenge-platform',
+];
+const CHALLENGE_POLL_MS = 500;
+
+export function isChallengeHtml(html) {
+  const h = String(html).toLowerCase();
+  return CHALLENGE_MARKERS.some((m) => h.includes(m.toLowerCase()));
+}
+
+/**
+ * 停在浏览器质询页时，等它自己走完。
+ *
+ * 为什么必须等：质询页的 JS 会自己重新加载目标页，而这次重载会炸掉
+ * waitForFunction 的执行上下文 —— 判据于是"失败"，快照正好落在重载前的
+ * 空壳上。实测 baozimh 详情页就是这么返回 2383 字节的质询壳、0 条章节。
+ *
+ * 返回最后一次的 HTML 和"是否还停在质询页"。
+ */
+export async function waitOutChallenge(page, budgetMs) {
+  let html = await page.content().catch(() => '');
+  if (!isChallengeHtml(html)) return { html, challenged: false };
+
+  const t0 = performance.now();
+  while (performance.now() - t0 < budgetMs) {
+    await page.waitForTimeout(CHALLENGE_POLL_MS).catch(() => {});
+    html = await page.content().catch(() => html);
+    if (!isChallengeHtml(html)) return { html, challenged: false };
+  }
+  return { html, challenged: true };
+}
+
 /**
  * 等"内容到位"，判据按插件声明选一个：
  *

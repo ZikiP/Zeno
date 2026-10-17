@@ -16,7 +16,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { captureScript, readCaptures } from './capture.mjs';
 import { cacheGet, cachePut, keyFor } from './render-cache.mjs';
-import { waitUntilSettled } from './render-wait.mjs';
+import { isChallengeHtml, waitOutChallenge, waitUntilSettled } from './render-wait.mjs';
 
 export { renderCacheStats } from './render-cache.mjs';
 
@@ -29,6 +29,10 @@ const IDLE_SHUTDOWN_MS = Number(process.env.BROWSER_IDLE_MS || 180_000);
 const MAX_PAGES = Number(process.env.BROWSER_MAX_PAGES || 3);
 /** 把页面自己的子资源失败/脚本报错打到 stdout，专门用来诊断部署实例 */
 const RENDER_DEBUG = process.env.ZENO_RENDER_DEBUG === '1';
+/** 等浏览器质询页走完的预算。真解不开的站也不该一直占着渲染槽 */
+const CHALLENGE_MAX_MS = Number(process.env.BROWSER_CHALLENGE_MS || 10_000);
+/** 剩余预算少于这个数就别等质询了，等也等不出结果 */
+const CHALLENGE_MIN_LEFT_MS = 1_500;
 
 const DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -232,6 +236,7 @@ export async function renderHtml(url, opts = {}) {
     /** 必须在 goto 之前装：注入脚本要在站点的脚本跑到之前就把 JSON.parse 包住 */
     if (opts.capture) await page.addInitScript({ content: captureScript(opts.capture) });
 
+    const t0 = performance.now();
     const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
     /*
@@ -239,7 +244,26 @@ export async function renderHtml(url, opts = {}) {
      * 列表 / 详情 / 章节三种页面，后两者往往没有列表的那个选择器。
      * 当成必须条件就会白等满超时再报错，所以超时后直接用当前 DOM。
      */
-    const settled = await waitUntilSettled(page, opts, timeoutMs);
+    let settled = await waitUntilSettled(page, opts, timeoutMs);
+    /*
+     * 什么都没等到时，先确认不是停在站点的浏览器质询页上。质询页的 JS 会自己
+     * 重载目标页，而那次重载正好把上面的 waitForFunction 打断 —— 于是"判据失败"
+     * 和"页面还没到位"长得一模一样，快照拿回来的却是一张永远不会有内容的空壳。
+     * 等它走完，再用剩下的预算把原判据重跑一遍。
+     */
+    let challenged = false;
+    if (!settled) {
+      const left = timeoutMs - (performance.now() - t0);
+      if (left > CHALLENGE_MIN_LEFT_MS) {
+        const w = await waitOutChallenge(page, Math.min(CHALLENGE_MAX_MS, left));
+        challenged = w.challenged;
+        if (!w.challenged) {
+          settled = await waitUntilSettled(page, opts, Math.max(500, left - CHALLENGE_MAX_MS));
+        }
+      }
+    }
+    if (challenged) console.warn(`[zeno][render] 停在浏览器质询页 ${url.slice(0, 110)}`);
+
     // 只有什么都没等到时才额外让 800ms。等到了内容再固定加 800ms 是纯开销 ——
     // 它会加在每一次渲染上。
     if (!settled && !opts.waitFor) await page.waitForTimeout(800).catch(() => {});
@@ -280,7 +304,12 @@ export async function renderHtml(url, opts = {}) {
     const gotIt =
       settled === 'capture' || settled === 'selector' || settled === 'load' || captured.length > 0;
     if (gotIt) status = 200;
-    else if (status >= 400 && html.length > 2000) status = 200;
+    /*
+     * "有内容就当成功"这条兜底不能用在质询页上：质询壳也是好几 KB 的合法 HTML，
+     * 于是 403 被洗成 200，客户端高高兴兴去解析一张永远没有数据的壳。
+     * 宁可回 403 让上层报错，也不要一个骗人的 200。
+     */
+    else if (status >= 400 && html.length > 2000 && !challenged && !isChallengeHtml(html)) status = 200;
 
     const out = captured.length
       ? { format: 'json', html: '', captured, status, contentType: 'application/json; charset=utf-8' }
