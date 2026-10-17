@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { RetryableImage } from '@/components/RetryableImage';
 import { IconBookmark } from '@/components/Icons';
+import ProgressRing from '@/components/ProgressRing';
 import { usePinchZoom, type PinchState } from './usePinchZoom';
 
 /** 竖向滚动视图：连续下滑，适合手机和长章节 */
@@ -15,8 +16,10 @@ export default function ScrollView({
   onTap,
   onZoom,
   onZoomedChange,
-  onPullDown,
+  onPullStart,
+  onPullHold,
   endHint,
+  pull = 0,
   onEndTap,
 }: {
   images: string[];
@@ -37,13 +40,16 @@ export default function ScrollView({
   onZoom: (src: string, index: number) => void;
   onZoomedChange: (zoomed: boolean) => void;
   /**
-   * 已经停在章末时用户又往下推了一下（滚轮 / 新一次触摸拖动）。
-   * 这里只负责"报告有这个意图"，该不该跳由 useAutoNextChapter 判 ——
-   * 到底那一瞬间的惯性尾巴事件也算它报过，所以判的那一侧留了冷却。
+   * 停在章末后又往下推 / 按住不放。这里只报意图，攒不攒、攒多快、
+   * 什么时候算满，全在 useAutoNextChapter 判。
+   * onPullHold(false) 是"手离开了" —— 蓄到一半的力要能退回去。
    */
-  onPullDown?: () => void;
-  /** 章末那一行的提示文案。给了它，那一行就变成可点的 */
+  onPullStart?: () => void;
+  onPullHold?: (on: boolean) => void;
+  /** 章末那一行的提示文案。给了它，那一行就变成带环的可点行 */
   endHint?: string | null;
+  /** 0–1，那一圈环按它画 */
+  pull?: number;
   onEndTap?: () => void;
 }) {
   const ownRef = useRef<HTMLDivElement>(null);
@@ -105,44 +111,40 @@ export default function ScrollView({
   });
 
   /*
-   * "停在章末后又往下推了一下"的两种形状：滚轮一格、手指一次新的拖动。
+   * 停在章末时的"还在拉"这件事，两种输入两种形状：
+   *  - 手指：按下去算开始，抬起来算结束。中间就算一动不动也一直在拉
+   *    （到底之后原地按着手指数得到秒，靠的是状态机那边按时间攒，不是 touchmove）。
+   *  - 滚轮：没有"松手"这回事，所以每一下都报一次"还在推"，多久没动静算停手 ——
+   *    那条超时在状态机里（WHEEL_HOLD_MS）。
    *
-   * 触摸这边只认**一次新手势**：一路滑到底的那只手，尾巴上还会挤进来几个
-   * touchmove，全算成第二次意图的话，第一段"停在章末"就白留了。
-   * 所以 touchstart 才把闸重新打开，一次手势最多报一次。
-   *
-   * 都是 passive 的：我们不拦原生行为，只是把意图报上去。
+   * 双指捏合不算上拉：只认一根手指。监听全 passive，我们不改原生滚动，
+   * 只是把意图报上去。
    */
   useEffect(() => {
     const el = box.current;
-    if (!el || !onPullDown) return;
-    let freshGesture = false;
-    let lastY = 0;
-    const onWheel = (e: WheelEvent) => {
-      if (e.deltaY > 0) onPullDown();
-    };
-    const onTouchStart = (e: TouchEvent) => {
-      freshGesture = true;
-      lastY = e.touches[0]?.clientY ?? 0;
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      if (!freshGesture) return;
-      const y = e.touches[0]?.clientY ?? 0;
-      // 手指往上移 = 内容往下走
-      if (lastY - y > 24) {
-        freshGesture = false;
-        onPullDown();
+    if (!el || (!onPullStart && !onPullHold)) return;
+    const oneFinger = (e: TouchEvent) => e.touches.length === 1 && !e.touches[1];
+    const onStart = (e: TouchEvent) => {
+      if (oneFinger(e)) {
+        onPullStart?.();
+        onPullHold?.(true);
       }
     };
-    el.addEventListener('wheel', onWheel, { passive: true });
-    el.addEventListener('touchstart', onTouchStart, { passive: true });
-    el.addEventListener('touchmove', onTouchMove, { passive: true });
-    return () => {
-      el.removeEventListener('wheel', onWheel);
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchmove', onTouchMove);
+    const onEnd = () => onPullHold?.(false);
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY > 0) onPullStart?.();
     };
-  }, [box, onPullDown, images]);
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchend', onEnd, { passive: true });
+    el.addEventListener('touchcancel', onEnd, { passive: true });
+    el.addEventListener('wheel', onWheel, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [box, onPullStart, onPullHold, images]);
 
   return (
     <div
@@ -178,7 +180,7 @@ export default function ScrollView({
       ))}
       {/*
        * 章末那一行。平时是静态的「— 本章完 —」；停在章末且自动下一章开着时
-       * 换成可点的一行，把"再推一下"这件事说在眼前，同时也真能点。
+       * 换成带环的一行 —— 环就是"还要拉多久"的那点余量，松手它会退回去。
        */}
       {endHint ? (
         <button
@@ -188,7 +190,9 @@ export default function ScrollView({
             onEndTap?.();
           }}
         >
-          {endHint}
+          {/* 环只画"还差多少"，那句话已经写在旁边了 —— 别再给环一个同名无障碍名 */}
+          <ProgressRing percent={pull * 100} size={20} label="蓄力" decorative />
+          <span>{endHint}</span>
         </button>
       ) : (
         <div className="reader__end">— 本章完 —</div>

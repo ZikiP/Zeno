@@ -89,7 +89,7 @@ export default function ReadingPanel() {
         <Row
           icon={<IconChevronLeft size={18} />}
           label="读到底自动接下一章"
-          hint="滚到章末先停在「本章完」那一屏，上一章的结尾留在眼前；再往下推一下（或点那一行）才接下一章。翻页模式则是在最后一页再往前翻一次即接。"
+          hint="滚到章末先停在「本章完」那一屏，上一章的结尾留在眼前；要接下一章得按住上拉约 1.5 秒，看那一圈环填满，中途松手就退回去。点那一行也是直接接。"
           control={<div className={`switch${prefs.value.autoNextChapter ? ' on' : ''}`} />}
           onClick={() => prefs.patch({ autoNextChapter: !prefs.value.autoNextChapter })}
         />

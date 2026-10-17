@@ -75,7 +75,7 @@ export default function ReaderPrefsSheet({
           label="读到底自动接下一章"
           hint={
             mode === 'scroll'
-              ? '滚到章末先停在「本章完」这一屏，再往下推一下才接下一章 —— 上一章的结尾不会被直接翻过去。'
+              ? '滚到章末先停在「本章完」这一屏；接下一章要按住上拉约 1.5 秒，环填满才作数，中途松手就退回。'
               : '在最后一页再往前翻一次就接下一章，不用去点那颗胶囊。'
           }
           control={<div className={`switch${prefs.autoNextChapter ? ' on' : ''}`} />}

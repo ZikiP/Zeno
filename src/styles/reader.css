@@ -93,7 +93,10 @@
  * 不另做一颗胶囊：那儿已经有章末导航的悬浮胶囊了，再摆一个就是两个东西抢位置。
  */
 .reader__end--go {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
   width: 100%;
   background: none;
   border: 0;
@@ -104,6 +107,10 @@
 }
 .reader__end--go:active {
   color: rgba(255, 255, 255, 0.9);
+}
+/* 环已经说明"还差多少"，字就别再跟着抖：不做过渡，跳一下反而像卡 */
+.reader__end--go .ring {
+  flex: none;
 }
 
 /* 分页模式 */

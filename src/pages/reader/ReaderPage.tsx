@@ -88,8 +88,9 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const autoRef = useRef<{
     atEnd: () => void;
     onScroll: (el: HTMLElement) => void;
-    pullDown: () => void;
-  }>({ atEnd: () => {}, onScroll: () => {}, pullDown: () => {} });
+    pullStart: () => void;
+    pullHold: (on: boolean) => void;
+  }>({ atEnd: () => {}, onScroll: () => {}, pullStart: () => {}, pullHold: () => {} });
   const paging = usePaging(imageCount, mode, prefs.value.pageMode, record, () =>
     autoRef.current.atEnd(),
   );
@@ -235,19 +236,21 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
             // 各接一遍的话早晚会出现"进度说 100%、章却还没接上"
             autoRef.current.onScroll(el);
           }}
-          onPullDown={() => autoRef.current.pullDown()}
+          onPullStart={() => autoRef.current.pullStart()}
+          onPullHold={(on) => autoRef.current.pullHold(on)}
+          pull={autoNext.pull}
           endHint={
             autoNext.armed
               ? autoNext.ready
-                ? '— 本章完 · 点这里或再往下推一下 —'
-                : '— 本章完 · 正在取最后几张 —'
+                ? '上拉接下一章'
+                : '正在取最后几张…'
               : null
           }
           /*
-           * 点那一行是明确意图，直接接；只有"再推一下"那条路要过冷却，
-           * 因为一路滑到底的手还会挤进来几个事件。
+           * 点那一行是明确意图，直接接；蓄力那套防的是"滑过头"，
+           * 不是防"照着字按下去"。
            */
-          onEndTap={() => autoNext.atEnd()}
+          onEndTap={() => autoNext.tapEnd()}
           onTap={bar.toggle}
           onZoom={(src, i) => setZoom({ src, i })}
           onZoomedChange={setZoomed}

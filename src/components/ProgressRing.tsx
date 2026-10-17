@@ -11,11 +11,18 @@ export default function ProgressRing({
   percent,
   size = 26,
   label,
+  decorative = false,
 }: {
   percent: number;
   size?: number;
   /** 无障碍与悬浮提示用的完整描述 */
   label: string;
+  /**
+   * 旁边已经有文字说清这是几成时传 true。
+   * 环自带一个 <title> 做无障碍名，跟旁边的文字叠在一块儿会被读成两遍
+   * —— 章末那行"上拉接下一章"旁边挂这颗环时就是这么露出来的。
+   */
+  decorative?: boolean;
 }) {
   const p = Math.max(0, Math.min(100, Math.round(percent)));
   const stroke = 2.5;
@@ -27,10 +34,9 @@ export default function ProgressRing({
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      role="img"
-      aria-label={label}
+      {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': label })}
     >
-      <title>{label}</title>
+      {!decorative && <title>{label}</title>}
       {/*
         底盘。没有它的话，深色封面上那圈 track 会直接融进画面里 ——
         实测进度环压在封面右上角时几乎看不见。
