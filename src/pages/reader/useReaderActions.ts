@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import type { Bookmark } from '@/store/db';
 import type { Plugin } from '@/site/types';
@@ -28,6 +28,9 @@ interface Args {
 }
 
 export function useReaderActions(a: Args) {
+  /** 进度条跳转后面跟着的那个"等高度稳定"的轮询句柄 */
+  const settler = useRef<number>(0);
+
   /**
    * 换章。
    *
@@ -55,6 +58,59 @@ export function useReaderActions(a: Args) {
     },
     [a.mode, a.paging, a.scrollRef],
   );
+
+  /**
+   * 滚动模式下点进度条跳到整章的某个位置。
+   *
+   * 按**滚动距离**换算，而不是"跳到第几张图"：存下来的进度本来就是
+   * `scrollTop / 可滚距离`（见 useChapterLoader 的 onScroll），所以点 30%
+   * 落的位置和"上次读到 30%"恢复出来的位置必须是同一个地方 —— 用图片序号
+   * 去凑就会差半张图。
+   *
+   * 图片是 lazy 的：跳的那一刻 scrollHeight 只算得出已经挂上的那部分，
+   * 上面那些图陆续加载完之前高度还在长，一次算死的 scrollTop 会漂。
+   * 所以照恢复那条路一样盯一小会儿，高度一变就按同一个比例重算。
+   */
+  const seekScroll = useCallback(
+    (ratio: number) => {
+      const el = a.scrollRef.current;
+      if (!el) return;
+      const target = Math.max(0, Math.min(1, ratio));
+      if (settler.current) window.clearInterval(settler.current);
+
+      let last = -1;
+      let steady = 0;
+      const apply = () => {
+        const scrollable = el.scrollHeight - el.clientHeight;
+        if (scrollable > 0) el.scrollTop = scrollable * target;
+      };
+      const stop = () => {
+        if (settler.current) window.clearInterval(settler.current);
+        settler.current = 0;
+        window.clearTimeout(cap);
+      };
+      apply();
+      const poll = window.setInterval(() => {
+        const h = el.scrollHeight;
+        if (h !== last) {
+          last = h;
+          steady = 0;
+          return apply();
+        }
+        // 连续三拍（600ms）没再长，就当该到的图都到了
+        if (++steady >= 3) stop();
+      }, 200);
+      // 别为了一张永远加载不出来的图一直轮询
+      const cap = window.setTimeout(stop, 4000);
+      settler.current = poll;
+    },
+    [a.scrollRef],
+  );
+
+  /** 换组件、离开阅读器都要停掉那个轮询，不然它还在偷偷改 scrollTop */
+  useEffect(() => () => {
+    if (settler.current) window.clearInterval(settler.current);
+  }, []);
 
   const toggleMark = useCallback(async () => {
     if (!a.images) return;
@@ -96,5 +152,5 @@ export function useReaderActions(a: Args) {
     [a.setMode, a.paging],
   );
 
-  return { gotoChapter, scrollToPage, toggleMark, jumpToBookmark, switchMode };
+  return { gotoChapter, scrollToPage, seekScroll, toggleMark, jumpToBookmark, switchMode };
 }

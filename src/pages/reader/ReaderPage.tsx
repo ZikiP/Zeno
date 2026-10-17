@@ -96,7 +96,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   }, [warning, flash]);
 
   /* ── 动作（换章 / 收藏 / 跳书签 / 切模式）── */
-  const { gotoChapter, toggleMark, jumpToBookmark, switchMode } = useReaderActions({
+  const { gotoChapter, toggleMark, jumpToBookmark, switchMode, seekScroll } = useReaderActions({
     plugin,
     slug,
     chapterId,
@@ -254,9 +254,11 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           onSeek={
             mode === 'paged'
               ? paging.seek
-              : // 滚动模式点最右端 = 直接下一章，长章节最顺手的操作
+              : // 滚动模式点最右端 = 直接下一章，长章节最顺手的操作；
+                // 其余位置就跳到那一处（单位是滚动比例，和存下来的进度同一个口径）
                 (ratio) => {
                   if (ratio > 0.97 && nextId) gotoChapter(nextId);
+                  else seekScroll(ratio);
                 }
           }
         />

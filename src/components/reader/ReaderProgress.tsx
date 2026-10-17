@@ -8,7 +8,11 @@ export default function ReaderProgress({
   percent: number;
   /** 已收藏页在整章里的百分比位置 */
   markedPositions: number[];
-  /** 点击回调。传 null 表示不支持跳转（滚动模式） */
+  /**
+   * 跳到这一章的哪个位置，0-1。
+   * 分页模式是"第几屏"，滚动模式是滚动比例（和存下来的进度同一个口径）。
+   * 传 null 表示这一章没什么可跳的（只有一张图）。
+   */
   onSeek: ((ratio: number) => void) | null;
 }) {
   return (
