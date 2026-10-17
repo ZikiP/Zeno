@@ -504,6 +504,7 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 | 部署在「检查环境」之后立刻 `Die`：「工作副本有未提交的改动」 | 端口检查之前是 `git status --porcelain`，**未跟踪的新文件也算**（排查时随手落的脚本会挡住部署） | 先 commit 或删掉临时文件；别用 `-SkipInstall` 绕，它管的是依赖不是这个 |
 | 打开某本书/某次搜索就是卡满 `timeoutMs`（插件写 45s 就 45 秒），偶发 429 但 `render.openPages` 不顶格 | 页面 200 但**根本没有那个 `waitFor` 的东西**（无目录的书、不存在的 slug）。`minCount` 为 1 时旧代码只等选择器，预算一路点满，还把一格渲染并发钉住 —— 三格全被这种页占住就是全站 429 | 已修：`minCount` 为 1 也参加"等够数量 vs 页面安静下来"的竞赛，文档自己 404/410 且没要等的东西就直接早退。要复现就看 `node scripts/probe-modes.mjs` 的耗时列，别开 `-RenderDebug`（子资源行会把日志刷满） |
 | 需要渲染的插件**在服务里只拿到静态壳**，同一份代码在前台实例上正常 | 差别在会话，不在代码：服务会话里浏览器自己的 XHR/子资源可能失败，而客户端只会看到"渲染完了但没数据"的 HTML | `.\deploy.ps1 -RunAsUser -SkipInstall -SkipTailscale -RenderDebug` 重注册，让服务把页面自己的失败写进 `zeno.log`，再搜 `[zeno][render]`。**排完记得去掉这个开关**：它把每个子资源请求都写进日志，几百行/页 |
+| 书架上一直没有「+N 章更新」的徽章 | 按顺序排这四条：① `curl <服务>/api/updates` 有没有行、`anchors` 是不是真条数 —— 一行都没有说明这一轮还没跑（服务刚起来要等 60 秒，或者 `ZENO_UPDATE_CHECK_MS=0` 把追更整个关了）；② `anchors` 小得离谱（1、2）通常是那本的插件只写了 `waitFor` 没写 `minCount`，browser 模式拿回来的是 SSR 那张占位壳，跟客户端解析出的条数一比反而是负的，减法永远不成立；③ `+N` = 服务端条数 − 客户端手上那份章节表的条数，客户端没缓存过这本就没有数（这时只能说"有更新"，不编数字）；④ 翻开过一本就把基线对齐回去、徽章自己消失 —— 这是设计不是坏了 | `npx tsx scripts/verify-updates.ts`（临时服务 + 生产库副本，真的走一轮，并拿客户端解析结果比条数）；手动踢一轮：设置 → 内容源 → 立即检查更新 |
 | 一章反复拿不到内容，重试永远一样快 | 抓空的结果被缓存过（已修：声明了 `capture` 却一条没抓到就不进缓存）—— 但线上遇到时先确认代码版本 | `renderCacheStats()` / 重启服务 |
 | `MCP error` / 进程秒退 | 看日志 | `journalctl -u zeno -n 50` 或 `<安装目录>\zeno.log` |
 | 健康检查绿但页面是 `dist not found` | 服务 cwd 不是安装目录 | 包装脚本里 `Set-Location`，或看 `/api/health` 的 `dbPath` 落在哪 |
