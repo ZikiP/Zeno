@@ -35,6 +35,7 @@ import { handleFontsApi, fontsDir } from './fonts.mjs';
 import { cacheDir, cacheMaxBytes } from './cache-config.mjs';
 import { reconcile } from './cache-store.mjs';
 import { shutdownBrowser } from './render.mjs';
+import { handleUpdatesApi, startUpdateScheduler } from './updates.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
 import { json, makeAuth } from './respond.mjs';
 
@@ -67,6 +68,9 @@ const server = createServer(async (req, res) => {
 
     /* ── 自定义字体的扫描与取用 API ── */
     if (await handleFontsApi(req, res, url, auth)) return;
+
+    /* ── 追更检查的 API ── */
+    if (await handleUpdatesApi(req, res, url, auth)) return;
 
     /* ── 抓取代理 ── */
     if (path === '/api/proxy') {
@@ -153,6 +157,7 @@ refreshAllowed();
 void reconcile().catch((e) => console.warn('[zeno] 缓存对账失败：', e.message));
 
 const token = process.env.SYNC_TOKEN || '';
+const updates = startUpdateScheduler();
 
 server.listen(PORT, '0.0.0.0', () => {
   const n = allowedHosts().size;
@@ -167,6 +172,15 @@ server.listen(PORT, '0.0.0.0', () => {
     `  ├─ 图片缓存  ${cdir ? `${cdir}（上限 ${Math.round(cacheMaxBytes() / 1048576)}MB）` : '已关闭'}`,
   );
   console.log(`  ├─ 字体目录  ${fontsDir()}（放 zip 或 ttf/otf，设置页自动识别）`);
+  console.log(
+    `  ├─ 追更检查  ${
+      updates
+        ? `每 ${Math.round(updates.roundMs / 3600000)} 小时一轮，同一本最少隔 ${Math.round(
+            updates.perBookMs / 3600000,
+          )} 小时（ZENO_UPDATE_CHECK_MS=0 关掉）`
+        : '已关闭（ZENO_UPDATE_CHECK_MS）'
+    }`,
+  );
   console.log(
     `  ├─ 抓取白名单 ${n ? `${n} 个（来自已安装的插件）` : '空 — 装个插件就会自动放行对应站点'}`,
   );

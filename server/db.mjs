@@ -163,6 +163,19 @@ export function openDb() {
       ctype  TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_cache_index_at ON cache_index(at);
+
+    -- 追更：每本在架书最后一次看到的章节条数。
+    -- 记的是**条数**这一种签名，不是章节列表本身 —— 解析在客户端，
+    -- 服务端只要知道"比上次多了几条"。徽章上的数字 = 这里的条数 − 客户端手里的条数。
+    CREATE TABLE IF NOT EXISTS updates (
+      key         TEXT PRIMARY KEY,   -- \`\${pluginId}/\${slug}\`
+      plugin_id   TEXT NOT NULL,
+      slug        TEXT NOT NULL,
+      anchors     INTEGER,            -- 最近一次数到的章节条数；没取到保持旧值
+      checked_at  INTEGER NOT NULL,
+      changed_at  INTEGER,            -- 条数最后一次发生变化的时刻（没变过就是 NULL）
+      error       TEXT
+    );
   `);
 
   /*

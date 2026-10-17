@@ -27,6 +27,7 @@ const ALL_SUITES = [
   // 直接测 src/ 里的纯逻辑（不碰 DOM、不碰网络），所以用 tsx 跑而不是编译产物
   'test-validation.ts',
   'test-parse.ts',
+  'test-updates.ts',
   'test-enabled.ts',
 ];
 const suites = process.argv.slice(2).length

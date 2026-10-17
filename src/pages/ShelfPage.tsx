@@ -11,6 +11,7 @@ import {
   type ShelfSort,
 } from '@/store/shelfOrder';
 import { getCachedChapterLists } from '@/store/chapters';
+import { getUpdates, shelfUpdate, type UpdateRow } from '@/store/updates';
 import type { ShelfEntry } from '@/store/types';
 import { usePlugin } from '@/store/PluginContext';
 import { useReloadOnChange } from '@/store/useDataVersion';
@@ -34,6 +35,8 @@ export default function ShelfPage() {
   const [sortMode, setSortMode] = useState<ShelfSort>(getShelfSort);
   const [showSort, setShowSort] = useState(false);
   const [cols, setCols] = useState(getShelfCols);
+  /** 服务端追更检查的结果，按 `${pluginId}/${slug}` 索引。取不到就当没有 */
+  const [updates, setUpdates] = useState<Record<string, UpdateRow>>({});
 
   /*
    * 书架跨所有已启用的源，不再只看"当前那一个"。
@@ -54,6 +57,16 @@ export default function ShelfPage() {
       const lists = Object.fromEntries(cached.map((c) => [c.key, c.chapters]));
       setItems(items);
       setLists(lists);
+      /*
+       * 追更结果取不到就当没有：书架是本地数据，不该因为服务端那一轮还没跑完
+       * （或者压根没开）就跟着报错。
+       */
+      try {
+        const info = await getUpdates();
+        setUpdates(Object.fromEntries(info.items.map((r) => [r.key, r])));
+      } catch {
+        setUpdates({});
+      }
       // 老数据没记过「第几章/共几章」，趁本地有章节表补一次，别等用户再读一章
       void backfillProgressFields(items, lists).catch(() => {});
       // 排法和格子数都可能在同步里被别人改了，每次重读都跟着刷新
@@ -142,6 +155,7 @@ export default function ShelfPage() {
      * 环上没有数字，画错了用户看不出来，宁缺。
      */
     const pct = bookProgress(lists[it.key], it);
+    const update = shelfUpdate(updates[it.key], lists[it.key]?.length);
     const source = byId[it.pluginId];
     return (
       <Link
@@ -160,6 +174,16 @@ export default function ShelfPage() {
               decoding="async"
               draggable={false}
             />
+          )}
+          {/*
+           * 徽标用的是搜索页那张 .card__badge，位置/材质都跟着它 ——
+           * 书架上凭空多出一个自己的胶囊，第一眼的感觉就是"突兀"。
+           * 数得出来就报数，数不出来（手上没这份章节表）只说"有更新"。
+           */}
+          {update && (
+            <span className="card__badge">
+              {update.kind === 'count' ? `+${update.n}` : '有更新'}
+            </span>
           )}
         </div>
         <div className="card__name">{it.title}</div>

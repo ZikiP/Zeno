@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useBackToHome } from '@/hooks/useBackToHome';
 import { getComic, chapterUrl, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import { cacheChapterList, getChapterList } from '@/store/chapters';
+import { reportSeen } from '@/store/updates';
 import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf } from '@/store/shelf';
 import type { ShelfEntry } from '@/store/types';
 import { formatBytes } from '@/store/utils';
@@ -67,6 +68,12 @@ export default function ComicPage() {
 
       // 顺手缓存章节表，阅读器内打开目录就不用再抓一次
       void cacheChapterList(plugin.meta.id, slug, c.comic, c.chapters.map((x) => ({ id: x.id, index: x.index, title: x.title })));
+      /*
+       * 追更徽章在这里清零：把"我现在知道有几章"报回服务端去对齐基线。
+       * 报的是解析出来的条数，跟服务端那边数的单位是同一个口径（有测试钉着），
+       * 少这一步的话徽章会一直挂着，看起来像"永远有新章"。
+       */
+      void reportSeen(`${plugin.meta.id}/${slug}`, c.chapters.length).catch(() => {});
     } catch (e) {
       /*
        * 已经有内容（不管是刚抓到的还是从本地恢复的）就别把整页换成错误框：

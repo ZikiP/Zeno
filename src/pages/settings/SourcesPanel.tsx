@@ -3,6 +3,7 @@ import PluginList from './PluginList';
 import PluginEditor from './PluginEditor';
 import { usePluginManager } from './usePluginManager';
 import { useReloadOnChange } from '@/store/useDataVersion';
+import { useUpdateCheck } from './useUpdateCheck';
 
 /**
  * 内容源
@@ -12,6 +13,7 @@ import { useReloadOnChange } from '@/store/useDataVersion';
  */
 export default function SourcesPanel() {
   const pm = usePluginManager();
+  const upd = useUpdateCheck();
   const fileRef = useRef<HTMLInputElement>(null);
 
   /*
@@ -41,6 +43,17 @@ export default function SourcesPanel() {
         <button className="btn btn--sm btn--ghost" onClick={pm.startCreate}>
           新建
         </button>
+      </div>
+
+      {/*
+        追更：服务端定时抓一轮才知道书架上哪本有新章，这里给一个手动入口。
+        摆在"立即检查"这一档上而不是单独一栏，是因为它就是内容源的一件事。
+      */}
+      <div className="settings-actions" style={{ marginTop: 0, marginBottom: 12 }}>
+        <button className="btn btn--sm btn--ghost" onClick={upd.run} disabled={upd.busy}>
+          {upd.busy ? '检查中…' : '立即检查更新'}
+        </button>
+        {upd.result && <span className="settings-note">{upd.result}</span>}
       </div>
 
       {pm.message && (
