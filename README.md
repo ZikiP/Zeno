@@ -355,12 +355,13 @@ node --import tsx scripts/pull-plugins.mjs
 | `DB_PATH` | `data/zeno.db` | SQLite 路径。同上，建议绝对路径 |
 | `SYNC_TOKEN` | 空 | 设了之后同步 API 与代理都要 Bearer token |
 | `ALLOWED_HOSTS` | 空 | 额外允许的上游域名，逗号分隔。装了插件后会自动并入插件的域名 |
-| `MAX_CONCURRENT` | 6 | 上游并发上限，过高会被 CDN 限流导致图片裂开 |
+| `MAX_CONCURRENT` | 8 | 上游并发上限，过高会被 CDN 限流导致图片裂开（实测 8 就撞到本机上行天花板） |
 | `UPSTREAM_TIMEOUT_MS` | 20000 | 单次上游请求上限 |
 | `ALLOW_PRIVATE_HOSTS` | 关 | 设 `1` 才放行解析到内网/回环的目标。**仅供本地开发与测试** |
 | `ZENO_BROWSER` | 自动探测 | `fetch.mode="browser"` 用的浏览器可执行文件路径 |
-| `BROWSER_IDLE_MS` | 60000 | 渲染浏览器空闲多久后关闭 |
+| `BROWSER_IDLE_MS` | 180000 | 渲染浏览器空闲多久后关闭。关一次就要重新解站点自己的浏览器质询（实测 9~14 秒），所以别调小 |
 | `BROWSER_MAX_PAGES` | 3 | 同时打开的渲染页面上限 |
+| `BROWSER_CHALLENGE_MS` | 10000 | 等站点自己的"正在验证浏览器"跑完的预算，超了就明确报 503 |
 | `RENDER_TTL_MS` | 90000 | 渲染结果缓存时长。设 0 等于关掉缓存 |
 | `ZENO_CACHE_DIR` | 数据库同级 `cache/` | 图片磁盘缓存目录。绝对路径；也可以装完后在「设置 → 图片缓存」里改 |
 | `ZENO_CACHE_MAX_MB` | 512 | 图片缓存上限（MB），超了按「最久没看过」裁。0 = 关掉 |

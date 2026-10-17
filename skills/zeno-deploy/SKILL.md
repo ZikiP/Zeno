@@ -500,6 +500,7 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
+| 部署停在「检查渲染浏览器」，后面一步也不执行，提权窗口里也没有红字 | `$ErrorActionPreference='Stop'` 下原生命令**往 stderr 写东西就抛** NativeCommandError，`2>$null` 挡不住。render.mjs 引了 db.mjs 之后，node:sqlite 那句 ExperimentalWarning 就是这个形状（已修：那段加 `--no-warnings` 并临时降到 Continue） | 把输出重定向到文件再读：`-Command '& D:\Zeno\deploy.ps1 ... *> D:\Zeno\scripts\deploy-out.txt'`。任何"部署中途没了"都先看这个文件停在哪一行 |
 | 部署在「检查环境」之后立刻 `Die`：「工作副本有未提交的改动」 | 端口检查之前是 `git status --porcelain`，**未跟踪的新文件也算**（排查时随手落的脚本会挡住部署） | 先 commit 或删掉临时文件；别用 `-SkipInstall` 绕，它管的是依赖不是这个 |
 | 打开某本书/某次搜索就是卡满 `timeoutMs`（插件写 45s 就 45 秒），偶发 429 但 `render.openPages` 不顶格 | 页面 200 但**根本没有那个 `waitFor` 的东西**（无目录的书、不存在的 slug）。`minCount` 为 1 时旧代码只等选择器，预算一路点满，还把一格渲染并发钉住 —— 三格全被这种页占住就是全站 429 | 已修：`minCount` 为 1 也参加"等够数量 vs 页面安静下来"的竞赛，文档自己 404/410 且没要等的东西就直接早退。要复现就看 `node scripts/probe-modes.mjs` 的耗时列，别开 `-RenderDebug`（子资源行会把日志刷满） |
 | 需要渲染的插件**在服务里只拿到静态壳**，同一份代码在前台实例上正常 | 差别在会话，不在代码：服务会话里浏览器自己的 XHR/子资源可能失败，而客户端只会看到"渲染完了但没数据"的 HTML | `.\deploy.ps1 -RunAsUser -SkipInstall -SkipTailscale -RenderDebug` 重注册，让服务把页面自己的失败写进 `zeno.log`，再搜 `[zeno][render]`。**排完记得去掉这个开关**：它把每个子资源请求都写进日志，几百行/页 |
@@ -540,7 +541,13 @@ data/zeno.db            主库（WAL 模式）
 data/zeno.db-wal        WAL 日志
 data/zeno.db-shm        共享内存
 data/cache/             图片磁盘缓存（可用 ZENO_CACHE_DIR 或设置页改到别的盘）
+data/render-sessions/   渲染浏览器的会话（站点发给我们的 cookie）
 ```
+
+**`render-sessions/` 是这台机器上那几个浏览器会话的 cookie**，明文 JSON，跟着 `data/`
+一起被 gitignore。留着它的理由见 `server/render.mjs` 顶部那段（实测省掉的是
+"过几分钟再回来"要重解一次质询的 9~14 秒）；不要把它拷进另一台机器的部署，
+也不要同步出去 —— 丢了最多是下次多解一次质询，带过去则是把 A 机的会话身份搬到 B 机。
 
 **插件配置也在里面。** 换机器时拷 `data/` 目录即可 —— 但 `cache/` 不用拷，
 那只是省流量的副本，丢了自动重取；拷过去反而可能带到一个不存在的盘路径上。
