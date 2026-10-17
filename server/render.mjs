@@ -12,8 +12,11 @@
  * playwright-core 用动态 import：没装浏览器的机器上，服务端照常起，
  * 只是 browser 模式的插件会明确报错。
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { dbPath } from './db.mjs';
 import { captureScript, readCaptures } from './capture.mjs';
 import { cacheGet, cachePut, keyFor } from './render-cache.mjs';
 import { isChallengeHtml, waitOutChallenge, waitUntilSettled } from './render-wait.mjs';
@@ -90,13 +93,61 @@ let idleTimer = null;
 function scheduleIdleClose() {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(async () => {
+    /*
+     * 有页在飞就再等一轮。默认值下这条走不到（180s 的空闲 > 120s 的渲染上限），
+     * 但 BROWSER_IDLE_MS 是可调的 —— 实测把它压到 1.5s 之后，空闲关浏览器
+     * 正好落在渲染中间，context 被拆，页面全变 502。
+     */
+    if (openPages > 0) {
+      scheduleIdleClose();
+      return;
+    }
     await teardown();
     console.log('[zeno] 渲染浏览器空闲超时，已关闭');
   }, IDLE_SHUTDOWN_MS);
   idleTimer.unref?.();
 }
 
+/**
+ * 把浏览器会话（cookie + localStorage）落在盘上，跨"空闲关浏览器"活下来。
+ *
+ * 为什么要它：渲染浏览器空闲 180 秒就收（省那一两百 MB），而包子漫画的
+ * 浏览器质询是**每个会话只付一次**的。两者撞上，代价就是实测的那一条：
+ * 会话还在时详情渲染 0.99s，空闲关掉之后再开要 9.2~14.1s —— 用户翻书翻到一半
+ * 把手机放下三分钟，回来打开新书就是十几秒白屏。这个税比清单上其它项都大。
+ *
+ * 为什么这不算"破解质询"：模块开头那条"不做反自动化伪装"说的是不改
+ * navigator.webdriver、不伪造指纹、不自己造质询令牌。这里存的是**站点自己
+ * 发给这个浏览器的那份 cookie**，原样带回去 —— 真浏览器关标签页再开也是这么
+ * 做的，本来就是正常用户的样子，不是伪装。
+ *
+ * 为什么是"平时就存"而不是"退出时存"：Windows 上根本没有优雅的退出 ——
+ * Stop-Process / 计划任务结束走的都是 TerminateProcess，信号处理函数一次也不会跑
+ * （实测：child.kill('SIGTERM') 之后会话目录是空的）。所以每次渲染之后按
+ * SAVE_MIN_MS 节流存一次，进程被硬杀最多也只丢这一截的 cookie 变化。
+ */
+const SESSION_SAVE_MIN_MS = 10_000;
+let lastSaveAt = 0;
+
+const sessionDir = () => join(dirname(dbPath()), 'render-sessions');
+
+const sessionFile = (ua) => join(sessionDir(), createHash('sha1').update(ua).digest('hex').slice(0, 16) + '.json');
+
+async function saveStates(force = false) {
+  if (!force && Date.now() - lastSaveAt < SESSION_SAVE_MIN_MS) return;
+  lastSaveAt = Date.now();
+  for (const [ua, ctx] of contexts) {
+    try {
+      await mkdir(sessionDir(), { recursive: true });
+      await ctx.storageState({ path: sessionFile(ua) });
+    } catch {
+      /* 存不上只是下次再解一次质询，不该把渲染拖成失败 */
+    }
+  }
+}
+
 async function teardown() {
+  await saveStates(true);
   for (const ctx of [...contexts.values()]) {
     try {
       await ctx.close();
@@ -163,11 +214,22 @@ async function getContext(userAgent) {
   const ua = userAgent || DESKTOP_UA;
   const existing = contexts.get(ua);
   if (existing) return existing;
-  const ctx = await b.newContext({
-    userAgent: ua,
-    viewport: { width: 1280, height: 900 },
-    locale: 'zh-CN',
-  });
+  const file = sessionFile(ua);
+  const opts = { userAgent: ua, viewport: { width: 1280, height: 900 }, locale: 'zh-CN' };
+  let ctx = null;
+  if (existsSync(file)) {
+    /*
+     * 接着上次那个会话用（上面那段注释讲清了为什么这不算伪装）。
+     * 文件坏了、或者浏览器版本对不上时回落到全新会话 ——
+     * 最坏就是再解一次质询，不该把整个渲染端点拖成 502。
+     */
+    try {
+      ctx = await b.newContext({ ...opts, storageState: file });
+    } catch {
+      ctx = null;
+    }
+  }
+  ctx ??= await b.newContext(opts);
   contexts.set(ua, ctx);
   ctx.on('close', () => contexts.delete(ua));
   return ctx;
@@ -345,6 +407,12 @@ export async function renderHtml(url, opts = {}) {
      * 站点也会安静下来，'idle' 赢了就把那份壳缓存 90 秒，用户刷新几次拿到的都是它。
      */
     if (gotIt) cachePut(key, out);
+
+    /*
+     * 不等它：会话落盘是给"下一次渲染"用的，这次的答案已经到手了，
+     * 把响应扣在写文件上没有道理。节流在 saveStates 里面。
+     */
+    if (gotIt) void saveStates();
 
     return out;
   } finally {

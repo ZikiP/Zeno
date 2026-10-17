@@ -34,6 +34,7 @@ import { handleCacheApi } from './cache.mjs';
 import { handleFontsApi, fontsDir } from './fonts.mjs';
 import { cacheDir, cacheMaxBytes } from './cache-config.mjs';
 import { reconcile } from './cache-store.mjs';
+import { shutdownBrowser } from './render.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
 import { json, makeAuth } from './respond.mjs';
 
@@ -184,6 +185,16 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     console.log(`\n[zeno] ${sig} 收到，退出`);
     server.close(() => process.exit(0));
+    /*
+     * 收尾时把渲染浏览器的会话落盘。systemd/launchctl 走的是真信号，这边能跑完；
+     * Windows 的计划任务和 Stop-Process 走 TerminateProcess，**这个函数根本不会被调到**，
+     * 所以渲染模块自己每次渲染后就把会话存了一份，这里只是把最后那截补上。
+     * 给它 2.5 秒，超了就直接走 —— 别让关浏览器把重启拖成长重启。
+     */
+    void Promise.race([
+      shutdownBrowser().catch(() => {}),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]).then(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });
 }
