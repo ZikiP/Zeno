@@ -127,26 +127,49 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     setMode,
   });
 
+  /* ── 进度：读出来、恢复回去 ── */
+  const progress = useShelfProgress(plugin?.meta.id, slug, chapterId);
+  /*
+   * 接下一章进来时**不恢复**这一章存过的进度：那是"往前续读"，
+   * 不是"重新打开这本书"。不这么做的话，看过一眼的下一章会把你甩到上次那页，
+   * 看上去就是"进去之后自己往下跑了几页"。
+   * 上拉、点章末那一行、分页模式往前翻一次都算"接下一章"，一律落在开头；
+   * 从目录跳一章、下次再打开这本书照旧恢复 —— 那才是"回到上次那儿"。
+   */
+  const skipRestoreFor = useRef<string | null>(null);
+  useRestoreProgress({
+    mode,
+    ready: !!images,
+    percent: skipRestoreFor.current === chapterId ? 0 : progress.percent,
+    scrollRef,
+    totalPages: paging.totalPages,
+    setPage: paging.setPage,
+  });
+  /*
+   * 记号要留到**离开这一章**再清。
+   *
+   * 一开始是"图片一到就清"，结果 positions 是异步从 IndexedDB 读上来的：
+   * 进章那一帧它是空的（恢复不跑），清掉记号之后位置才到货，
+   * percent 从 0 变成 45 → 恢复的 effect 重新触发 → 人还是被甩到中段。
+   * 现象就是"上拉进去之后画面自己往下跑几页"。
+   */
+  useEffect(() => {
+    const marked = skipRestoreFor.current;
+    if (marked && marked !== chapterId) skipRestoreFor.current = null;
+  }, [chapterId]);
+
   const autoNext = useAutoNextChapter({
     enabled: prefs.value.autoNextChapter,
     pullMs: prefs.value.pullMs,
     nextId,
     images,
-    onGo: gotoChapter,
+    onGo: (id) => {
+      skipRestoreFor.current = id;
+      gotoChapter(id);
+    },
   });
   useEffect(() => {
     autoRef.current = autoNext;
-  });
-
-  /* ── 进度：读出来、恢复回去 ── */
-  const progress = useShelfProgress(plugin?.meta.id, slug, chapterId);
-  useRestoreProgress({
-    mode,
-    ready: !!images,
-    percent: progress.percent,
-    scrollRef,
-    totalPages: paging.totalPages,
-    setPage: paging.setPage,
   });
 
   /* ── 副作用 ── */
