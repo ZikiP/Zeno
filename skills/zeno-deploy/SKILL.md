@@ -257,7 +257,7 @@ Stop-ScheduledTask   -TaskName Zeno
 **为什么不装 Windows 服务**：需要额外的包装器（nssm/winsw）。
 计划任务用 SYSTEM 账号 + 自动重启，行为和 systemd 等价，零额外依赖。
 
-### 重注册和重启的两个坑（都实测踩过）
+### 重注册、重启与提权的三个坑（都实测踩过）
 
 **1. `deploy.ps1` 不带 `-RunAsUser` 会把主体静默改回 SYSTEM。**
 `Register-ScheduledTask -Force` 是按参数覆盖，不是"没提就保留"。所以一台本来用
@@ -284,6 +284,31 @@ SYSTEM —— 而 SYSTEM / 会话 0 下 Edge 起不来，browser 模式的插件
 
 正确的重启动作是跑 `deploy.ps1 -SkipInstall` —— 它的端口检查会认出
 命令行里带 `index.mjs` 的监听者并停掉它，再启动新的。
+
+**3. `deploy.ps1` 不会自己提权，而它有两步必须要管理员。**
+`Register-ScheduledTask` 和"停掉旧的 Zeno 实例"都吃权限。旧实例是计划任务在会话 0
+里起的 node，普通 shell **读不到它的命令行** —— 于是端口检查那段 `CommandLine -like
+'*index.mjs*'` 认不出来，把自家老进程当成陌生占用者直接 `Die`：
+
+```
+[X] 端口 8788 被 PID 16644 占用。换端口：.\deploy.ps1 -Port 9000
+```
+
+看到这条别去换端口，那是同一个服务，换个端口只是又起了一份。提权重跑就好。
+
+提权只能这样递（实测 `-Verb RunAs` 配 `-RedirectStandardOutput` 报
+AmbiguousParameterSet，配 `-File` 指一个包装脚本则静默不执行）：
+
+```powershell
+Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -ArgumentList `
+  '-NoProfile','-ExecutionPolicy','Bypass','-Command',
+  '& D:\Zeno\deploy.ps1 -RunAsUser -SkipInstall -SkipTailscale *> D:\Zeno\scripts\deploy-out.txt'
+```
+
+两个细节：命令要用 `-Command` 整条塞进去，输出用 `*>` 落到 gitignore 覆盖的文件里再读；
+别在包装脚本第一行写 `Set-Content -Value ''` 去清空文件 —— 5.1 把空字符串当 null，
+报 `ParameterArgumentValidationErrorNullNotAllowed`，整个脚本第一行就挂，
+而挂掉的痕迹在被丢弃的高权限窗口里，看上去像"什么都没发生"。
 
 **计划任务默认不落 stdout**，所以必须包一层 wrapper 把输出重定向到文件：
 
@@ -475,7 +500,9 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
-| 需要渲染的插件**在服务里只拿到静态壳**，同一份代码在前台实例上正常 | 差别在会话，不在代码：服务会话里浏览器自己的 XHR/子资源可能失败，而客户端只会看到"渲染完了但没数据"的 HTML | `.\deploy.ps1 -RunAsUser -SkipInstall -SkipTailscale -RenderDebug` 重注册，让服务把页面自己的失败写进 `zeno.log`，再搜 `[zeno][render]` |
+| 部署在「检查环境」之后立刻 `Die`：「工作副本有未提交的改动」 | 端口检查之前是 `git status --porcelain`，**未跟踪的新文件也算**（排查时随手落的脚本会挡住部署） | 先 commit 或删掉临时文件；别用 `-SkipInstall` 绕，它管的是依赖不是这个 |
+| 打开某本书/某次搜索就是卡满 `timeoutMs`（插件写 45s 就 45 秒），偶发 429 但 `render.openPages` 不顶格 | 页面 200 但**根本没有那个 `waitFor` 的东西**（无目录的书、不存在的 slug）。`minCount` 为 1 时旧代码只等选择器，预算一路点满，还把一格渲染并发钉住 —— 三格全被这种页占住就是全站 429 | 已修：`minCount` 为 1 也参加"等够数量 vs 页面安静下来"的竞赛，文档自己 404/410 且没要等的东西就直接早退。要复现就看 `node scripts/probe-modes.mjs` 的耗时列，别开 `-RenderDebug`（子资源行会把日志刷满） |
+| 需要渲染的插件**在服务里只拿到静态壳**，同一份代码在前台实例上正常 | 差别在会话，不在代码：服务会话里浏览器自己的 XHR/子资源可能失败，而客户端只会看到"渲染完了但没数据"的 HTML | `.\deploy.ps1 -RunAsUser -SkipInstall -SkipTailscale -RenderDebug` 重注册，让服务把页面自己的失败写进 `zeno.log`，再搜 `[zeno][render]`。**排完记得去掉这个开关**：它把每个子资源请求都写进日志，几百行/页 |
 | 一章反复拿不到内容，重试永远一样快 | 抓空的结果被缓存过（已修：声明了 `capture` 却一条没抓到就不进缓存）—— 但线上遇到时先确认代码版本 | `renderCacheStats()` / 重启服务 |
 | `MCP error` / 进程秒退 | 看日志 | `journalctl -u zeno -n 50` 或 `<安装目录>\zeno.log` |
 | 健康检查绿但页面是 `dist not found` | 服务 cwd 不是安装目录 | 包装脚本里 `Set-Location`，或看 `/api/health` 的 `dbPath` 落在哪 |
@@ -484,11 +511,13 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 | 打开是 404 | dist 没构建 | `npm run build` |
 | 深链接白屏 | SPA 回退没配 | 确认用的是内置 `server/index.mjs`，不是裸静态服务器 |
 | 抓不到图（403） | 白名单没生效 | `/api/health` 看 `allowedHosts`；确认插件已装 |
+| 只有**某几本书**的章节图 502，`error:"fetch failed"`，每张约 9 秒 | 图床对那本书回 302，跳转目标那台节点从本机 TLS 握手就失败（别的书是直接 200 不跳）。跳第二跳之前代码会重新过白名单和地址策略，这是正常拦截 | 分清是谁坏了：`curl -o /dev/null -w "%{redirect_url}"` 看第一跳跳去哪，再用 DoH 拿真实 IP 加 `--resolve` 直连试一次；TLS 都握不上就是站点/链路的，不是部署的 |
 | 403 且 `error:"blocked address"` | 目标解析到内网/回环/元数据/CGNAT 段 | 正常拦截，别去关它；本地测试才设 `ALLOW_PRIVATE_HOSTS=1` |
 | 503 且提示没有可用浏览器 | 插件用了 `fetch.mode:"browser"` 但服务端没 chromium 系浏览器 | 装 Chrome/Edge，或设 `ZENO_BROWSER`；部署脚本的环境检查会报这个 |
 | 502/503 + `browserType.launch: ... browser has been closed`，Edge `exitCode=1002` | 服务以 **SYSTEM**（会话 0）常驻，浏览器起不来 | 沙箱不是原因（Playwright 已带 `--no-sandbox`）。跑 `deploy.ps1 -RunAsUser -SkipInstall` 把主体换成当前账号（S4U，照样开机自启）；只要前台跑一次就 `-Mode none` |
 | **429** 且 `error:"渲染并发已满（3）"` / `code:"BUSY"`，几十毫秒就返回、**根本没出网** | 渲染槽泄漏：`openPages++` 之后 `getContext`/`newPage` 落在 `try` 外，抛错就不还槽，漏满 `BROWSER_MAX_PAGES` 就永久 429（已修：拿槽后立刻包进自己的 try）。修法之后仍要会判：看 `/api/health` 的 `render.openPages` —— 空闲时不回落 0 就是漏 | 旧版本只能重启进程；确认 `render` 字段在且为 0。真忙（`openPages` 顶格且在变）是另一回事，那是要调 `BROWSER_MAX_PAGES` |
-| 部署/重启之后 browser 模式突然全废，`/api/health` 却全绿 | 重注册把任务主体改回了 SYSTEM（`-Force` 是按参数覆盖，不带 `-RunAsUser` 就降级） | 见上「重注册和重启的两个坑」。提权查 `(.Get-ScheduledTask -TaskName Zeno).Principal.UserId` |
+| 部署/重启之后 browser 模式突然全废，`/api/health` 却全绿 | 重注册把任务主体改回了 SYSTEM（`-Force` 是按参数覆盖，不带 `-RunAsUser` 就降级） | 见上「重注册、重启与提权的三个坑」。提权查 `(.Get-ScheduledTask -TaskName Zeno).Principal.UserId` |
+| 部署跑到一半就 `Die`：「端口 8788 被 PID x 占用」 | 那个 PID 就是会话 0 里的旧 Zeno，非提权 shell 读不到它的命令行，认不出是自家 | 别换端口（那只是又起一份）。按上面第 3 条提权重跑同一条命令 |
 | 改了服务端代码、重启了，`/api/health` 里新字段还是没有 | `Restart-ScheduledTask` 只停任务的 PowerShell，node 子进程活着占端口 | 跑 `deploy.ps1 -SkipInstall`（它会停掉带 `index.mjs` 的监听者再启动） |
 | HTTP **200** 但内容是"正在验证浏览器"之类的质询页，解析出 0 条 | `renderHtml` 有条兜底：状态 ≥400 而 HTML 超过 2000 字节就改判 200（本意是救"质询完自己重载"的站点），于是质询页被洗成成功 | **别只看状态码**，把 body 存下来看标题/结构。这种结果不进缓存（`gotIt` 为假），所以反复请求会反复挨质询 —— 要解决的是等质询走完，不是加 `waitFor` 选择器 |
 | 部署跑到「计划任务已注册」之后中断，或 PS 报一串看不懂的语法错 | 含中文的 `.ps1` 存成了**无 BOM 的 UTF-8**，5.1 按 ANSI 解码 | 补 BOM，再用上面那条 `Parser::ParseFile` 自检到 0 错重跑 |
