@@ -176,6 +176,20 @@ async function getContext(userAgent) {
 
 
 /**
+ * 当前 DOM 是否已经有插件要等的东西（判据同 waitUntilSettled，只是不等待）。
+ * 只给 404 早退那一条用 —— 站点偶尔用 404 状态配一个正常渲染的 SPA 页，
+ * 那种页面里选择器是在的，就该照常等下去。
+ */
+async function hasWanted(page, opts) {
+  if (opts.capture) return (await readCaptures(page).catch(() => [])).length > 0;
+  if (opts.waitFor) {
+    const min = Math.max(1, Number(opts.minCount) || 1);
+    return (await page.locator(opts.waitFor).count().catch(() => 0)) >= min;
+  }
+  return false;
+}
+
+/**
  * 渲染一个页面。
  *
  * @param {string} url
@@ -251,6 +265,22 @@ export async function renderHtml(url, opts = {}) {
     }
 
     /*
+     * 文档自己就回了 404/410，而页面上也没有要等的东西 —— 这本"漫画"不存在。
+     * 不在这里收，一次打错的名字要点满 45 秒预算（实测），还把一格渲染并发
+     * 钉在那个页面上。403 不走这条路：质询壳就是 403，它自己会跳走。
+     */
+    const docStatus = resp?.status() ?? 200;
+    if ((docStatus === 404 || docStatus === 410) && !(await hasWanted(page, opts))) {
+      return {
+        format: 'html',
+        html: chal.html,
+        captured: [],
+        status: docStatus,
+        contentType: 'text/html; charset=utf-8',
+      };
+    }
+
+    /*
      * waitFor 是**提示**而不是硬要求：插件只有一份 fetch.waitFor，却要覆盖
      * 列表 / 详情 / 章节三种页面，后两者往往没有列表的那个选择器。
      * 当成必须条件就会白等满超时再报错，所以超时后直接用当前 DOM。
@@ -289,7 +319,7 @@ export async function renderHtml(url, opts = {}) {
      * 就会被当成失败丢掉（客户端 fetchText 见 !res.ok 直接抛）。
      * 所以判据换成"要等的东西出来了没有"：等到了就是 200。
      */
-    let status = resp?.status() ?? 200;
+    let status = docStatus;
     /*
      * 'idle'（"不再吐新内容了"）不算证据：一个停在质询页的站点同样很安静。
      * 所以它不走这条直接判 200 的路，只留给下面"页面确实有内容"那条兜底。
