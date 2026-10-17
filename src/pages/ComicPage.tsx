@@ -52,19 +52,35 @@ export default function ComicPage() {
     chapters,
   );
 
+  /** 第几次 load。换书换源时，上一次的结果不该再写回来 */
+  const seq = useRef(0);
+
   const load = useCallback(async () => {
     if (!plugin?.meta.id) return;
+    const mine = ++seq.current;
+    const pluginId = plugin.meta.id;
     setErr(null);
+    /*
+     * 「读到哪了」单独取，别跟着详情页一起等。
+     *
+     * getShelfEntry 是本地 IndexedDB，几毫秒；getComic 是一次服务端渲染，
+     * 会话还在 0.8s、会话没了 8s+。以前两个捆在 Promise.all 里一起 set，
+     * 于是缓存那半（封面、简介、目录）先画好，进度环和「继续阅读」要等网络那半
+     * 才凭空冒出来 —— 同一块版面分两次长齐，看着就是割裂。
+     * 捆在一起还有第二个代价：抓取一抽风 Promise.all 整个 reject，
+     * 本地明明有的那条进度也跟着没了。
+     */
+    void getShelfEntry(pluginId, slug).then(
+      (e) => mine === seq.current && setEntry(e),
+      () => {},
+    );
     try {
-      const [c, e] = await Promise.all([
-        getComic(plugin, slug),
-        getShelfEntry(plugin.meta.id, slug),
-      ]);
+      const c = await getComic(plugin, slug);
+      if (mine !== seq.current) return;
       // 真内容到手，本地那份就再不该盖回来（见下面那个恢复用的 effect）
       fresh.current = true;
       setComic(c.comic);
       setChapters(c.chapters);
-      setEntry(e);
 
       // 顺手缓存章节表，阅读器内打开目录就不用再抓一次
       void cacheChapterList(plugin.meta.id, slug, c.comic, c.chapters.map((x) => ({ id: x.id, index: x.index, title: x.title })));
