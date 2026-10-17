@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { failedCountAmong, onImageHealthChange } from '@/components/RetryableImage';
+import { failedCountAmong, onImageStateChange } from '@/components/RetryableImage';
 
 /**
  * 整源坏了要说一句
@@ -35,6 +35,6 @@ export function useImageHealthFlash(images: string[] | null, flash: (text: strin
       flash(`这一章至少 ${n} 张图取不到 —— 多半是源站的图床坏了，不像是你这边的问题`);
     };
     check();
-    return onImageHealthChange(check);
+    return onImageStateChange(check);
   }, [images, flash]);
 }

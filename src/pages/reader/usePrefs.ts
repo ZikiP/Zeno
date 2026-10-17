@@ -5,8 +5,8 @@ import {
   loadPrefs,
   savePrefs,
   pickBook,
+  pickDevice,
   type BookPrefs,
-  type DevicePrefs,
   type ReaderPrefs,
 } from '@/reader/prefs';
 
@@ -47,11 +47,8 @@ export function usePrefs(bookKey: string | null) {
   const patch = useCallback(
     async (delta: Partial<ReaderPrefs>) => {
       const bookPart = pickBook(delta);
-      const devPart: Partial<DevicePrefs> = {};
-      if ('keepAwake' in delta) devPart.keepAwake = delta.keepAwake;
-      if ('brightness' in delta) devPart.brightness = delta.brightness;
-      if ('turnAnim' in delta) devPart.turnAnim = delta.turnAnim;
-      if ('immersive' in delta) devPart.immersive = delta.immersive;
+      // 设备级按 DEVICE_KEYS 挑，不在这儿手写清单 —— 见 reader/prefs.ts 那段
+      const devPart = pickDevice(delta);
 
       if (bookKey && Object.keys(bookPart).length) {
         await saveBookPrefs(bookKey, bookPart);

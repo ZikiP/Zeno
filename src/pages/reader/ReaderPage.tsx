@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useBackToHome } from '@/hooks/useBackToHome';
 import { usePlugin } from '@/store/PluginContext';
@@ -17,6 +17,7 @@ import {
   useShelfProgress,
 } from './useReaderEffects';
 import { useReaderActions } from './useReaderActions';
+import { useAutoNextChapter } from './useAutoNextChapter';
 import { useImageHealthFlash } from './useImageHealth';
 import { useReaderHotkeys, nextBrightness } from './useReaderHotkeys';
 import { usePaging, useToolbarVisibility, type ReaderMode } from './usePaging';
@@ -79,7 +80,18 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     useChapterLoader(plugin, slug, chapterId);
 
   const imageCount = images?.length ?? 0;
-  const paging = usePaging(imageCount, mode, prefs.value.pageMode, record);
+  /*
+   * 自动下一章需要一个转接口：跳章的动作（gotoChapter）在 useReaderActions 里，
+   * 而那个 hook 又吃 paging —— 直接互相引用接不上。
+   * 所以 paging 和滚动回调拿的都是这个 ref，渲染完再把真实现换上去。
+   */
+  const autoRef = useRef<{ atEnd: () => void; onScroll: (el: HTMLElement) => void }>({
+    atEnd: () => {},
+    onScroll: () => {},
+  });
+  const paging = usePaging(imageCount, mode, prefs.value.pageMode, record, () =>
+    autoRef.current.atEnd(),
+  );
 
   const bookmarks = useBookmarks(plugin, chapterId);
 
@@ -111,6 +123,16 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     nav,
     flash,
     setMode,
+  });
+
+  const autoNext = useAutoNextChapter({
+    enabled: prefs.value.autoNextChapter,
+    nextId,
+    images,
+    onGo: gotoChapter,
+  });
+  useEffect(() => {
+    autoRef.current = autoNext;
   });
 
   /* ── 进度：读出来、恢复回去 ── */
@@ -206,7 +228,12 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           containerRef={scrollRef}
           hudVisible={bar.visible}
           resetToken={zoomTick}
-          onScroll={(el) => paging.onScroll(el, images.length, record)}
+          onScroll={(el) => {
+            paging.onScroll(el, images.length, record);
+            // 自动下一章看的是同一次滚动。读进度和"到底了"必须是同一个来源，
+            // 各接一遍的话早晚会出现"进度说 100%、章却还没跳"
+            autoRef.current.onScroll(el);
+          }}
           onTap={bar.toggle}
           onZoom={(src, i) => setZoom({ src, i })}
           onZoomedChange={setZoomed}

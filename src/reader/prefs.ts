@@ -6,7 +6,7 @@
  *   - **单书级（BookPrefs）**：图片适配、翻页方向、单/双页、背景色、灰度。
  *     日漫要右起、条漫要竖向、有的书横条图就是要压扁看 —— 这些是**这本书**的性质，
  *     不该被另一本书的选择覆盖。每本书一条记录，跟着同步走（见 store/bookPrefs.ts）。
- *   - **设备级（DevicePrefs）**：亮度、屏幕常亮、翻页动画。这是"我现在这台机器、这个环境"的事，
+ *   - **设备级（DevicePrefs）**：亮度、屏幕常亮、翻页动画、读到底自动接下一章。这是"我现在这台机器、这个环境"的事，
  *     跟着同步走会把手机的亮度设置搬到显示器上。翻页动画顺不顺滑取决于这台机器的屏幕和性能，
  *     所以它也在这一层，而且单独存一个键、不参与同步。
  *
@@ -59,6 +59,17 @@ export interface DevicePrefs {
    * 全屏是这台设备的屏幕的事，而且手机撑得起、桌面浏览器多半直接被拒。
    */
   immersive: boolean;
+  /**
+   * 读到底自动接下一章。
+   *
+   * 跟翻页动画、沉浸式那两条不一样，它是**阅读习惯**而不是屏幕的事：
+   * 在手机上养成了"滚到底就接着看"，换到平板也想要 —— 所以它跟着全局那份同步，
+   * 而不是单独存一个本机键。
+   *
+   * 默认关：这是一个会自己改变"翻到章尾时发生什么"的行为，
+   * 悄悄给老用户打开，等于让他们读到一半莫名跳章。
+   */
+  autoNextChapter: boolean;
 }
 
 /** 阅读器实际用的那份 = 单书 + 设备 */
@@ -81,6 +92,7 @@ export const DEFAULT_DEVICE: DevicePrefs = {
   brightness: null,
   turnAnim: 'flip',
   immersive: false,
+  autoNextChapter: false,
 };
 
 export const DEFAULT_PREFS: ReaderPrefs = { ...DEFAULT_BOOK, ...DEFAULT_DEVICE };
@@ -92,9 +104,30 @@ const IMMERSIVE_KEY = 'readerImmersive';
 /** 属于单书的那几个键。写单书记录时只带这些，别把亮度也塞进去 */
 export const BOOK_KEYS = ['fit', 'direction', 'pageMode', 'bgColor', 'grayscale'] as const;
 
+/**
+ * 属于这台设备/这份全局的键。
+ *
+ * 列在这儿而不是在调用方一行行 `if ('xxx' in delta)`：每加一项都要多记一条，
+ * 漏掉的那条不报错、也不提示，就是"开关点了、界面变了、刷新回去又没了"。
+ * 自动下一章第一次就是这么写丢的。
+ */
+export const DEVICE_KEYS = [
+  'keepAwake',
+  'brightness',
+  'turnAnim',
+  'immersive',
+  'autoNextChapter',
+] as const;
+
 export function pickBook(p: Partial<ReaderPrefs>): Partial<BookPrefs> {
   const out: Partial<BookPrefs> = {};
   for (const k of BOOK_KEYS) if (k in p) (out as Record<string, unknown>)[k] = p[k];
+  return out;
+}
+
+export function pickDevice(p: Partial<ReaderPrefs>): Partial<DevicePrefs> {
+  const out: Partial<DevicePrefs> = {};
+  for (const k of DEVICE_KEYS) if (k in p) (out as Record<string, unknown>)[k] = p[k];
   return out;
 }
 

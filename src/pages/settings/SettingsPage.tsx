@@ -1,5 +1,6 @@
 import Tabs, { TabPanel } from '@/components/Tabs';
 import AppearancePanel from './AppearancePanel';
+import ReadingPanel from './ReadingPanel';
 import SourcesPanel from './SourcesPanel';
 import CachePanel from './CachePanel';
 import SyncPanel from './SyncPanel';
@@ -17,6 +18,7 @@ import AboutPanel from './AboutPanel';
 
 const TABS = [
   { key: 'appearance', label: '外观' },
+  { key: 'read', label: '阅读' },
   { key: 'sources', label: '内容源' },
   { key: 'cache', label: '缓存' },
   { key: 'sync', label: '同步' },
@@ -51,6 +53,7 @@ export default function SettingsPage({
       <main className="main">
         <TabPanel id={value}>
           {value === 'appearance' && <AppearancePanel />}
+          {value === 'read' && <ReadingPanel />}
           {value === 'sources' && <SourcesPanel />}
           {value === 'cache' && <CachePanel />}
           {value === 'sync' && <SyncPanel />}

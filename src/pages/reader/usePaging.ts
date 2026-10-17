@@ -51,6 +51,14 @@ export function usePaging(
    * 对分页读者是空的。
    */
   record?: (ratio: number) => void,
+  /**
+   * 已经在最后一屏还要再往前翻。自动下一章的入口挂这儿。
+   *
+   * 为什么放在这一层：往前翻的动作有四个来源（点右区、点左区在 RTL 下、
+   * 滑动、键盘），它们全都汇到 turnTo。在界面上各接一遍迟早会漏一个 ——
+   * 漏掉的那个就是"别的方式都能跳章，键盘不行"。
+   */
+  onForwardAtEnd?: () => void,
 ): Paging {
   const [page, setPage] = useState(0);
 
@@ -80,12 +88,20 @@ export function usePaging(
   const turnTo = useCallback(
     (next: number) => {
       const clamped = Math.max(0, Math.min(totalPages - 1, next));
-      if (clamped === pageRef.current) return;
+      if (clamped === pageRef.current) {
+        /*
+         * 已经在最后一屏还要再往前 —— 以前这里静默不动，
+         * 于是"翻到底"这件事只剩那颗胶囊一个入口。交给调用方去接下一章。
+         * 只在**往前**且真在末页时算，往回翻到第一页之外还是老样子（不动）。
+         */
+        if (onForwardAtEnd && next > clamped && pageRef.current >= totalPages - 1) onForwardAtEnd();
+        return;
+      }
       pageRef.current = clamped;
       setPage(clamped);
       if (record && mode === 'paged' && totalPages > 1) record(clamped / (totalPages - 1));
     },
-    [totalPages, record, mode],
+    [totalPages, record, mode, onForwardAtEnd],
   );
 
   const goForward = useCallback(() => {

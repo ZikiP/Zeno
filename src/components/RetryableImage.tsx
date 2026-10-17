@@ -39,9 +39,16 @@ const RETRY_DELAYS = [0, 600, 1800];
  */
 const readySrcs = new Set<string>();
 
+/** 一张确认能画了：记下来，并告诉订阅者（自动下一章等的就是这个信号） */
+function markReady(src: string) {
+  if (readySrcs.has(src)) return;
+  readySrcs.add(src);
+  for (const w of watchers) w();
+}
+
 /** 预加载成功时调它，翻页时那一页就能直接以不透明状态出现 */
 export function markImageReady(src: string) {
-  readySrcs.add(src);
+  markReady(src);
 }
 
 /**
@@ -51,21 +58,27 @@ export function markImageReady(src: string) {
  * 换到的东西跟记在这儿是一样的。
  */
 const failedSrcs = new Set<string>();
-const healthWatchers = new Set<() => void>();
+const watchers = new Set<() => void>();
 
 function noteFailed(src: string, failed: boolean) {
   const had = failedSrcs.has(src);
   if (failed === had) return;
   if (failed) failedSrcs.add(src);
   else failedSrcs.delete(src);
-  for (const w of healthWatchers) w();
+  for (const w of watchers) w();
 }
 
-/** 订阅"有哪些地址失败了"。返回取消订阅 */
-export function onImageHealthChange(watch: () => void) {
-  healthWatchers.add(watch);
+/**
+ * 订阅"图片状态变了"（成功、失败都算）。
+ *
+ * 两件事要靠它：数出一章里挂了多少张（useImageHealth），
+ * 以及"最后一张终于落地了"（自动下一章 —— 滚到底那一刻最后一张还在路上，
+ * 当时跳就会把这一章的尾巴翻过去）。
+ */
+export function onImageStateChange(watch: () => void) {
+  watchers.add(watch);
   return () => {
-    healthWatchers.delete(watch);
+    watchers.delete(watch);
   };
 }
 
@@ -123,7 +136,7 @@ export function RetryableImage({
       const img = new Image();
       img.onload = () => {
         if (cancelled) return;
-        readySrcs.add(src);
+        markReady(src);
         noteFailed(src, false);
         setState('ok');
       };
@@ -176,7 +189,7 @@ export function RetryableImage({
       onContextMenu={onContextMenu}
       style={{ opacity: state === 'ok' ? 1 : 0 }}
       onLoad={() => {
-        readySrcs.add(src);
+        markReady(src);
         noteFailed(src, false);
         setState('ok');
       }}

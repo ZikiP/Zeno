@@ -19,8 +19,10 @@ import {
   IconSun,
   IconZoom,
   IconBack,
+  IconChevronLeft,
 } from '@/components/Icons';
 import { Sheet } from '@/components/UI';
+import { Row, Section } from './PrefRows';
 
 export type ReaderMode = 'scroll' | 'paged';
 
@@ -67,6 +69,18 @@ export default function ReaderPrefsSheet({
             ? '像刷网页一样连续下滑。适合手机、长章节。'
             : '一屏一页，点击左右区域翻页。适合平板、显示器。'}
         </div>
+
+        <Row
+          icon={<IconChevronLeft size={18} />}
+          label="读到底自动接下一章"
+          hint={
+            mode === 'scroll'
+              ? '滚到这一章真正的最后一张就跳下一章。图片还没落地时不会提前跳。'
+              : '在最后一页再往前翻一次就跳下一章，不用去点那颗胶囊。'
+          }
+          control={<div className={`switch${prefs.autoNextChapter ? ' on' : ''}`} />}
+          onClick={() => onChange({ autoNextChapter: !prefs.autoNextChapter })}
+        />
       </Section>
 
       {/* ── 图片适配 ── */}
@@ -227,49 +241,5 @@ export default function ReaderPrefsSheet({
         </div>
       </Section>
     </Sheet>
-  );
-}
-
-/* ── 内部小组件 ─────────────────────────────────── */
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="prefs-section">
-      <div className="prefs-section__title">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function Row({
-  icon,
-  label,
-  hint,
-  value,
-  control,
-  onClick,
-}: {
-  icon?: React.ReactNode;
-  label: string;
-  hint?: string;
-  value?: string;
-  control?: React.ReactNode;
-  /** 有则整行可点 */
-  onClick?: () => void;
-}) {
-  const Tag = onClick ? 'button' : 'div';
-  return (
-    <Tag
-      className={`pref-row${onClick ? '' : ' pref-row--static'}`}
-      {...(onClick ? { onClick } : {})}
-    >
-      {icon}
-      <div className="pref-row__text">
-        <div className="pref-row__label">{label}</div>
-        {hint && <div className="pref-row__hint">{hint}</div>}
-      </div>
-      {value && <span className="pref-row__value">{value}</span>}
-      {control}
-    </Tag>
   );
 }
