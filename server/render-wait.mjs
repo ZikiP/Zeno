@@ -65,11 +65,25 @@ export async function waitOutChallenge(page, budgetMs) {
   let html = await page.content().catch(() => '');
   if (!isChallengeHtml(html)) return { html, challenged: false };
 
+  /*
+   * "连续两次稳定"才算解开。质询往往连着重载好几跳，跳与跳之间
+   * page.content() 拿到的是导航中途的空白文档 —— 它不含任何质询特征，
+   * 看一眼就放行等于在质询没走完时收手（线上实测：1.85s 返回一张壳）。
+   * 所以除了"不像壳"，还要求文档已 complete、有 body、且不是几张字节。
+   */
   const t0 = performance.now();
+  let calm = 0;
   while (performance.now() - t0 < budgetMs) {
     await page.waitForTimeout(CHALLENGE_POLL_MS).catch(() => {});
     html = await page.content().catch(() => html);
-    if (!isChallengeHtml(html)) return { html, challenged: false };
+    const ready = await page
+      .evaluate(() => document.readyState === 'complete' && document.body !== null)
+      .catch(() => false);
+    if (!isChallengeHtml(html) && ready && html.length > 3_000) {
+      if (++calm >= 2) return { html, challenged: false };
+    } else {
+      calm = 0;
+    }
   }
   return { html, challenged: true };
 }
