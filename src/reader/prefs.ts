@@ -73,6 +73,11 @@ export interface DevicePrefs {
    * 再给一次向下的意图才接下一章。理由见 useAutoNextChapter 那段。
    */
   autoNextChapter: boolean;
+  /**
+   * 上拉要攒多久（毫秒）。只在自动下一章开着时有意义。
+   * 存毫秒不存秒：状态机按毫秒算，UI 换算成"1.5 秒"给人看，两头都不用再乘除一遍。
+   */
+  pullMs: number;
 }
 
 /** 阅读器实际用的那份 = 单书 + 设备 */
@@ -96,6 +101,7 @@ export const DEFAULT_DEVICE: DevicePrefs = {
   turnAnim: 'flip',
   immersive: false,
   autoNextChapter: false,
+  pullMs: 1500,
 };
 
 export const DEFAULT_PREFS: ReaderPrefs = { ...DEFAULT_BOOK, ...DEFAULT_DEVICE };
@@ -120,6 +126,7 @@ export const DEVICE_KEYS = [
   'turnAnim',
   'immersive',
   'autoNextChapter',
+  'pullMs',
 ] as const;
 
 export function pickBook(p: Partial<ReaderPrefs>): Partial<BookPrefs> {

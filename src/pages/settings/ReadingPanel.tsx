@@ -10,6 +10,12 @@ import {
   type TurnAnim,
 } from '@/reader/prefs';
 import { usePrefs } from '@/pages/reader/usePrefs';
+import {
+  PULL_MAX_MS,
+  PULL_MIN_MS,
+  PULL_STEP_MS,
+  safePullMs,
+} from '@/pages/reader/pullCharge';
 import { Row, Section, Seg } from '@/components/reader/PrefRows';
 import { IconChevronLeft, IconDirection, IconDouble, IconExpand, IconMoon, IconSun, IconZoom } from '@/components/Icons';
 import { setLocalPref } from '@/sync/localPrefs';
@@ -93,6 +99,38 @@ export default function ReadingPanel() {
           control={<div className={`switch${prefs.value.autoNextChapter ? ' on' : ''}`} />}
           onClick={() => prefs.patch({ autoNextChapter: !prefs.value.autoNextChapter })}
         />
+
+        {/*
+         * 时长只在开关开着时给 —— 关着的时候摆一根调不动的滑条，
+         * 人会先去调它，再回头找开关在哪儿。
+         */}
+        {prefs.value.autoNextChapter && (
+          <div className="pref-row pref-row--static">
+            <IconChevronLeft size={18} />
+            <div className="pref-row__text">
+              <div className="pref-row__label">上拉时长</div>
+              <div className="pref-row__hint">
+                按住不放 {(safePullMs(prefs.value.pullMs) / 1000).toFixed(1)}
+                秒才接下一章，中途松手就退回去
+              </div>
+            </div>
+            <div className="slider-wrap">
+              <input
+                type="range"
+                min={PULL_MIN_MS / 1000}
+                max={PULL_MAX_MS / 1000}
+                step={PULL_STEP_MS / 1000}
+                value={safePullMs(prefs.value.pullMs) / 1000}
+                onChange={(e) => prefs.patch({ pullMs: Math.round(Number(e.target.value) * 1000) })}
+              />
+              {safePullMs(prefs.value.pullMs) !== 1500 && (
+                <button className="slider-reset" onClick={() => prefs.patch({ pullMs: 1500 })}>
+                  还原
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </Section>
 
       <Section title="图片适配">

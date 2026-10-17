@@ -129,6 +129,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
 
   const autoNext = useAutoNextChapter({
     enabled: prefs.value.autoNextChapter,
+    pullMs: prefs.value.pullMs,
     nextId,
     images,
     onGo: gotoChapter,

@@ -4,7 +4,7 @@ import {
   advancePull,
   BOTTOM_PX,
   RELEASE_PX,
-  PULL_MS,
+  safePullMs,
   wheelStillActive,
 } from './pullCharge';
 
@@ -33,6 +33,8 @@ import {
 
 export function useAutoNextChapter(a: {
   enabled: boolean;
+  /** 要攒多久。设置里那根滑条说的就是它 */
+  pullMs: number;
   nextId: string | null;
   images: string[] | null;
   onGo: (chapterId: string) => void;
@@ -112,6 +114,7 @@ export function useAutoNextChapter(a: {
     const dt = lastAt.current ? now - lastAt.current : 0;
     lastAt.current = now;
     const cur = live.current;
+    const need = safePullMs(cur.pullMs);
     const active =
       cur.enabled &&
       !!cur.nextId &&
@@ -119,9 +122,9 @@ export function useAutoNextChapter(a: {
       armedRef.current &&
       (held.current || wheelStillActive(wheelAt.current, now));
 
-    const next = advancePull(accMs.current, dt, { active, landed: lastLanded() });
+    const next = advancePull(accMs.current, dt, { active, landed: lastLanded(), pullMs: need });
     accMs.current = next.accMs;
-    const p = Math.min(1, accMs.current / PULL_MS);
+    const p = Math.min(1, accMs.current / need);
     /*
      * 量化成 20 档再进 state。这个 hook 挂在 ReaderPage 上，setPull 一次就是
      * 整页重渲一次（包括那几十张图的协调）—— 按帧报进度等于给一个本来就
