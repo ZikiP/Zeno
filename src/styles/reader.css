@@ -88,6 +88,24 @@
   letter-spacing: 2px;
 }
 
+/*
+ * 停在章末、可以接下一章时的那一行。同一行字，只是亮一点 + 能点 ——
+ * 不另做一颗胶囊：那儿已经有章末导航的悬浮胶囊了，再摆一个就是两个东西抢位置。
+ */
+.reader__end--go {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+}
+.reader__end--go:active {
+  color: rgba(255, 255, 255, 0.9);
+}
+
 /* 分页模式 */
 .reader__paged {
   flex: 1;

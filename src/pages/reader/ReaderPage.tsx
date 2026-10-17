@@ -85,10 +85,11 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
    * 而那个 hook 又吃 paging —— 直接互相引用接不上。
    * 所以 paging 和滚动回调拿的都是这个 ref，渲染完再把真实现换上去。
    */
-  const autoRef = useRef<{ atEnd: () => void; onScroll: (el: HTMLElement) => void }>({
-    atEnd: () => {},
-    onScroll: () => {},
-  });
+  const autoRef = useRef<{
+    atEnd: () => void;
+    onScroll: (el: HTMLElement) => void;
+    pullDown: () => void;
+  }>({ atEnd: () => {}, onScroll: () => {}, pullDown: () => {} });
   const paging = usePaging(imageCount, mode, prefs.value.pageMode, record, () =>
     autoRef.current.atEnd(),
   );
@@ -230,10 +231,23 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           resetToken={zoomTick}
           onScroll={(el) => {
             paging.onScroll(el, images.length, record);
-            // 自动下一章看的是同一次滚动。读进度和"到底了"必须是同一个来源，
-            // 各接一遍的话早晚会出现"进度说 100%、章却还没跳"
+            // 自动下一章看的是同一次滚动。读进度和"停在章末"必须是同一个来源，
+            // 各接一遍的话早晚会出现"进度说 100%、章却还没接上"
             autoRef.current.onScroll(el);
           }}
+          onPullDown={() => autoRef.current.pullDown()}
+          endHint={
+            autoNext.armed
+              ? autoNext.ready
+                ? '— 本章完 · 点这里或再往下推一下 —'
+                : '— 本章完 · 正在取最后几张 —'
+              : null
+          }
+          /*
+           * 点那一行是明确意图，直接接；只有"再推一下"那条路要过冷却，
+           * 因为一路滑到底的手还会挤进来几个事件。
+           */
+          onEndTap={() => autoNext.atEnd()}
           onTap={bar.toggle}
           onZoom={(src, i) => setZoom({ src, i })}
           onZoomedChange={setZoomed}

@@ -68,6 +68,9 @@ export interface DevicePrefs {
    *
    * 默认关：这是一个会自己改变"翻到章尾时发生什么"的行为，
    * 悄悄给老用户打开，等于让他们读到一半莫名跳章。
+   *
+   * 开着也不是"到底那一瞬间就飞走" —— 滚动模式先停在「本章完」那一屏，
+   * 再给一次向下的意图才接下一章。理由见 useAutoNextChapter 那段。
    */
   autoNextChapter: boolean;
 }
