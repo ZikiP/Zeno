@@ -17,6 +17,7 @@ import {
   useShelfProgress,
 } from './useReaderEffects';
 import { useReaderActions } from './useReaderActions';
+import { useImageHealthFlash } from './useImageHealth';
 import { useReaderHotkeys, nextBrightness } from './useReaderHotkeys';
 import { usePaging, useToolbarVisibility, type ReaderMode } from './usePaging';
 import ReaderPanel, { useReaderPanels } from './ReaderPanels';
@@ -94,6 +95,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   useEffect(() => {
     if (warning) flash(warning);
   }, [warning, flash]);
+  useImageHealthFlash(images, flash);
 
   /* ── 动作（换章 / 收藏 / 跳书签 / 切模式）── */
   const { gotoChapter, toggleMark, jumpToBookmark, switchMode, seekScroll } = useReaderActions({

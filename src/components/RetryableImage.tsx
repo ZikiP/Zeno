@@ -44,6 +44,38 @@ export function markImageReady(src: string) {
   readySrcs.add(src);
 }
 
+/**
+ * 取不到的地址。和 readySrcs 一样是进程级的：
+ * 只有这张图自己知道它失败了几次，而调用方（阅读器）想知道的是
+ * "这一章到底坏了多少张" —— 逐个传回调要把 props 穿过五层视图组件，
+ * 换到的东西跟记在这儿是一样的。
+ */
+const failedSrcs = new Set<string>();
+const healthWatchers = new Set<() => void>();
+
+function noteFailed(src: string, failed: boolean) {
+  const had = failedSrcs.has(src);
+  if (failed === had) return;
+  if (failed) failedSrcs.add(src);
+  else failedSrcs.delete(src);
+  for (const w of healthWatchers) w();
+}
+
+/** 订阅"有哪些地址失败了"。返回取消订阅 */
+export function onImageHealthChange(watch: () => void) {
+  healthWatchers.add(watch);
+  return () => {
+    healthWatchers.delete(watch);
+  };
+}
+
+/** 这批地址里现在取不到的是几张 */
+export function failedCountAmong(srcs: readonly string[]) {
+  let n = 0;
+  for (const s of srcs) if (failedSrcs.has(s)) n++;
+  return n;
+}
+
 export function isImageReady(src: string) {
   return readySrcs.has(src);
 }
@@ -92,13 +124,17 @@ export function RetryableImage({
       img.onload = () => {
         if (cancelled) return;
         readySrcs.add(src);
+        noteFailed(src, false);
         setState('ok');
       };
       img.onerror = () => {
         if (cancelled) return;
         // 还有重试次数就继续，否则标记失败
         if (attempt < RETRY_DELAYS.length - 1) setAttempt((a) => a + 1);
-        else setState('error');
+        else {
+          noteFailed(src, true);
+          setState('error');
+        }
       };
       img.src = addCacheBuster(src, attempt);
     }, delay);
@@ -141,11 +177,15 @@ export function RetryableImage({
       style={{ opacity: state === 'ok' ? 1 : 0 }}
       onLoad={() => {
         readySrcs.add(src);
+        noteFailed(src, false);
         setState('ok');
       }}
       onError={() => {
         if (attempt < RETRY_DELAYS.length - 1) setAttempt((a) => a + 1);
-        else setState('error');
+        else {
+          noteFailed(src, true);
+          setState('error');
+        }
       }}
     />
   );
