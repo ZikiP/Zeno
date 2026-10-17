@@ -192,9 +192,19 @@ export async function renderHtml(url, opts = {}) {
     throw Object.assign(new Error(`渲染并发已满（${MAX_PAGES}）`), { code: 'BUSY' });
   }
   openPages++;
-
-  const ctx = await getContext(opts.userAgent);
-  const page = await ctx.newPage();
+  /*
+   * 拿到槽之后先自己兜一次：getContext / newPage 任一抛错（浏览器刚好被空闲
+   * 关掉、context 建不出来）都必须把槽还回去。之前这两行落在下面的 try 外面，
+   * 于是漏满 MAX_PAGES 次之后，所有 browser 模式的请求都在几十毫秒内回 429
+   * 且根本不出网 —— 日志一行痕迹都没有，只有重启进程才恢复。
+   */
+  let page;
+  try {
+    page = await (await getContext(opts.userAgent)).newPage();
+  } catch (e) {
+    openPages--;
+    throw e;
+  }
   /*
    * 只有前台跑得好好的、部署实例里却拿不到内容时才知道需要这个：
    * 页面自己的 XHR/子资源失败、脚本报错，在服务会话里看不见 ——
@@ -293,7 +303,16 @@ export async function renderHtml(url, opts = {}) {
   }
 }
 
-export async function shutdownBrowser() {
-  if (idleTimer) clearTimeout(idleTimer);
+/**
+ * 当前占用的渲染槽。
+ *
+ * 这个数以前不可见，于是「槽漏光了」和「真的在忙」长得一模一样 —— 都是 429。
+ * 挂到 /api/health 上，出问题时一眼分得开。
+ */
+export function renderLoad() {
+  return { openPages, max: MAX_PAGES };
+}
+
+export async function shutdownBrowser() {  if (idleTimer) clearTimeout(idleTimer);
   await teardown();
 }

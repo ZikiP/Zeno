@@ -3,6 +3,7 @@ import { listClients, pull, saveClientState, stats } from './db.mjs';
 import { pushAll } from './merge.mjs';
 import { removePlugin } from './deletes.mjs';
 import { allowedHosts, refreshAllowed } from './allowlist.mjs';
+import { renderLoad } from './render.mjs';
 import { json, readBody } from './respond.mjs';
 
 /**
@@ -22,7 +23,7 @@ export async function handleSyncApi(req, res, url, auth) {
      * 在告诉任何能连上这个端口的人"你在读哪些站点" —— 这两个只在带令牌时给。
      * 计数保留公开，部署脚本的健康检查要用，而且本身不敏感。
      */
-    const body = { ok: true, version: 1, ...stats(), allowedHostsCount: allowedHosts().size };
+    const body = { ok: true, version: 1, ...stats(), render: renderLoad(), allowedHostsCount: allowedHosts().size };
     if (auth(req)) {
       body.allowedHosts = [...allowedHosts()];
     } else {
