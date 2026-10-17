@@ -257,6 +257,34 @@ Stop-ScheduledTask   -TaskName Zeno
 **为什么不装 Windows 服务**：需要额外的包装器（nssm/winsw）。
 计划任务用 SYSTEM 账号 + 自动重启，行为和 systemd 等价，零额外依赖。
 
+### 重注册和重启的两个坑（都实测踩过）
+
+**1. `deploy.ps1` 不带 `-RunAsUser` 会把主体静默改回 SYSTEM。**
+`Register-ScheduledTask -Force` 是按参数覆盖，不是"没提就保留"。所以一台本来用
+`-RunAsUser` 跑着的机器，只要有人重跑一次 `.\deploy.ps1 -SkipInstall`，主体就变成
+SYSTEM —— 而 SYSTEM / 会话 0 下 Edge 起不来，browser 模式的插件当场全废。
+`/api/health` 依然是绿的（它不碰渲染），症状是"打开漫画报错"。
+
+部署前先确认主体。查它**需要管理员**（普通 PowerShell 里 `Get-ScheduledTask -TaskName Zeno`
+会直接报"找不到"，那不代表任务不存在）：
+
+```powershell
+# 提权后执行；UserId 应该是机器账号，不是 NT AUTHORITY\SYSTEM
+(Get-ScheduledTask -TaskName Zeno).Principal | Select-Object UserId, LogonType
+```
+
+本机装了 chromium 系浏览器、插件又用了 `fetch.mode: "browser"`（比如包子漫画的
+`list`/`detail`）→ 就固定用 `.\deploy.ps1 -RunAsUser -SkipInstall`。
+
+**2. `Restart-ScheduledTask` 换不掉服务进程。**
+任务的行动作是 `powershell -File start-zeno.ps1`，而 node 是它 spawn 的子进程。
+重启只停任务自己的那个 PowerShell，node 活着继续占 8788；新实例绑不上端口就退出，
+于是"重启过了，代码却还是旧的"。判据：往 `/api/health` 加一个新字段，重启后看不到，
+就是旧进程还在。
+
+正确的重启动作是跑 `deploy.ps1 -SkipInstall` —— 它的端口检查会认出
+命令行里带 `index.mjs` 的监听者并停掉它，再启动新的。
+
 **计划任务默认不落 stdout**，所以必须包一层 wrapper 把输出重定向到文件：
 
 ```powershell
@@ -459,6 +487,10 @@ fetch('/api/health', { cache: 'no-store' }).then(r => r.status)
 | 403 且 `error:"blocked address"` | 目标解析到内网/回环/元数据/CGNAT 段 | 正常拦截，别去关它；本地测试才设 `ALLOW_PRIVATE_HOSTS=1` |
 | 503 且提示没有可用浏览器 | 插件用了 `fetch.mode:"browser"` 但服务端没 chromium 系浏览器 | 装 Chrome/Edge，或设 `ZENO_BROWSER`；部署脚本的环境检查会报这个 |
 | 502/503 + `browserType.launch: ... browser has been closed`，Edge `exitCode=1002` | 服务以 **SYSTEM**（会话 0）常驻，浏览器起不来 | 沙箱不是原因（Playwright 已带 `--no-sandbox`）。跑 `deploy.ps1 -RunAsUser -SkipInstall` 把主体换成当前账号（S4U，照样开机自启）；只要前台跑一次就 `-Mode none` |
+| **429** 且 `error:"渲染并发已满（3）"` / `code:"BUSY"`，几十毫秒就返回、**根本没出网** | 渲染槽泄漏：`openPages++` 之后 `getContext`/`newPage` 落在 `try` 外，抛错就不还槽，漏满 `BROWSER_MAX_PAGES` 就永久 429（已修：拿槽后立刻包进自己的 try）。修法之后仍要会判：看 `/api/health` 的 `render.openPages` —— 空闲时不回落 0 就是漏 | 旧版本只能重启进程；确认 `render` 字段在且为 0。真忙（`openPages` 顶格且在变）是另一回事，那是要调 `BROWSER_MAX_PAGES` |
+| 部署/重启之后 browser 模式突然全废，`/api/health` 却全绿 | 重注册把任务主体改回了 SYSTEM（`-Force` 是按参数覆盖，不带 `-RunAsUser` 就降级） | 见上「重注册和重启的两个坑」。提权查 `(.Get-ScheduledTask -TaskName Zeno).Principal.UserId` |
+| 改了服务端代码、重启了，`/api/health` 里新字段还是没有 | `Restart-ScheduledTask` 只停任务的 PowerShell，node 子进程活着占端口 | 跑 `deploy.ps1 -SkipInstall`（它会停掉带 `index.mjs` 的监听者再启动） |
+| HTTP **200** 但内容是"正在验证浏览器"之类的质询页，解析出 0 条 | `renderHtml` 有条兜底：状态 ≥400 而 HTML 超过 2000 字节就改判 200（本意是救"质询完自己重载"的站点），于是质询页被洗成成功 | **别只看状态码**，把 body 存下来看标题/结构。这种结果不进缓存（`gotIt` 为假），所以反复请求会反复挨质询 —— 要解决的是等质询走完，不是加 `waitFor` 选择器 |
 | 部署跑到「计划任务已注册」之后中断，或 PS 报一串看不懂的语法错 | 含中文的 `.ps1` 存成了**无 BOM 的 UTF-8**，5.1 按 ANSI 解码 | 补 BOM，再用上面那条 `Parser::ParseFile` 自检到 0 错重跑 |
 | 列表/详情解析出 0 条但页面在浏览器里正常 | 站点内容靠 JS 注入，`fetch` 模式拿到的是空壳 | 插件加 `"fetch": { "mode": "browser", "waitFor": "<卡片选择器>" }` |
 | 手机装不了 PWA | 用的 http（**`127.0.0.1` 除外**） | 局域网 IP / 机器名必须 https |
