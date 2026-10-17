@@ -137,6 +137,10 @@ function collectLastChapter(shelf: ShelfEntry[]) {
       slug: e.slug,
       chapterId: e.lastChapterId!,
       updatedAt: e.lastChapterAt ?? e.addedAt,
+      // 「第几章 / 共几章」：新设备没有章节表缓存也能算出全书进度。
+      // 没算出来就推 null，服务端用 COALESCE 保住别处存好的值。
+      chapterIndex: e.chapterIndex ?? null,
+      chapterCount: e.chapterCount ?? null,
     }));
 }
 

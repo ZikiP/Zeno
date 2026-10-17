@@ -183,6 +183,13 @@ export function openDb() {
     addColumn('client_state', col, type);
   }
   addColumn('shelf', 'sort_order', 'INTEGER');
+  /*
+   * 「读到第几章 / 总共几章」这两个数。章节表缓存（chapterCache）不参与同步，
+   * 所以新设备算不出全书进度 —— 书架上那圈进度描边就整个不画了。
+   * 把这两个数随 last_chapter 一起存下来，新设备同步完就能直接算。
+   */
+  addColumn('last_chapter', 'chapter_index', 'INTEGER');
+  addColumn('last_chapter', 'chapter_count', 'INTEGER');
 
   return db;
 }

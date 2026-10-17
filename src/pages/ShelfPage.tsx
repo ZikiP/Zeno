@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getShelf, bookProgress } from '@/store/shelf';
+import { getShelf, bookProgress, backfillProgressFields } from '@/store/shelf';
 import {
   sortShelf,
   getShelfSort,
@@ -50,8 +50,12 @@ export default function ShelfPage() {
     setErr(null);
     try {
       const [shelf, cached] = await Promise.all([getShelf(), getCachedChapterLists()]);
-      setItems(shelf.filter((e) => byId[e.pluginId]));
-      setLists(Object.fromEntries(cached.map((c) => [c.key, c.chapters])));
+      const items = shelf.filter((e) => byId[e.pluginId]);
+      const lists = Object.fromEntries(cached.map((c) => [c.key, c.chapters]));
+      setItems(items);
+      setLists(lists);
+      // 老数据没记过「第几章/共几章」，趁本地有章节表补一次，别等用户再读一章
+      void backfillProgressFields(items, lists).catch(() => {});
       // 排法和格子数都可能在同步里被别人改了，每次重读都跟着刷新
       setSortMode(getShelfSort());
       setCols(getShelfCols());

@@ -36,4 +36,14 @@ export interface ShelfEntry {
   positionsAt?: Record<string, number>;
   /** lastChapterId 的写入时间 */
   lastChapterAt?: number;
+  /**
+   * lastChapterId 在那本书章节表里的位置，和总章数。
+   *
+   * 全书进度本来要现算：读到第几章 ÷ 总共几章，而章节表（chapterCache）
+   * 是本地缓存、不参与同步 —— 于是新设备算不出来，书架上那圈进度描边整个不画。
+   * 写进度时顺手把这两个数记下来随 lastChapter 同步走，新设备一同步就能算。
+   * 章节表在本地时仍以表为准（新章上线后总数会变），这两个数只是兜底。
+   */
+  chapterIndex?: number;
+  chapterCount?: number;
 }

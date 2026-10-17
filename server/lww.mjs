@@ -10,6 +10,12 @@ export function num(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** 可空的整数列用这个：没带值就是 NULL，不能落成 0 —— 0 是个合法的进度值 */
+export function intOrNull(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
 export const GONE_SQL = 'SELECT updated_at FROM deletes WHERE kind = ? AND id = ?';
 
 /** 调用方自己 prepare，循环里不复用会白白多分配一堆语句对象 */

@@ -165,10 +165,18 @@ async function applyProgress(t: Tx, positions: RemoteRow[], lastChapter: RemoteR
     const entry = await store.get(`${row.plugin_id}/${row.slug}`);
     if (!entry) continue;
     const at = Number(row.updated_at ?? 0);
+    /*
+     * 服务端可能还没这两个数（老数据，或推的一侧算不出来）。
+     * 缺值时保住本地已有的，别一路同步就把进度底子抹成不知道。
+     */
+    const idx = row.chapter_index == null ? undefined : Number(row.chapter_index);
+    const cnt = row.chapter_count == null ? undefined : Number(row.chapter_count);
     await store.put({
       ...entry,
       lastChapterId: String(row.chapter_id),
       lastChapterAt: at || entry.lastChapterAt || 0,
+      chapterIndex: idx ?? entry.chapterIndex,
+      chapterCount: cnt ?? entry.chapterCount,
     });
   }
 }

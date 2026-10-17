@@ -76,6 +76,25 @@ export async function removeFromShelf(pluginId: string, slug: string): Promise<v
 }
 
 /**
+ * 从本地章节表算出「第几章 / 总共几章」。
+ *
+ * 算不出来就返回空对象 —— 绝不能返回 undefined 字段去覆盖记录里已有的值，
+ * 那等于把别处同步过来的进度底子抹掉。
+ */
+async function progressFields(
+  d: Awaited<ReturnType<typeof db>>,
+  key: string,
+  chapterId: string,
+): Promise<Pick<ShelfEntry, 'chapterIndex' | 'chapterCount'>> {
+  const chapters: { id: string; index: number }[] | undefined =
+    (await d.get('chapterCache', key))?.chapters;
+  if (!chapters?.length) return {};
+  const ordered = [...chapters].sort((a, b) => a.index - b.index);
+  const at = ordered.findIndex((c) => c.id === chapterId);
+  return at < 0 ? {} : { chapterIndex: at, chapterCount: ordered.length };
+}
+
+/**
  * 记录阅读进度。
  * 只在已入架的漫画上写 —— 没入架的读了也记不上，这是有意的：
  * 书架是用户显式的选择，进度跟着走。
@@ -99,6 +118,7 @@ export async function savePosition(
     positionsAt: { ...(entry.positionsAt ?? {}), [chapterId]: now },
     lastChapterAt: now,
     positions: { ...entry.positions, [chapterId]: pct },
+    ...await progressFields(d, entry.key, chapterId),
   });
 }
 
@@ -120,16 +140,47 @@ export async function savePosition(
  */
 export function bookProgress(
   chapters: { id: string; index: number }[] | null | undefined,
-  entry: Pick<ShelfEntry, 'lastChapterId' | 'positions'>,
+  entry: Pick<ShelfEntry, 'lastChapterId' | 'positions' | 'chapterIndex' | 'chapterCount'>,
 ): number | null {
   // 加了架还没读过，0% 是事实而不是算不出来
   if (!entry.lastChapterId) return 0;
-  if (!chapters?.length) return null;
-  const list = [...chapters].sort((a, b) => a.index - b.index);
-  const at = list.findIndex((c) => c.id === entry.lastChapterId);
-  if (at < 0) return null;
   const within = (entry.positions[entry.lastChapterId] ?? 0) / 100;
-  return Math.min(100, Math.round(((at + within) / list.length) * 100));
+  const list = chapters?.length ? [...chapters].sort((a, b) => a.index - b.index) : null;
+  const at = list ? list.findIndex((c) => c.id === entry.lastChapterId) : -1;
+  if (list && at >= 0) return toPct((at + within) / list.length);
+  /*
+   * 本地没有章节表（新设备第一次打开）或者那一章已经从表里掉了 ——
+   * 用记录里跟着同步过来的那两个数兜底。没有兜底值才算真不知道。
+   */
+  if (entry.chapterIndex != null && entry.chapterCount) {
+    return toPct((entry.chapterIndex + within) / entry.chapterCount);
+  }
+  return null;
+}
+
+const toPct = (ratio: number) => Math.min(100, Math.round(ratio * 100));
+
+/**
+ * 给「本地有章节表、记录里却没记下章节位置」的老数据补一次。
+ *
+ * 不补的话这些书要等用户再读一章才带上那两个数，新设备这段时间里仍然看不见进度。
+ * 只写这两个字段，**不动 updatedAt** —— 记录内容没变，不该去抢那条记录的 LWW。
+ * 服务端收到时会自己判断要不要填（见 merge.mjs 里那条 fill）。
+ */
+export async function backfillProgressFields(
+  items: ShelfEntry[],
+  lists: Record<string, { id: string; index: number }[]>,
+): Promise<void> {
+  const d = await db();
+  for (const e of items) {
+    const list = lists[e.key];
+    if (!e.lastChapterId || !list?.length) continue;
+    const ordered = [...list].sort((a, b) => a.index - b.index);
+    const at = ordered.findIndex((c) => c.id === e.lastChapterId);
+    if (at < 0) continue;
+    if (e.chapterIndex === at && e.chapterCount === ordered.length) continue;
+    await d.put('shelf', { ...e, chapterIndex: at, chapterCount: ordered.length });
+  }
 }
 
 /**
@@ -197,6 +248,8 @@ export async function markThrough(
     positionsAt,
     lastChapterId: moveOn ? uptoId : entry.lastChapterId,
     lastChapterAt: moveOn ? now : entry.lastChapterAt,
+    // 章节位置跟着 lastChapterId 一起记，新设备不用现拉章节表
+    ...(moveOn ? { chapterIndex: at, chapterCount: orderedIds.length } : {}),
     // 记录本身被动过，LWW 时钟要跟着走
     updatedAt: now,
   });

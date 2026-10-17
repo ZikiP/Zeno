@@ -1,6 +1,6 @@
 import { logChange, openDb } from './db.mjs';
 import { applyDeletes } from './deletes.mjs';
-import { goneBefore, goneStmt, num, pluginGone } from './lww.mjs';
+import { goneBefore, goneStmt, intOrNull, num, pluginGone } from './lww.mjs';
 
 /**
  * 合并策略：增的一侧
@@ -144,12 +144,32 @@ export function upsertLastChapter(rows, deviceId) {
   const d = openDb();
   const gone = goneStmt(d);
   const touch = d.prepare('SELECT updated_at FROM last_chapter WHERE plugin_id = ? AND slug = ?');
+  /*
+   * 只填缺的那两个数，不动 chapter_id 也不动时钟。
+   * 老数据（那两个数还没记过的时候写的）推上来时时间戳往往不比本地新，
+   * 走不到下面的 apply —— 没有这条路，服务端这两列会一直是 NULL，
+   * 新设备永远补不齐。
+   */
+  const fill = d.prepare(
+    `UPDATE last_chapter
+        SET chapter_index = COALESCE(chapter_index, ?),
+            chapter_count = COALESCE(chapter_count, ?),
+            updated_at    = updated_at
+      WHERE plugin_id = ? AND slug = ?
+        AND (chapter_index IS NULL OR chapter_count IS NULL)`,
+  );
+  /*
+   * 两个进度用的数走 COALESCE：旧客户端不带这两个字段（推上来是 null），
+   * 不能顺手把别处存好的值抹掉 —— 抹掉就又回到「新设备算不出进度」。
+   */
   const apply = d.prepare(
-    `INSERT INTO last_chapter (plugin_id, slug, chapter_id, updated_at, device_id)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO last_chapter (plugin_id, slug, chapter_id, updated_at, device_id, chapter_index, chapter_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(plugin_id, slug) DO UPDATE SET
        chapter_id = excluded.chapter_id, updated_at = excluded.updated_at,
-       device_id = excluded.device_id`,
+       device_id = excluded.device_id,
+       chapter_index = COALESCE(excluded.chapter_index, last_chapter.chapter_index),
+       chapter_count = COALESCE(excluded.chapter_count, last_chapter.chapter_count)`,
   );
 
   let changed = 0;
@@ -159,13 +179,27 @@ export function upsertLastChapter(rows, deviceId) {
     if (goneBefore(gone, 'lastChapter', `${r.pluginId}/${r.slug}`, ts)) continue;
     if (pluginGone(gone, r.pluginId, ts)) continue;
     const local = touch.get(r.pluginId, r.slug);
-    if (local && num(local.updated_at) >= ts) continue;
-    apply.run(r.pluginId, r.slug, r.chapterId, ts, deviceId ?? null);
+    if (local && num(local.updated_at) >= ts) {
+      if (fillChanges(fill, r)) changed++;
+      continue;
+    }
+    apply.run(
+      r.pluginId,
+      r.slug,
+      r.chapterId,
+      ts,
+      deviceId ?? null,
+      intOrNull(r.chapterIndex),
+      intOrNull(r.chapterCount),
+    );
     changed++;
   }
   if (changed) logChange('position', deviceId);
   return changed;
 }
+
+const fillChanges = (fill, r) =>
+  fill.run(intOrNull(r.chapterIndex), intOrNull(r.chapterCount), r.pluginId, r.slug).changes > 0;
 
 /* ── 书签 ─────────────────────────────────────────── */
 
