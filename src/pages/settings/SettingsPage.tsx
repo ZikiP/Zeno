@@ -1,5 +1,4 @@
 import Tabs, { TabPanel } from '@/components/Tabs';
-import BottomNav from '@/components/BottomNav';
 import AppearancePanel from './AppearancePanel';
 import SourcesPanel from './SourcesPanel';
 import CachePanel from './CachePanel';
@@ -59,7 +58,6 @@ export default function SettingsPage({
         </TabPanel>
       </main>
 
-      <BottomNav />
     </>
   );
 }

@@ -5,7 +5,6 @@ import { listPlugins } from '@/store/plugins';
 import type { InstalledPlugin } from '@/store/db';
 import { usePlugin } from '@/store/PluginContext';
 import { IconSearch } from '@/components/Icons';
-import BottomNav from '@/components/BottomNav';
 import { ErrorBox, Loading } from '@/components/UI';
 import { useSearchHistory } from './useSearchHistory';
 
@@ -242,7 +241,6 @@ export default function GlobalSearchPage() {
         )}
       </main>
 
-      <BottomNav />
     </>
   );
 }

@@ -122,23 +122,13 @@
 
 /*
  * 选中态不能只靠颜色差一档 —— 户外强光下、以及色觉障碍时全都分不出来。
- * 这里同时改四件事：胶囊底、字重、图标描边加粗、图标放大。
- * 未选中的图标另外压暗一档，让对比是"两档"而不是"一档半"。
+ * 现在靠四件事：图标自身形变（UseAnimations 的 click-toggle 停在终态）、字重、
+ * 描边加粗、图标放大。原来那颗胶囊底去掉了 —— 形状已经能说清「是哪一颗」，
+ * 底再叠上去反而和图标的形变抢注意力。
  */
 .bottom-nav a.active {
   color: var(--accent);
   font-weight: 600;
-}
-.bottom-nav a.active::before {
-  content: '';
-  position: absolute;
-  top: 5px;
-  left: 50%;
-  width: 46px;
-  height: 27px;
-  transform: translateX(-50%);
-  border-radius: 14px;
-  background: color-mix(in oklab, var(--accent) 15%, transparent);
 }
 .bottom-nav a.active svg {
   stroke-width: 2.1;

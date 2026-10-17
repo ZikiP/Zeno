@@ -125,3 +125,78 @@
 .chip.on {
   color: var(--on-accent);
 }
+
+/* ── 带状态角标的图标（书架那颗，见 ShelfStateIcon）─────── */
+
+.state-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.state-icon__badge {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  /* 角标比图标本身更往角上探，overflow 不开就会被自己的盒子裁掉一圈 */
+  overflow: visible;
+}
+.state-icon__disc {
+  fill: currentColor;
+}
+.state-icon__tick {
+  fill: none;
+  stroke: var(--badge-punch, var(--bg));
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.state-icon__badge .state-icon__disc {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+/* 弹进来：圆片先撑开，勾再描出来 —— 两拍分开才看得出「长出了一个东西」 */
+.state-icon__badge.is-in .state-icon__disc {
+  animation: badge-pop var(--d-bounce) var(--e-bounce) both;
+}
+.state-icon__badge.is-in .state-icon__tick {
+  animation: badge-tick var(--d-micro) var(--e-out) 90ms both;
+}
+.state-icon__badge.is-out {
+  animation: badge-out var(--d-press) var(--e-out) both;
+}
+
+@keyframes badge-pop {
+  from {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes badge-tick {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes badge-out {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+}

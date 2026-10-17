@@ -35,6 +35,13 @@
   box-shadow: var(--rim-glass);
 }
 
+/* 书架的板要比其它玻璃件更透一档：架子是背景，板不该比封面抢眼。
+   掺 transparent 来降 alpha，而不是另写一个 rgba —— 深浅底换主题时它自己跟着变。
+   分隔感靠那层 backdrop-blur 撑着，不靠这 0.62。 */
+.card--plate {
+  background: color-mix(in oklab, var(--glass-bg) 65%, transparent);
+}
+
 /* 常驻条：底下永远有内容在滚，用更实的那一档。
    设置页的分栏条也在内 —— 它吸在顶栏下面，同样一路有内容从它底下过去。 */
 .topbar,
@@ -119,6 +126,10 @@
    给 --accent 蒙一层玻璃会把字洗掉，所以它只借一圈镜面 */
 .btn:not(.btn--ghost) {
   box-shadow: var(--rim-glass);
+  /* 角标上那个勾是「抠」出来的，抠出来的就是按钮底下的颜色。
+     幽灵按钮和顶栏图标按钮底下是页面底色，用 CSS 变量的兜底 --bg 就够；
+     主按钮底下是 --accent，不覆盖的话勾会和底色糊成一片。 */
+  --badge-punch: var(--accent);
 }
 
 /* 阅读器自成一套：底色由阅读偏好决定，跟 App 主题无关 */

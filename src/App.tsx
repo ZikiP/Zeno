@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState, type ReactNode } from 'react';
-import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import ShelfPage from '@/pages/ShelfPage';
 import ExplorePage from '@/pages/ExplorePage';
 import GlobalSearchPage from '@/pages/GlobalSearchPage';
@@ -12,6 +12,7 @@ import { useUiFont } from '@/fonts/useUiFont';
 import { Loading, OfflineBar } from '@/components/UI';
 import { IconEmpty } from '@/components/Icons';
 import SyncPill from '@/sync/SyncPill';
+import BottomNav from '@/components/BottomNav';
 import { sync } from '@/sync/client';
 
 function useOnline() {
@@ -132,6 +133,7 @@ function ThemeApplier() {
 
 function Shell() {
   const online = useOnline();
+  const { pathname } = useLocation();
   return (
     <div className="app">
       <OfflineBar online={online} />
@@ -175,9 +177,19 @@ function Shell() {
       </Routes>
       {/* 顶栏右端那颗同步泡，逻辑见 SyncPill：它自己找到当前这一页的顶栏挂进去 */}
       <SyncPill />
+      {NAV_ROUTES.has(pathname) && <BottomNav />}
     </div>
   );
 }
+
+/**
+ * 底栏挂在 Shell 而不是各页面里 —— 切 tab 时它必须保持同一个实例。
+ *
+ * UseAnimations 的 click-toggle 在挂载时就已经是选中态的话，会直接跳到终帧不播
+ * （见其源码里 atEnd + goToAndStop）。之前四个页面各挂一份，切页等于重挂，
+ * 图标就只是「已经变成那个样子」，看不到形变。
+ */
+const NAV_ROUTES = new Set(['/shelf', '/explore', '/search', '/settings']);
 
 /**
  * 阅读器路由。

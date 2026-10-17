@@ -174,24 +174,35 @@
 .card--plate .card__name {
   position: relative;
   padding: 0 2px;
-  /* 名字是这格里唯一的文字，给它一档比正文更紧的行高，两行时不会散开 */
+  /* 名字是这格里唯一的文字，给它一档比正文更紧的行高 */
   font-size: 12.5px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  /*
-   * 固定占两行的高（2 × 1.35 行高）。不占的话一行标题和两行标题的卡片
-   * 高度差一整行，同一格里两张板底边对不齐 —— 书架是一面架子，
-   * 底边参差比封面不好看更扎眼。
-   */
-  min-height: 2.7em;
+  /* 书架上只留一行，长了截断加省略号。原来占两行是为了让不同标题的卡片底边对齐，
+     现在每格都只有一行，对齐是自然结果，不用再拿 min-height 撑。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* 进度环：压在封面右上角 */
-.card__cover .ring {
+/* 阅读进度：绕卡片一周的一圈描边（尺寸由 ProgressEdge 量出来后再画） */
+.card__edge {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  filter: drop-shadow(0 1px 3px var(--shadow-ambient));
+  inset: 0;
+  /* SVG 是替换元素，inset:0 不会把它拉满 —— 不给这两行它会停在默认的 300x150
+     内在尺寸上，量出来的盒子就是错的，描边自然绕到别处去了 */
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.card__edge-track {
+  stroke: color-mix(in oklab, var(--text) 12%, transparent);
+}
+.card__edge-arc {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--d-micro) var(--e-out);
 }
 /* 底盘：没有它，深色封面上那圈轨道会直接融进画面里。
    和角标共用同一档深底 —— 但它是 SVG <circle>，backdrop-filter 对它不生效，

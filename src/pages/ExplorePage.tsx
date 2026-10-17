@@ -4,7 +4,6 @@ import { listComics, coverUrl, type Comic } from '@/site/engine';
 import type { Plugin, PluginFilter } from '@/site/types';
 import { usePlugin } from '@/store/PluginContext';
 import { IconChevronRight, IconEmpty, IconSearch } from '@/components/Icons';
-import BottomNav from '@/components/BottomNav';
 import SourceSwitcher from '@/components/SourceSwitcher';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
 
@@ -289,7 +288,6 @@ export default function ExplorePage() {
         )}
       </main>
 
-      <BottomNav />
     </>
   );
 }

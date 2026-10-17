@@ -16,9 +16,11 @@ import { usePlugin } from '@/store/PluginContext';
 import { useReloadOnChange } from '@/store/useDataVersion';
 import { emitDataChange } from '@/store/dataEvents';
 import { coverUrl } from '@/site/engine';
+import UseAnimations from 'react-useanimations';
+import { themeToggle } from '@/components/icons/uaTheme';
+import { useTheme } from '@/hooks/useTheme';
 import { IconEmpty, IconExplore, IconSettings, IconSort, IconCheck } from '@/components/Icons';
-import BottomNav from '@/components/BottomNav';
-import ProgressRing from '@/components/ProgressRing';
+import ProgressEdge from '@/components/ProgressEdge';
 import { ErrorBox, Loading, Sheet } from '@/components/UI';
 import { sync } from '@/sync/client';
 import { useShelfDrag } from './shelf/useShelfDrag';
@@ -110,7 +112,11 @@ export default function ShelfPage() {
   const drag = useShelfDrag({ keys, enabled: sortMode === 'custom', onCommit: commitOrder });
   /* 拖拽中：drag.order 已经把被拖那张放在它应落的位置上，
      那张卡片本身描成虚线格子，跟着手指的是钩子造的克隆 */
-  const sortLabel = SHELF_SORTS.find((s) => s.key === sortMode)?.label ?? '';
+
+  /* 顶栏那颗快捷主题切换：只在浅色和深色之间跳。
+     「跟随系统」要留在设置里选 —— 快捷按钮一按就该有个确定的结果 */
+  const { resolved, setTheme } = useTheme();
+  const dark = resolved === 'dark';
 
   const pickSort = (mode: ShelfSort) => {
     setSortMode(mode);
@@ -151,9 +157,10 @@ export default function ShelfPage() {
               draggable={false}
             />
           )}
-          {pct !== null && pct > 0 && <ProgressRing percent={pct} size={30} label={`全书 ${pct}%`} />}
         </div>
         <div className="card__name">{it.title}</div>
+        {/* 描边绕的是整块板，不是封面那格，所以挂在卡片上而不是 .card__cover 里 */}
+        {pct !== null && pct > 0 && <ProgressEdge percent={pct} label={`全书 ${pct}%`} />}
       </Link>
     );
   };
@@ -165,18 +172,30 @@ export default function ShelfPage() {
           我的书架{items && items.length > 0 ? ` (${items.length})` : ''}
         </div>
         <div className="topbar__spacer" />
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={dark ? '切换到浅色' : '切换到深色'}
+          aria-pressed={dark}
+          onClick={() => setTheme(dark ? 'light' : 'dark')}
+        >
+          <UseAnimations
+            animation={themeToggle}
+            size={22}
+            interaction="click-toggle"
+            active={dark}
+            wrapperStyle={{ overflow: 'visible' }}
+          />
+        </button>
         {items && items.length > 1 && (
-          <>
-            <span className="topbar__hint">{sortLabel}</span>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="书架排序方式"
-              onClick={() => setShowSort(true)}
-            >
-              <IconSort />
-            </button>
-          </>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="书架排序方式"
+            onClick={() => setShowSort(true)}
+          >
+            <IconSort />
+          </button>
         )}
       </header>
 
@@ -220,7 +239,6 @@ export default function ShelfPage() {
         )}
       </main>
 
-      <BottomNav />
 
       {showSort && (
         <Sheet title="书架排序" onClose={() => setShowSort(false)}>

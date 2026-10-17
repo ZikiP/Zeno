@@ -12,13 +12,12 @@ import { onDataChange } from '@/store/dataEvents';
 import ChapterList from '@/components/ChapterList';
 import ComicSheet from '@/components/ComicSheet';
 import ProgressRing from '@/components/ProgressRing';
+import ShelfStateIcon from '@/components/ShelfStateIcon';
 import {
   IconBack,
-  IconCheck,
   IconDownload,
   IconPlay,
   IconSettings,
-  IconShelf,
 } from '@/components/Icons';
 import { ErrorBox, Loading } from '@/components/UI';
 
@@ -190,7 +189,7 @@ export default function ComicPage() {
                     className={entry?.lastChapterId ? 'btn btn--ghost' : 'btn'}
                     onClick={toggleShelf}
                   >
-                    {onShelf ? <IconCheck size={16} /> : <IconShelf size={16} />}
+                    <ShelfStateIcon on={onShelf} size={16} />
                     {onShelf ? '已在书架' : '加入书架'}
                   </button>
                   <button className="btn btn--ghost" onClick={cacheAll} disabled={!!caching}>
