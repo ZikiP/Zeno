@@ -1,5 +1,5 @@
 import { db } from './db';
-import type { CachedChapter, CachedChapterList } from './db';
+import type { CachedChapter, CachedChapterList, CachedComic } from './db';
 
 /**
  * 离线缓存
@@ -159,22 +159,26 @@ export async function deleteCachedByPluginAndSlug(
 /* ── 章节表缓存 ───────────────────────────────────── */
 
 /**
- * 缓存漫画的章节表。
- * 阅读器内的目录靠它 —— 否则打开阅读器还要重新抓一次详情页。
+ * 缓存这本漫画的详情。
+ *
+ * 目录 + 展示字段一起存，这样重进详情页能直接把它画出来（见 CachedComic 那段）。
+ * 存的是**上一次抓到的**那份，抓到了新内容就盖过来 —— 它只负责"先有东西可看"，
+ * 不负责准，所以不需要版本号也不需要失效时间。
  */
 export async function cacheChapterList(
   pluginId: string,
   slug: string,
-  title: string,
+  comic: CachedComic,
   chapters: { id: string; index: number; title: string }[],
 ): Promise<void> {
   await (await db()).put('chapterCache', {
     key: `${pluginId}/${slug}`,
     pluginId,
     slug,
-    title,
+    title: comic.title,
     chapters,
     cachedAt: Date.now(),
+    comic,
   });
 }
 

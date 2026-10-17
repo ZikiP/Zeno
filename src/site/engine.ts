@@ -102,6 +102,18 @@ export async function listComics(
   return { comics, exact: isSearchExact(html, plugin.parse, comics.length) };
 }
 
+/**
+ * 章节页地址。
+ *
+ * 抽出来是因为有三个调用方：解析完详情页要给它，翻某一章要给它，
+ * 从本地章节表恢复目录时也要给它 —— 缓存里只存 id/index/title，
+ * 地址是按插件模板算出来的，存了反而会在模板改了之后留下错的。
+ */
+export function chapterUrl(plugin: Plugin, slug: string, id: string): string {
+  const base = plugin.chapterHost ?? plugin.entry;
+  return new URL(fillTemplate(plugin.urls.chapter, { slug, id }), base).toString();
+}
+
 /** 漫画详情 + 章节列表 */
 export async function getComic(
   plugin: Plugin,
@@ -114,11 +126,10 @@ export async function getComic(
   );
 
   const rawChapters = parseChapters(html, plugin.parse);
-  const base = plugin.chapterHost ?? plugin.entry;
 
   const chapters: Chapter[] = rawChapters.map((c) => ({
     ...c,
-    url: new URL(fillTemplate(plugin.urls.chapter, { slug, id: c.id }), base).toString(),
+    url: chapterUrl(plugin, slug, c.id),
   }));
 
   /*
@@ -190,9 +201,7 @@ export async function getChapter(
   chapterId: string,
   opts?: { signal?: AbortSignal },
 ): Promise<ChapterPage> {
-  const base = plugin.chapterHost ?? plugin.entry;
-  const urlFor = (id: string) =>
-    new URL(fillTemplate(plugin.urls.chapter, { slug, id }), base).toString();
+  const urlFor = (id: string) => chapterUrl(plugin, slug, id);
 
   if (captureFor(plugin, 'chapter') && modeFor(plugin, 'chapter') === 'browser') {
     const firstUrl = urlFor(chapterId);

@@ -48,6 +48,28 @@ export interface CachedChapterList {
   title: string;
   chapters: { id: string; index: number; title: string }[];
   cachedAt: number;
+  /**
+   * 详情页的展示字段（封面 / 标签 / 简介 / 是否完结）。
+   *
+   * 存它只为一件事：**进详情页先画出来，别让人对着一个转圈的"抓取漫画信息"
+   * 等一次服务端渲染**（实测会话还在这 0.8s，会话没了要 8s+）。
+   * 抓完还是会照常刷新，所以这里允许是旧的。
+   *
+   * 可选 —— 这张表没有"列"，老行没这个字段是正常状态，不用升版本：
+   * 读到的时候没有就照旧只恢复目录。
+   */
+  comic?: CachedComic;
+}
+
+/** 缓存下来那份展示字段。`cover` 存的是裸 URL，画的时候再过代理 */
+export interface CachedComic {
+  slug: string;
+  title: string;
+  cover: string;
+  tags?: string[];
+  description?: string;
+  finished?: boolean;
+  latestChapter?: string;
 }
 
 /** 书签 / 笔记。合在一张表，因为都是「定位到某一页」 */

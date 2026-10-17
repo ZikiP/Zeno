@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useBackToHome } from '@/hooks/useBackToHome';
-import { getComic, coverUrl, type Chapter, type Comic } from '@/site/engine';
-import { cacheChapterList } from '@/store/chapters';
+import { getComic, chapterUrl, coverUrl, type Chapter, type Comic } from '@/site/engine';
+import { cacheChapterList, getChapterList } from '@/store/chapters';
 import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf } from '@/store/shelf';
 import type { ShelfEntry } from '@/store/types';
 import { formatBytes } from '@/store/utils';
@@ -33,6 +33,11 @@ export default function ComicPage() {
   /** 书架记录本身，不只是"在不在架"—— 继续阅读和进度提示都要用它 */
   const [entry, setEntry] = useState<ShelfEntry | undefined>(undefined);
   const [showSettings, setShowSettings] = useState(false);
+  /**
+   * 这一本是不是已经拿到过"真"内容。
+   * 本地恢复那条路要靠它刹车：抓取先回来的话，缓存那份就绝不能再盖回去。
+   */
+  const fresh = useRef(false);
 
   const onShelf = !!entry;
   const lastChapter = chapters.find((c) => c.id === entry?.lastChapterId);
@@ -54,23 +59,52 @@ export default function ComicPage() {
         getComic(plugin, slug),
         getShelfEntry(plugin.meta.id, slug),
       ]);
+      // 真内容到手，本地那份就再不该盖回来（见下面那个恢复用的 effect）
+      fresh.current = true;
       setComic(c.comic);
       setChapters(c.chapters);
       setEntry(e);
 
       // 顺手缓存章节表，阅读器内打开目录就不用再抓一次
-      void cacheChapterList(
-        plugin.meta.id,
-        slug,
-        c.comic.title,
-        c.chapters.map((x) => ({ id: x.id, index: x.index, title: x.title })),
-      );
+      void cacheChapterList(plugin.meta.id, slug, c.comic, c.chapters.map((x) => ({ id: x.id, index: x.index, title: x.title })));
     } catch (e) {
+      /*
+       * 已经有内容（不管是刚抓到的还是从本地恢复的）就别把整页换成错误框：
+       * 站点抽风的时侯，用户手上的目录和"上次读到第几章"都还在，
+       * 一句报错把它们全藏起来，等于把"看不了"扩大成"什么都没了"。
+       */
       setErr((e as Error).message);
     }
   }, [plugin, slug]);
 
+  /*
+   * 先用本地那份画出来，再去抓。
+   *
+   * 为什么值得专门做这件事：详情页的主体是被 `!comic` 挡住的，而抓详情页要一次
+   * 服务端渲染（实测会话还在 0.8s、会话没了 8s+）。同一本书翻来覆去看，
+   * 每一次都要重新付这笔，而答案明明就在设备的库里躺着。
+   *
+   * 只恢复展示字段和目录，不恢复"读到第几章"—— 那是 entry 的事，
+   * 它本来就走 IndexedDB，快得很。
+   */
   useEffect(() => {
+    if (!plugin?.meta.id) return;
+    let dropped = false;
+    void (async () => {
+      const cached = await getChapterList(plugin.meta.id!, slug);
+      if (dropped || fresh.current || !cached?.comic) return;
+      setComic(cached.comic);
+      setChapters(
+        cached.chapters.map((c) => ({ ...c, url: chapterUrl(plugin, slug, c.id) })),
+      );
+    })();
+    return () => {
+      dropped = true;
+    };
+  }, [plugin, slug]);
+
+  useEffect(() => {
+    fresh.current = false;
     void load();
   }, [load]);
 
@@ -138,11 +172,11 @@ export default function ComicPage() {
       </header>
 
       <main className="main">
-        {err ? (
-          <ErrorBox message={err} onRetry={load} />
-        ) : !comic ? (
-          <Loading text="抓取漫画信息" />
-        ) : (
+        {err && (
+          <ErrorBox message={comic ? '刷新没成功，下面这份是上次抓到的' : err} onRetry={load} />
+        )}
+        {!comic && !err && <Loading text="抓取漫画信息" />}
+        {comic && (
           <div className="detail">
             <div className="detail__head">
               <img className="detail__cover" src={coverUrl(plugin, comic.cover, 400, 530)} alt={comic.title} />
