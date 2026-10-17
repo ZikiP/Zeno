@@ -168,10 +168,20 @@ export async function handleProxy(req, res, url) {
       release: done,
     });
   } catch (e) {
-    const status = e.code === 'NO_BROWSER' ? 503 : e.code === 'BUSY' ? 429 : 502;
+    /*
+     * CHALLENGE 和 NO_BROWSER 都是"过一会儿再来可能就有了"，所以同样 503，
+     * 但只给质询加 Retry-After：让客户端别立刻重试，重试也解不开，反而
+     * 把自己坐实成机器人。
+     */
+    const status = e.code === 'NO_BROWSER' || e.code === 'CHALLENGE' ? 503 : e.code === 'BUSY' ? 429 : 502;
     const body = JSON.stringify({ error: e.message, code: e.code ?? 'upstream_failed' });
     if (!res.headersSent) {
-      res.writeHead(status, { ...CORS, 'Content-Type': 'application/json' });
+      res.writeHead(
+        status,
+        e.code === 'CHALLENGE'
+          ? { ...CORS, 'Content-Type': 'application/json', 'Retry-After': '30' }
+          : { ...CORS, 'Content-Type': 'application/json' },
+      );
     }
     res.end(body);
   } finally {
