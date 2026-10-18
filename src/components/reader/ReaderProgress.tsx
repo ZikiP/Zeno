@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 
 /** 手离开之后隔多久收回去。1 秒是"还在那儿按着"和"已经走了"的分界 */
 const IDLE_MS = 1000;
+/** 横向移动超过这个量才算"在拖进度"。不到它就当是一次点击 */
+const DRAG_PX = 4;
 
 /**
  * 底部进度条：平时是压在页面底的一道细线，按住它长成一枚可以拖的玻璃条。
@@ -46,13 +48,27 @@ export default function ReaderProgress({
   const [open, setOpen] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  /**
+   * 这一下是不是真的按着。
+   * 少了它，鼠标只是**划过**热区就会走进 onPointerMove —— 而 startX 还没被
+   * pointerdown 赋过值（是初始的 0），任何 x 都"移动超过 4px"，于是凭空判成
+   * 拖动并跳了一次进度。触屏没有 hover 所以量不出来，得用鼠标场景才露。
+   */
+  const pressed = useRef(false);
+  /** 这一下按下去时按在哪、条是不是已经开着 —— 决定它是"唤起"还是"跳转" */
+  const startX = useRef(0);
+  const pressedWhileOpen = useRef(false);
   const idle = useRef<number>();
 
   const arm = useCallback(() => {
     window.clearTimeout(idle.current);
     idle.current = window.setTimeout(() => {
-      /* 按住不放不算"没操作"，不然拖到一半条缩回去了 */
-      if (!dragging.current) setOpen(false);
+      /*
+       * 按住不放不算"没操作"，不然条会在手指底下自己缩回去。
+       * 这里必须看 pressed 而不是 dragging：dragging 只代表"横着拖起来了"，
+       * 按住不动时它是 false —— 早先版本只判 dragging，实测就是"按着 1 秒条没了"。
+       */
+      if (!pressed.current && !dragging.current) setOpen(false);
     }, IDLE_MS);
   }, []);
 
@@ -81,16 +97,33 @@ export default function ReaderProgress({
     if (!onSeek) return;
     /* 捕获住：手指拖出这条 44px 热区还得继续跟着走 */
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    dragging.current = true;
-    setOpen(true);
-    onRequestOpen?.();
+    pressed.current = true;
+    startX.current = e.clientX;
+    dragging.current = false;
+    pressedWhileOpen.current = open;
+    if (open) {
+      /* 条已经开着，点它就是"跳到那儿"，要当下响应 */
+      const r = ratioAt(e.clientX);
+      if (r !== null) onSeek(r);
+    } else {
+      /*
+       * 条还收着：这一下只是把它唤出来，**不许动画面**。
+       * 早先版本在这里也跳了一次，于是"点底部唤起进度条"会顺带把页面
+       * 滑到手指那个 x 对应的进度 —— 手落在哪儿，画面就莫名其妙挪一点。
+       */
+      setOpen(true);
+      onRequestOpen?.();
+    }
     arm();
-    const r = ratioAt(e.clientX);
-    if (r !== null) onSeek(r);
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging.current || !onSeek) return;
+    if (!pressed.current || !onSeek) return;
+    if (!dragging.current) {
+      if (Math.abs(e.clientX - startX.current) <= DRAG_PX) return;
+      /* 横着真拖起来了。从这一刻开始才动画面 */
+      dragging.current = true;
+    }
     const r = ratioAt(e.clientX);
     if (r === null) return;
     onSeek(r);
@@ -98,9 +131,12 @@ export default function ReaderProgress({
   };
 
   const stop = (e: ReactPointerEvent<HTMLDivElement>, settled: boolean) => {
-    if (!dragging.current) return;
+    if (!pressed.current) return;
+    const wasDragging = dragging.current;
+    const wasOpenPress = pressedWhileOpen.current;
+    pressed.current = false;
     dragging.current = false;
-    if (settled) {
+    if (settled && (wasDragging || wasOpenPress)) {
       const r = ratioAt(e.clientX);
       if (r !== null) onSeekEnd?.(r);
     }

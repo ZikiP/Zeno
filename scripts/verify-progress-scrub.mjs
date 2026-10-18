@@ -100,6 +100,10 @@ const seekBox = () =>
 const scrollTop = () => page.evaluate(() => Math.round(document.querySelector('.reader__scroll')?.scrollTop ?? -1));
 const menuHidden = () => page.evaluate(() => document.querySelector('.reader__bar')?.className.includes('hide') ?? false);
 
+/* 底部热区上的一个点：横向取中间（比例 0.5），纵向落在 44px 热区里 */
+const cx = 195;
+const cy = 844 - 10;
+
 console.log('\n=== 1. 收起态 ===');
 const flat = await seekBox();
 check(!!flat, '进度条挂上了');
@@ -107,6 +111,19 @@ check(flat && !flat.open, '一开始是收起的');
 check(flat && flat.hitH >= 44, `底部热区 ${flat?.hitH}px（原来 18px，手指按不准）`);
 check(flat && flat.barH <= 3.5 && !flat.thumbVisible, `收起时只有 ${flat?.barH}px 的线，滑块不可见`);
 await page.screenshot({ path: join(SHOTS, '1-flat.png'), clip: { x: 0, y: 640, width: 390, height: 204 } });
+
+/*
+ * 不按键划过热区 —— 触屏没有 hover，这条只有鼠标场景才量得出来。
+ * 少一个"是不是按着"的判断时，划过会被当成拖动：startX 还是初始 0，
+ * 任何 x 都算"移动超过 4px"，于是凭空跳一次进度。
+ */
+const tBeforeHover = await scrollTop();
+await page.mouse.move(20, cy);
+await page.mouse.move(370, cy, { steps: 10 });
+await page.waitForTimeout(400);
+const tAfterHover = await scrollTop();
+check(tAfterHover === tBeforeHover, `鼠标不按键划过热区，画面没动（${tBeforeHover} → ${tAfterHover}）`);
+check(!(await seekBox())?.open, '划过也不该把条展开');
 
 console.log('\n=== 2. 点底部：呼出大条，但不呼出菜单 ===');
 /*
@@ -118,8 +135,12 @@ await page.mouse.click(195, 420);
 await page.waitForTimeout(400);
 check(await menuHidden(), '先确认菜单已经收起来（点正文中间关掉的），下面才谈"点底部会不会把它呼出"');
 
-const cx = 195;
-const cy = 844 - 10;
+/*
+ * 点一下（不横着拖）只该把条唤出来，**不许动画面**。
+ * 这条是补的回归：早先版本在 pointerdown 里就按手指的 x 跳了一次进度，
+ * 于是"点底部唤起进度条"会顺带把页面滑到手指落点，手落在哪儿画面就挪一点。
+ */
+const tBeforeTap = await scrollTop();
 await page.mouse.move(cx, cy);
 await page.mouse.down();
 /*
@@ -141,9 +162,18 @@ check(big && Math.abs(big.barH - 46) < 1.5, `大条高 ${big?.barH}px`);
 check(big && big.barBottom >= 20, `大条从底边上浮 ${big?.barBottom}px，底下留了缝`);
 check(big && big.thumbVisible, '滑块出现了');
 check(await menuHidden(), '顶栏菜单没被呼出（点底部归进度条，不归"点任意处开关菜单"）');
+const tAfterTap = await scrollTop();
+check(
+  tAfterTap === tBeforeTap,
+  `只是按下去没横着拖，画面没动（${tBeforeTap} → ${tAfterTap}）。要动也得是拖起来之后`,
+);
 await page.screenshot({ path: join(SHOTS, '2-open.png'), clip: { x: 0, y: 640, width: 390, height: 204 } });
 
 await page.mouse.up();
+check(
+  (await scrollTop()) === tBeforeTap,
+  `抬手也没补一次跳转（${tBeforeTap} → ${await scrollTop()}）—— 唤起那一下不该带跳转`,
+);
 await page.waitForTimeout(1200);
 check(!(await seekBox())?.open, '抬手停一秒，自己收回（下面几步都从收起态开始）');
 
