@@ -251,6 +251,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           images={images}
           markedPages={bookmarks.markedPages}
           filter={filter}
+          enhance={prefs.value.enhanceScreen}
           containerRef={scrollRef}
           hudVisible={bar.visible}
           resetToken={zoomTick}
@@ -284,6 +285,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           images={images}
           paging={paging}
           filter={filter}
+          enhance={prefs.value.enhanceScreen}
           markedPages={bookmarks.markedPages}
           rtl={isRTL}
           anim={prefs.value.turnAnim}

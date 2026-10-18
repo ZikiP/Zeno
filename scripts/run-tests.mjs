@@ -29,6 +29,7 @@ const ALL_SUITES = [
   'test-parse.ts',
   'test-updates.ts',
   'test-pull.ts',
+  'test-enhance.ts',
   'test-enabled.ts',
 ];
 const suites = process.argv.slice(2).length

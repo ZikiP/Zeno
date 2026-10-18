@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { RetryableImage } from '@/components/RetryableImage';
+import { PageImage } from './PageImage';
 import { IconBookmark } from '@/components/Icons';
 import ProgressRing from '@/components/ProgressRing';
 import { usePinchZoom, type PinchState } from './usePinchZoom';
@@ -9,6 +9,7 @@ export default function ScrollView({
   images,
   markedPages,
   filter,
+  enhance,
   containerRef,
   hudVisible,
   resetToken,
@@ -25,6 +26,8 @@ export default function ScrollView({
   images: string[];
   markedPages: Set<number>;
   filter?: string;
+  /** 画面增强（实验）。开着时每张页会另算一版按屏幕宽度的重采样 + 补锐 */
+  enhance?: boolean;
   /**
    * 滚动容器本身的引用。恢复上次位置要用它 —— 这个 ref 之前没有接进来，
    * scrollRef.current 一直是 null，于是「继续阅读」只换章、不回位置，
@@ -159,11 +162,12 @@ export default function ScrollView({
     >
       {images.map((src, i) => (
         <div key={src + i} className="reader__item">
-          <RetryableImage
+          <PageImage
             className="reader__page"
             src={src}
             alt={`第 ${i + 1} 页`}
             eager={i < 3}
+            enhance={enhance}
             onClick={onTap}
             onDoubleClick={() => onZoom(src, i)}
             onContextMenu={(e) => {

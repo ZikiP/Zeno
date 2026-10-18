@@ -13,6 +13,7 @@ export default function PagedStage({
   images,
   paging,
   filter,
+  enhance,
   markedPages,
   rtl,
   anim,
@@ -29,6 +30,8 @@ export default function PagedStage({
   images: string[];
   paging: Paging;
   filter?: string;
+  /** 画面增强（实验），跟 filter 一样是"这一屏怎么画"的事 */
+  enhance?: boolean;
   markedPages: Set<number>;
   rtl: boolean;
   /** 翻页动画演哪一档，从阅读设置里来 */
@@ -53,6 +56,7 @@ export default function PagedStage({
       perPage={paging.perPage}
       markedPages={markedPages}
       filter={filter}
+      enhance={enhance}
       rtl={rtl}
       anim={anim}
       turnKey={turnKey}

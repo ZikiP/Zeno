@@ -1,4 +1,4 @@
-import { RetryableImage } from '@/components/RetryableImage';
+import { PageImage } from './PageImage';
 import { IconBookmark } from '@/components/Icons';
 
 /**
@@ -11,6 +11,7 @@ export function PagedCells({
   list,
   base,
   markedPages,
+  enhance,
   onZoom,
 }: {
   /** 这一屏的图片地址 */
@@ -18,6 +19,8 @@ export function PagedCells({
   /** 这一屏第一张在整个章节里的序号，用来算绝对页号 */
   base: number;
   markedPages: Set<number>;
+  /** 画面增强（实验） */
+  enhance?: boolean;
   onZoom: (src: string, index: number) => void;
 }) {
   return (
@@ -26,9 +29,10 @@ export function PagedCells({
         const abs = base + i;
         return (
           <div key={src} className="reader__cell">
-            <RetryableImage
+            <PageImage
               src={src}
               alt={`第 ${abs + 1} 页`}
+              enhance={enhance}
               /*
                * 这一张就是视口内容本身，必须 eager：lazy 的 <img> 刚挂上时
                * 浏览器可能推迟一帧才开始解码，而翻页动画正跑到一半。

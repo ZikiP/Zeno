@@ -213,6 +213,20 @@ export default function ReaderPrefsSheet({
         />
       </Section>
 
+      {/* ── 实验功能 ── */}
+      <Section title="实验功能">
+        <div className="prefs-hint">
+          实验中的开关，效果不满意随时关掉；这一项只存在本机，不同步到别的设备。
+        </div>
+        <Row
+          icon={<IconZoom size={18} />}
+          label="画面增强"
+          hint="页面图比屏幕窄时（手机上看最常见），改由本机按显示尺寸重采样并补一档高频，线条和小字更利落。每张晚半秒出图，费一点电。"
+          control={<div className={`switch${prefs.enhanceScreen ? ' on' : ''}`} />}
+          onClick={() => onChange({ enhanceScreen: !prefs.enhanceScreen })}
+        />
+      </Section>
+
       {/* ── 用法 ── */}
       <Section title="用法">
         <Row
