@@ -10,7 +10,7 @@
  *   - 离线时给出明确提示而不是空白
  *   - 暴露重试入口，让用户能手动再试
  */
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
 
 /** 图片 URL 已经被代理包过，这里直接用 */
 export type ImageState = 'loading' | 'ok' | 'error';
@@ -21,12 +21,26 @@ export interface RetryableImageProps {
   className?: string;
   /** 加载优先级 */
   eager?: boolean;
+  /** 要拿到那个 <img> 元素本身的调用方用（画面增强要量它的显示宽度、要盯它进不进视野） */
+  imgRef?: RefObject<HTMLImageElement>;
   onClick?: () => void;
   onDoubleClick?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
+  /**
+   * 这个地址彻底拿不到时告诉调用方一声。
+   * 只给 blob:/data: 这类"本机现造的地址"用：它们失败不是网络问题，
+   * 重试三次也不会变成能加载，该让出地方换回原图。
+   */
+  onSourceFailed?: () => void;
 }
 
 const RETRY_DELAYS = [0, 600, 1800];
+
+/**
+ * 本机现造的地址（增强图、内联图）。它失败说明地址本身没了，
+ * 重试和绕缓存都救不回来 —— 该退回原图，而不是摆一颗「点此重试」。
+ */
+const isLocalSrc = (src: string) => src.startsWith('blob:') || src.startsWith('data:');
 
 /*
  * 已经确认能直接画出来的地址。
@@ -98,9 +112,11 @@ export function RetryableImage({
   alt,
   className,
   eager,
+  imgRef,
   onClick,
   onDoubleClick,
   onContextMenu,
+  onSourceFailed,
 }: RetryableImageProps) {
   const [state, setState] = useState<ImageState>(() =>
     readySrcs.has(src) ? 'ok' : 'loading',
@@ -142,6 +158,11 @@ export function RetryableImage({
       };
       img.onerror = () => {
         if (cancelled) return;
+        /* 本机造的地址不重试：重试只会把一个能看的页面拖成三连败 + 一颗「点此重试」 */
+        if (isLocalSrc(src)) {
+          onSourceFailed?.();
+          return;
+        }
         // 还有重试次数就继续，否则标记失败
         if (attempt < RETRY_DELAYS.length - 1) setAttempt((a) => a + 1);
         else {
@@ -179,6 +200,7 @@ export function RetryableImage({
   return (
     <img
       key={attempt}
+      ref={imgRef}
       className={className}
       src={src}
       alt={alt}
@@ -194,6 +216,10 @@ export function RetryableImage({
         setState('ok');
       }}
       onError={() => {
+        if (isLocalSrc(src)) {
+          onSourceFailed?.();
+          return;
+        }
         if (attempt < RETRY_DELAYS.length - 1) setAttempt((a) => a + 1);
         else {
           noteFailed(src, true);
@@ -210,6 +236,8 @@ export function RetryableImage({
  */
 function addCacheBuster(url: string, attempt: number): string {
   if (attempt === 0) return url;
+  /* blob:/data: 后面拼查询串等于换了个不存在的地址，必然再败一次 */
+  if (isLocalSrc(url)) return url;
   const sep = url.includes('&') ? '&' : (url.includes('?') ? '&' : '?');
   return `${url}${sep}_r=${Date.now()}_${attempt}`;
 }

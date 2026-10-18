@@ -132,12 +132,15 @@
   --badge-punch: var(--accent);
 }
 
-/* 阅读器自成一套：底色由阅读偏好决定，跟 App 主题无关 */
+/* 阅读器自成一套：底色由阅读偏好决定，跟 App 主题无关。
+   展开后的进度条也在这儿 —— 它和顶栏、章末胶囊是同一块玻璃，
+   收起时那条规则匹配不上，所以只有 3px 的线保持透明。 */
 .reader__bar,
 .reader__nav,
 .reader__zoom-reset,
 .reader__toast,
-.edge-hint {
+.edge-hint,
+.reader__progress.is-open .reader__seek {
   background: var(--r-glass);
   box-shadow:
     inset 0 0 0 1px var(--r-edge),

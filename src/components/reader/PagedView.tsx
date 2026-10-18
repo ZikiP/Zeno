@@ -40,6 +40,7 @@ export default function PagedView({
   perPage,
   markedPages,
   filter,
+  enhance,
   rtl,
   anim,
   turnKey,
@@ -58,6 +59,8 @@ export default function PagedView({
   perPage: number;
   markedPages: Set<number>;
   filter?: string;
+  /** 画面增强（实验） */
+  enhance?: boolean;
   /** 右起阅读：双页时左右要互换，滑动方向也要反过来 */
   rtl: boolean;
   /** 翻页动画演哪一档：无 / 平移 / 翻页 */
@@ -294,7 +297,13 @@ export default function PagedView({
             style={isOver || isUnder ? turnStyle : undefined}
             onAnimationEnd={isOver ? endTurn : undefined}
           >
-            <PagedCells list={s.images} base={s.startIndex} markedPages={markedPages} onZoom={onZoom} />
+            <PagedCells
+              list={s.images}
+              base={s.startIndex}
+              markedPages={markedPages}
+              enhance={enhance}
+              onZoom={onZoom}
+            />
             {/* 纸的暗面和投影只属于折页；平移是两张平面在走，套上去就成了脏影 */}
             {isOver && anim === 'flip' && <div className="reader__turn-shade" aria-hidden="true" />}
             {isUnder && anim === 'flip' && <div className="reader__turn-cast" aria-hidden="true" />}

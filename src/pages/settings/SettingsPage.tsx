@@ -4,13 +4,17 @@ import ReadingPanel from './ReadingPanel';
 import SourcesPanel from './SourcesPanel';
 import CachePanel from './CachePanel';
 import SyncPanel from './SyncPanel';
+import ExperimentPanel from './ExperimentPanel';
 import AboutPanel from './AboutPanel';
 
 /**
  * 设置
  *
- * 分五栏，一栏管一件事。「同步」和「缓存」原来各是一个弹层：从状态条点进去
+ * 分七栏，一栏管一件事。「同步」和「缓存」原来各是一个弹层：从状态条点进去
  * 改完关掉，再想改缓存又得回这页找入口，两件事在界面上根本没有归属。
+ *
+ * 「实验」排在稳定项之后、关于之前：里面全是可能整条删掉的东西，
+ * 不该和阅读偏好那种"会一直留在这儿"的项混在一栏。
  *
  * 当前哪一栏写在地址里（?tab=）：这样状态条可以直接链到「同步」，
  * 分享一个链接就能把人送到要改的那一栏，返回键也照常 work。
@@ -22,6 +26,7 @@ const TABS = [
   { key: 'sources', label: '内容源' },
   { key: 'cache', label: '缓存' },
   { key: 'sync', label: '同步' },
+  { key: 'experiment', label: '实验' },
   { key: 'about', label: '关于' },
 ] as const;
 
@@ -57,6 +62,7 @@ export default function SettingsPage({
           {value === 'sources' && <SourcesPanel />}
           {value === 'cache' && <CachePanel />}
           {value === 'sync' && <SyncPanel />}
+          {value === 'experiment' && <ExperimentPanel />}
           {value === 'about' && <AboutPanel />}
         </TabPanel>
       </main>

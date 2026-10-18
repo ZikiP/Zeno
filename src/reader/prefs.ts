@@ -6,7 +6,8 @@
  *   - **单书级（BookPrefs）**：图片适配、翻页方向、单/双页、背景色、灰度。
  *     日漫要右起、条漫要竖向、有的书横条图就是要压扁看 —— 这些是**这本书**的性质，
  *     不该被另一本书的选择覆盖。每本书一条记录，跟着同步走（见 store/bookPrefs.ts）。
- *   - **设备级（DevicePrefs）**：亮度、屏幕常亮、翻页动画、读到底自动接下一章。这是"我现在这台机器、这个环境"的事，
+ *   - **设备级（DevicePrefs）**：亮度、屏幕常亮、翻页动画、读到底自动接下一章、画面增强。
+ *     这是"我现在这台机器、这个环境"的事，
  *     跟着同步走会把手机的亮度设置搬到显示器上。翻页动画顺不顺滑取决于这台机器的屏幕和性能，
  *     所以它也在这一层，而且单独存一个键、不参与同步。
  *
@@ -78,6 +79,16 @@ export interface DevicePrefs {
    * 存毫秒不存秒：状态机按毫秒算，UI 换算成"1.5 秒"给人看，两头都不用再乘除一遍。
    */
   pullMs: number;
+  /**
+   * 画面增强（实验）：把页面图按屏幕实际显示的尺寸重采样再补一档高频。
+   *
+   * **设备级，而且单独存键、不参与同步** —— 和翻页动画同一个理由：
+   * 这一档值不值开取决于这台机器的屏幕（DPR 越高越看得出来）和 CPU（每页约半秒），
+   * 把手机上选的那档搬到别的设备上都是灾难。
+   *
+   * 默认关：它改变的是"你看到的画面"，悄悄给老用户换一套渲染不合适。
+   */
+  enhanceScreen: boolean;
 }
 
 /** 阅读器实际用的那份 = 单书 + 设备 */
@@ -102,6 +113,7 @@ export const DEFAULT_DEVICE: DevicePrefs = {
   immersive: false,
   autoNextChapter: false,
   pullMs: 1500,
+  enhanceScreen: false,
 };
 
 export const DEFAULT_PREFS: ReaderPrefs = { ...DEFAULT_BOOK, ...DEFAULT_DEVICE };
@@ -109,6 +121,7 @@ export const DEFAULT_PREFS: ReaderPrefs = { ...DEFAULT_BOOK, ...DEFAULT_DEVICE }
 const KEY = 'readerPrefs';
 const TURN_KEY = 'readerTurnAnim';
 const IMMERSIVE_KEY = 'readerImmersive';
+const ENHANCE_KEY = 'readerEnhance';
 
 /** 属于单书的那几个键。写单书记录时只带这些，别把亮度也塞进去 */
 export const BOOK_KEYS = ['fit', 'direction', 'pageMode', 'bgColor', 'grayscale'] as const;
@@ -127,6 +140,7 @@ export const DEVICE_KEYS = [
   'immersive',
   'autoNextChapter',
   'pullMs',
+  'enhanceScreen',
 ] as const;
 
 export function pickBook(p: Partial<ReaderPrefs>): Partial<BookPrefs> {
@@ -169,7 +183,13 @@ export function loadPrefs(): ReaderPrefs {
     const raw = localStorage.getItem(KEY);
     // 与默认值合并，新增字段在旧版本数据上也能正常生效
     const blob = raw ? (JSON.parse(raw) as Partial<ReaderPrefs>) : {};
-    return { ...DEFAULT_PREFS, ...blob, turnAnim: loadTurnAnim(), immersive: loadImmersive() };
+    return {
+      ...DEFAULT_PREFS,
+      ...blob,
+      turnAnim: loadTurnAnim(),
+      immersive: loadImmersive(),
+      enhanceScreen: loadEnhanceScreen(),
+    };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -181,12 +201,19 @@ export function loadImmersive(): boolean {
   return localStorage.getItem(IMMERSIVE_KEY) === '1';
 }
 
+/** 同样单独一个键：吃不吃得下这半秒一页，是这台机器的事 */
+export function loadEnhanceScreen(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(ENHANCE_KEY) === '1';
+}
+
 export function savePrefs(p: ReaderPrefs) {
   try {
-    const { turnAnim, immersive, ...synced } = p;
+    const { turnAnim, immersive, enhanceScreen, ...synced } = p;
     setLocalPref(KEY, JSON.stringify(synced));
     localStorage.setItem(TURN_KEY, turnAnim);
     localStorage.setItem(IMMERSIVE_KEY, immersive ? '1' : '0');
+    localStorage.setItem(ENHANCE_KEY, enhanceScreen ? '1' : '0');
   } catch {
     /* 隐私模式下写不进去，忽略 */
   }

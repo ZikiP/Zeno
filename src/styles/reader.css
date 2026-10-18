@@ -377,25 +377,124 @@
   }
 }
 
-/* 底部进度条 */
+/* 底部进度条 ───────────────────────────────────────
+   细线只有 3px，手指按不准，所以底部是一条 44px 的拇指热区：点它不呼出菜单，
+   而是把线撑成一枚能拖的玻璃条。形变全在 .reader__seek 一个元素上 ——
+   bottom / height / left / right / padding 一起走，看着才是"长出来的"，
+   不是两块 DOM 换淡入淡出。 */
 .reader__progress {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 18px;
+  height: 44px;
   z-index: 12;
-  display: flex;
-  align-items: flex-end;
   cursor: pointer;
+  /* 竖着划仍交给页面滚动，横着划才是拖进度。写 none 会把底边这一条的滚动起手吃掉 */
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* 收起时压在页面底的那道压暗渐变，展开后由玻璃自己提供对比，撤掉 */
+.reader__progress::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.45), transparent);
+  pointer-events: none;
+  transition: opacity var(--d-micro) var(--e-out);
 }
-.reader__progress-fill {
+.reader__progress.is-open::before {
+  opacity: 0;
+}
+
+.reader__seek {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   height: 3px;
-  background: rgba(255, 255, 255, 0.75);
-  transition: width 0.2s;
-  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  transition:
+    height var(--d-sheet) var(--e-settle),
+    bottom var(--d-sheet) var(--e-settle),
+    left var(--d-sheet) var(--e-settle),
+    right var(--d-sheet) var(--e-settle),
+    padding var(--d-sheet) var(--e-settle),
+    background-color var(--d-micro) var(--e-out),
+    border-radius var(--d-sheet) var(--e-settle),
+    box-shadow var(--d-micro) var(--e-out);
 }
+.reader__progress.is-open .reader__seek {
+  left: 14px;
+  right: 14px;
+  bottom: 26px;
+  height: 46px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  /* 材质不在这里写：它和顶栏、章末胶囊、toast 是同一块玻璃，配方在 glass.css 那条组里 */
+}
+
+/* 轨道。收起时透明（今天就是这样，只有填充那段可见），展开才露出凹槽 */
+.reader__track {
+  position: relative;
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: transparent;
+  transition:
+    height var(--d-sheet) var(--e-settle),
+    background-color var(--d-micro) var(--e-out);
+}
+.reader__progress.is-open .reader__track {
+  height: 6px;
+  /* 凹槽。阅读器里所有从白里提的东西都这路写法，--r-hover 是按下态，不借 */
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.reader__progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.75);
+  transition: width var(--d-micro) linear;
+  pointer-events: none;
+}
+/* 拖着的时候不留尾：宽度和滑块必须跟手指同一个时刻，缓动会糊成"条慢半拍" */
+.reader__progress.is-open .reader__progress-fill,
+.reader__progress.is-open .reader__progress-thumb {
+  transition: opacity var(--d-micro) var(--e-out), transform var(--d-micro) var(--e-settle);
+}
+
+.reader__progress-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: scale(0.2);
+  transition:
+    opacity var(--d-micro) var(--e-out),
+    transform var(--d-micro) var(--e-settle);
+  pointer-events: none;
+}
+.reader__progress.is-open .reader__progress-thumb {
+  opacity: 1;
+  transform: scale(1);
+}
+
 
 /* 图片放大 */
 .zoom-view {
