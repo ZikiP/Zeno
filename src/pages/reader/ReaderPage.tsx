@@ -323,14 +323,19 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         <ReaderProgress
           percent={paging.progressPercent}
           markedPositions={[...bookmarks.markedPages].map((p) => (p / images.length) * 100)}
-          onSeek={
-            mode === 'paged'
-              ? paging.seek
-              : // 滚动模式点最右端 = 直接下一章，长章节最顺手的操作；
-                // 其余位置就跳到那一处（单位是滚动比例，和存下来的进度同一个口径）
-                (ratio) => {
-                  if (ratio > 0.97 && nextId) gotoChapter(nextId);
-                  else seekScroll(ratio);
+          hudVisible={bar.visible}
+          /* 大条浮起来的位置就是章末胶囊那儿，展开时先把菜单收掉，同屏只留一个悬浮件 */
+          onRequestOpen={() => bar.setVisible(false)}
+          onSeek={mode === 'paged' ? paging.seek : seekScroll}
+          /*
+           * 滚动模式拖到最右端松手 = 直接下一章，长章节最顺手的操作。
+           * 这条只在抬手那一刻成立 —— 放在实时的 onSeek 里，拖过半程就会突然跳章。
+           */
+          onSeekEnd={
+            mode === 'paged' || !nextId
+              ? undefined
+              : (ratio) => {
+                  if (ratio > 0.97) gotoChapter(nextId);
                 }
           }
         />

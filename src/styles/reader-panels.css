@@ -257,14 +257,17 @@
   color: var(--r-mark);
 }
 
+/* 书签刻度。挂在轨道上，所以是"穿过那道凹槽"而不是浮在条子上方 ——
+   轨道收起时 3px、展开 6px，靠居中自己跟得上形变 */
 .reader__progress-bm {
   position: absolute;
-  top: 12px;
+  top: 50%;
   width: 2px;
-  height: 6px;
-  margin-left: -1px;
+  height: 12px;
+  margin: -6px 0 0 -1px;
   background: var(--r-mark);
   border-radius: 1px;
+  pointer-events: none;
 }
 
 /* 提示条：材质同章末胶囊那一档，只是不浮那么高 */
