@@ -274,7 +274,11 @@ try {
     '每条记了三张和字节',
     JSON.stringify(log.records.map((r) => [r.got, r.bytes])),
   );
-  check(log.warm.files === 9 && log.warm.bytes > 0, '汇总只算在册的（queued/running/done）', JSON.stringify(log.warm));
+  check(
+    log.warm.live.files === 9 && log.warm.live.bytes > 0 && log.warm.dropping.files === 0,
+    '汇总分两档：九张都在册，待腾盘是零',
+    JSON.stringify(log.warm),
+  );
   check(
     log.records.every((r, i) => i === 0 || log.records[i - 1].at >= r.at),
     '按铺完那一刻倒序',
@@ -351,12 +355,21 @@ try {
     JSON.stringify(scheduled.chapters.map((c) => c.purgeAt)),
   );
   check((await cacheFiles()) >= 6, '字节此刻还在', `${await cacheFiles()} 张`);
-  /* 记录里也得看得见"这颗章已经排上到期了" —— 界面那顆「待腾盘」标签就靠它 */
-  const logP = (await GET('/api/warm/log')).json.records;
+  /* 记录里也得看得见"这颗章已经排上到期了" —— 界面那颗「待腾盘」标签就靠它 */
+  const logP = (await GET('/api/warm/log')).json;
   check(
-    logP.length > 0 && logP.every((r) => r.purgeAt > Date.now() - 5000),
+    logP.records.length > 0 && logP.records.every((r) => r.purgeAt > Date.now() - 5000),
     '记录带着到期时间',
-    JSON.stringify(logP.map((r) => [r.chapterId, r.purgeAt])),
+    JSON.stringify(logP.records.map((r) => [r.chapterId, r.purgeAt])),
+  );
+  /*
+   * 排上到期、还没清的那批字节仍在盘上：它们要从"在册"挪到"待腾盘"。
+   * 挪错边的话界面那句"其余是阅读时现取的"就把这 6 张算成了别人 —— 差值对不上。
+   */
+  check(
+    logP.warm.live.files === 0 && logP.warm.dropping.files === 6,
+    '到期未清的算待腾盘，不算在册',
+    JSON.stringify(logP.warm),
   );
 
   await push({ bookPrefs: [{ pluginId: PLUGIN_ID, slug: SLUG, data: JSON.stringify({ warm: true }), updatedAt: 4 }] });

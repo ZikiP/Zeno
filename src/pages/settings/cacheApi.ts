@@ -83,8 +83,8 @@ export interface WarmRecord {
 
 export interface WarmLog {
   records: WarmRecord[];
-  /** 在册（queued/running/done）的一共多少张、多少字节 */
-  warm: { files: number; bytes: number };
+  /** 分两档：在册的、以及排上到期但字节还没腾掉的 */
+  warm: { live: { files: number; bytes: number }; dropping: { files: number; bytes: number } };
 }
 
 export const getWarmLog = (limit = 50) =>

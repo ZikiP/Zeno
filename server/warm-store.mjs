@@ -237,12 +237,21 @@ export function cacheRecords(limit = 50) {
     }));
 }
 
-/** 追漫在册的这些章一共占了多少。界面用它那句"其余是阅读时现取的" */
+/**
+ * 追漫在盘上占了多少张、多少字节，分两档报。
+ *
+ * 待腾盘（dropped 或排上了 purge_at）的那批单独算：它们的字节**还在盘上**，
+ * 混进"在册"会让界面那句"其余是阅读时现取的"变成假话 —— 差值其实全是待腾盘的。
+ */
 export function warmBytes() {
-  const r = openDb()
-    .prepare(
-      "SELECT COALESCE(SUM(got), 0) AS files, COALESCE(SUM(bytes), 0) AS bytes FROM warm WHERE state IN ('queued','running','done')",
-    )
-    .get();
-  return { files: r.files, bytes: r.bytes };
+  const sum = (where, ...args) => {
+    const r = openDb()
+      .prepare(`SELECT COALESCE(SUM(got), 0) AS files, COALESCE(SUM(bytes), 0) AS bytes FROM warm WHERE ${where}`)
+      .get(...args);
+    return { files: r.files, bytes: r.bytes };
+  };
+  return {
+    live: sum("state IN ('queued','running','done') AND purge_at IS NULL"),
+    dropping: sum("state = 'dropped' OR purge_at IS NOT NULL"),
+  };
 }

@@ -155,7 +155,7 @@ export default function CachePanel() {
             </div>
           )}
 
-          <CacheRecords warm={warm} tick={tick} />
+          <CacheRecords warm={warm} tick={tick} totalFiles={st.files} />
 
           <FieldGroup>
             {/*

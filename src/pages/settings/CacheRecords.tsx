@@ -38,7 +38,7 @@ function RecordRow({ r }: { r: WarmRecord }) {
       </span>
       {badge && <span className={`chapter-row__badge ${badge.cls}`}>{badge.text}</span>}
       <span className="settings-row__value">
-        {r.state === 'done' ? `${r.got} 张 · ${formatBytes(r.bytes)} · ` : ''}
+        {r.got ? `${r.got} 张 · ${formatBytes(r.bytes)} · ` : ''}
         {formatAgo(r.at)}
       </span>
     </div>
@@ -49,9 +49,18 @@ function RecordRow({ r }: { r: WarmRecord }) {
  * 盘上这些字节是哪一章、什么时候铺的、多大
  *
  * 记的是**追漫的落盘**，不是 cache_index 那份流水 —— 后者按 URL 的 sha256 记账，
- * 单看它认不出是谁的哪一章。阅读时现取的那些图没有归属信息，只能给个总数差。
+ * 单看它认不出是谁的哪一章。阅读时现取的那些图没有归属信息，只能报个差值。
  */
-export default function CacheRecords({ warm, tick }: { warm: WarmStatus | null; tick: number }) {
+export default function CacheRecords({
+  warm,
+  tick,
+  totalFiles,
+}: {
+  warm: WarmStatus | null;
+  tick: number;
+  /** 盘上总张数，用来算"剩下那些是阅读时现取的"。拿不到就不说这句 */
+  totalFiles?: number;
+}) {
   const [log, setLog] = useState<WarmLog | null>(null);
   const [all, setAll] = useState(false);
 
@@ -77,23 +86,35 @@ export default function CacheRecords({ warm, tick }: { warm: WarmStatus | null; 
   const rows = log?.records ?? [];
   const shown = all ? rows : rows.slice(0, SHOWN);
 
+  /*
+   * 三档要能加回上面那个总数：在册 + 待腾盘 + 阅读时现取 = 已缓存。
+   * 差值是零就不写"其余是阅读时现取的" —— 那句只在真剩下东西时才是实话。
+   */
+  const others =
+    log && typeof totalFiles === 'number'
+      ? Math.max(0, totalFiles - log.warm.live.files - log.warm.dropping.files)
+      : null;
+  const summary = !log
+    ? '读不到记录，服务端可能是旧版。'
+    : `追漫在册 ${log.warm.live.files} 张 · ${formatBytes(log.warm.live.bytes)}` +
+      (log.warm.dropping.files
+        ? `，另有 ${log.warm.dropping.files} 张待腾盘（${formatBytes(log.warm.dropping.bytes)}，到期就清）`
+        : '') +
+      (others ? `，其余 ${others} 张是阅读时现取的，服务端不记出处。` : '。');
+
   return (
     <>
-      <h3 className="settings-h">
-        缓存记录（在册 {warm.states?.done ?? 0} 章
-        {warm.pending ? ` · ${warm.pending} 章在等` : ''}）
-      </h3>
+      <h3 className="settings-h">缓存记录（{log ? `${log.records.length} 条` : '读不到'}）</h3>
 
       <p className="settings-note">
-        {log
-          ? `追漫铺的占 ${log.warm.files} 张 · ${formatBytes(log.warm.bytes)}，其余是阅读时现取的，服务端不记出处。`
-          : '读不到记录，服务端可能是旧版。'}
+        {summary}
         {/*
          * 卡住的原因必须写在脸上。这一栏静默退化过同类问题：
          * 用户开着追漫、服务端其实一章都没铺，界面上却一切正常。
          */}
-        {paused && <br />}
-        {paused && `这一轮停了：${paused}。`}
+        {(warm.pending || paused) && <br />}
+        {(warm.pending || paused) &&
+          `${warm.pending ? `${warm.pending} 章在等` : ''}${warm.pending && paused ? ' · ' : ''}${paused ? `这一轮停了：${paused}` : ''}。`}
       </p>
 
       {rows.length === 0 && log && (
