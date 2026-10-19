@@ -195,7 +195,7 @@ export default function CachePanel() {
             {warm && (
               <Field
                 label="追漫保留章数"
-                hint="每本只留未读的最近这么多章。读完的过一周再腾盘，正在读的那几章不动。"
+                hint="每本只留未读的最近这么多章。读完的过一天再腾盘，正在读的那几章不动。"
                 value={keep}
                 onChange={setKeep}
                 placeholder="5"

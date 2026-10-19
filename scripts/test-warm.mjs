@@ -194,7 +194,7 @@ async function runRound(label) {
 try {
   const boot = await waitUp();
   console.log('\n=== 1. 没开追漫的书，一轮下来台账该是空的 ===');
-  check(boot.keep === 30, '默认保留章数 30', `keep=${boot.keep}`);
+  check(boot.keep === 50, '默认保留章数 50', `keep=${boot.keep}`);
   await push({
     plugins: [{ id: PLUGIN_ID, origin: 'imported', data: JSON.stringify(plugin), updatedAt: 1 }],
     shelf: [{ pluginId: PLUGIN_ID, slug: SLUG, title: '合成漫画', cover: '', addedAt: 1, updatedAt: 1 }],

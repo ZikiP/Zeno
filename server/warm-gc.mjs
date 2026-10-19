@@ -15,7 +15,7 @@ import { cacheKeyOf, dropEntry, entryOf } from './cache-store.mjs';
 import { READ_AT } from './warm-store.mjs';
 
 /** 读完的章过了这一段时间才真删字节。量的是"读完那一刻"，见下面的 dueAt */
-const READ_GRACE_MS = Number(process.env.ZENO_WARM_READ_GRACE_MS || 3 * 24 * 3600_000);
+const READ_GRACE_MS = Number(process.env.ZENO_WARM_READ_GRACE_MS || 24 * 3600_000);
 /** 取消追漫 / 移出书架之后留多久反悔。过了这一天才动刀 */
 const UNFOLLOW_GRACE_MS = Number(process.env.ZENO_WARM_UNFOLLOW_GRACE_MS || 24 * 3600_000);
 /** 客户端在这时间内报过进度的章，字节不动刀 */

@@ -8,7 +8,7 @@ import { openDb } from './db.mjs';
 import { localConfig } from './cache-config.mjs';
 
 const KEEP_KEY = 'warm_keep_chapters';
-const DEFAULT_KEEP = Number(process.env.ZENO_WARM_KEEP || 30);
+const DEFAULT_KEEP = Number(process.env.ZENO_WARM_KEEP || 50);
 
 /**
  * 读到 95% 以上算读完。跟 src/store/shelf.ts 的 READ_AT 对齐。
