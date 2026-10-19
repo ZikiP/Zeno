@@ -244,6 +244,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         canFullscreen={fs.supported}
         fullscreen={fs.active}
         onBack={back}
+        onShelf={() => nav('/shelf')}
         onSettings={() => panels.open('prefs')}
         onChapters={() => panels.open('chapters')}
         onBookmarks={() => panels.open('bookmarks')}

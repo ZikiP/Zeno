@@ -8,6 +8,7 @@ import {
   IconNotes,
   IconRows,
   IconSettings,
+  IconShelf,
 } from '@/components/Icons';
 
 export interface ReaderBarProps {
@@ -23,6 +24,8 @@ export interface ReaderBarProps {
   canFullscreen: boolean;
   fullscreen: boolean;
   onBack: () => void;
+  /** 直接回书架。返回那颗退的是"上一页"，读到哪里想收工不该靠多按几下 */
+  onShelf: () => void;
   onSettings: () => void;
   onChapters: () => void;
   onBookmarks: () => void;
@@ -36,6 +39,9 @@ export default function ReaderBar(p: ReaderBarProps) {
     <div className={`reader__bar${p.visible ? '' : ' hide'}`}>
       <button className="icon-btn" onClick={p.onBack} aria-label="返回">
         <IconBack />
+      </button>
+      <button className="icon-btn" onClick={p.onShelf} aria-label="回书架" title="回书架">
+        <IconShelf />
       </button>
 
       <div className="reader__title">

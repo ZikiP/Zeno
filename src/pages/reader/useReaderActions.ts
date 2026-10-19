@@ -37,10 +37,19 @@ export function useReaderActions(a: Args) {
    * 不用带 p/n：阅读器会按缓存的章节表重新算前后关系，
    * 带着旧的过去反而会指错章（换了章之后前后各挪一格）。
    */
+  /*
+   * 换章用 replace，不 push。
+   *
+   * 每翻一章就往历史里塞一条的话，读三十章出来要点三十次返回 —— 而"返回"在
+   * 阅读器里的意思从来不是"上一章"（那是左右翻页/滑动干的事），是"我读完了，出去"。
+   * 自动接下一章更明显：那是在没人操作的情况下一路往里堆。
+   *
+   * 从详情页点进来那一条 push 保留着，所以退一次就回到详情页。
+   */
   const gotoChapter = useCallback(
     (id: string) => {
       if (!a.plugin?.meta.id) return;
-      a.nav(`/read/${a.plugin.meta.id}/${a.slug}/${id}`);
+      a.nav(`/read/${a.plugin.meta.id}/${a.slug}/${id}`, { replace: true });
     },
     [a.nav, a.plugin?.meta.id, a.slug],
   );
