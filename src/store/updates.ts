@@ -29,6 +29,15 @@ export const reportSeen = (key: string, anchors: number) =>
     body: JSON.stringify({ key, anchors }),
   });
 
-/** 用户按"现在检查"。服务端收下就去跑一轮，不等结果（一轮几十秒） */
+/**
+ * 用户按"现在检查"。这颗按钮的意思就是"别管那道 6 小时的闸门"，所以显式带 force。
+ *
+ * 服务端收下就去跑一轮，不等结果（一轮几十秒）。不带 force 的那条路是定时那一轮走的，
+ * 端点两个都要能表达，否则"闸门该跳过的书确实被跳过"这件事在线上和测试里都无从验证。
+ */
 export const checkUpdatesNow = () =>
-  serverCall<{ started: boolean }>('/api/updates/check', { method: 'POST' }, 10_000);
+  serverCall<{ started: boolean; force?: boolean }>(
+    '/api/updates/check',
+    { method: 'POST', body: JSON.stringify({ force: true }) },
+    10_000,
+  );

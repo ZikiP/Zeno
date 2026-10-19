@@ -137,8 +137,14 @@ export async function runUpdateCheck({ force = false } = {}) {
 
   for (const b of books) {
     const key = `${b.pluginId}/${b.slug}`;
-    const prev = d.prepare('SELECT anchors, checked_at FROM updates WHERE key = ?').get(key);
-    if (!force && prev && Date.now() - prev.checked_at < PER_BOOK_MS) {
+    const prev = d.prepare('SELECT anchors, checked_at, chapter_ids FROM updates WHERE key = ?').get(key);
+    /*
+     * 6 小时那道闸是给"重复数同一本"省事的，不是给"从来没存过章节表"开脱的。
+     * 不写这一条的话，升级到有了 chapter_ids 的版本之后，每本书都得等到自己
+     * 那道 6 小时闸门过期才补上表 —— 追漫于是整整半天在空转，而健康检查全绿、
+     * 界面上一切正常。判据得看"有没有"，不能只看"上次查过没有"。
+     */
+    if (!force && prev && prev.chapter_ids != null && Date.now() - prev.checked_at < PER_BOOK_MS) {
       summary.skipped++;
       continue;
     }
@@ -291,8 +297,17 @@ export async function handleUpdatesApi(req, res, url, auth) {
    * 把请求吊在那儿，界面上就只剩一个转圈，什么也不告诉人。
    */
   if (url.pathname === '/api/updates/check' && req.method === 'POST') {
-    json(res, 202, { started: true });
-    void runUpdateCheck({ force: true }).catch((e) => console.warn(`[zeno] 追更检查失败：${e?.message ?? e}`));
+    /*
+     * force 由请求方说，不再一律强制。
+     *
+     * 以前这颗端点恒为 force:true，于是"非强制那一轮会怎么走"这条路径在 HTTP 上
+     * 根本跑不到 —— 想测那道 6 小时闸门都测不了（写出来的断言物理上不可能失败）。
+     * 定时那一轮走的是 runUpdateCheck() 默认值，跟这里同一条判断。
+     */
+    const body = await readBody(req, 8 * 1024);
+    const force = body?.force === true;
+    json(res, 202, { started: true, force });
+    void runUpdateCheck({ force }).catch((e) => console.warn(`[zeno] 追更检查失败：${e?.message ?? e}`));
     return true;
   }
 

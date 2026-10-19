@@ -52,6 +52,12 @@ function chapterHtml(id) {
 }
 const upstream = createServer((req, res) => {
   const u = new URL(req.url, SRC);
+  if (u.pathname === '/hits') {
+    // 给测试读的：详情页被取了几次 —— 那道 6 小时闸门有没有真的生效，只能这么证
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(hits));
+    return;
+  }
   if (u.pathname === '/detail') {
     hits.detail++;
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -156,6 +162,17 @@ const plugin = {
   headers: {},
 };
 
+/** 追更那一轮是后台跑的（端点立刻回 202），所以判据只能等假源站的计数 */
+async function waitHits(pred, ms = 8000) {
+  const t0 = Date.now();
+  for (;;) {
+    const h = await (await fetch(`${SRC}/hits`)).json();
+    if (pred(h)) return h;
+    if (Date.now() - t0 > ms) return h; // 把当时的数交回去，让断言自己报差多少
+    await sleep(150);
+  }
+}
+
 /** 踢一轮，等到不再 pumping */
 async function runRound(label) {
   for (let i = 0; i < 60; i++) {
@@ -177,6 +194,31 @@ try {
     shelf: [{ pluginId: PLUGIN_ID, slug: SLUG, title: '合成漫画', cover: '', addedAt: 1, updatedAt: 1 }],
   });
   await POST('/api/updates/check', { force: true });
+  const forced = await waitHits((h) => h.detail > 0);
+  check(forced.detail > 0, '强制那一轮真的去数了详情页', `detail hits=${forced.detail}`);
+  const soft = await POST('/api/updates/check', {});
+  check(soft.status === 202 && soft.json.force === false, '不带 force 的那条路端点也认（202 + force:false）', `${soft.status}/${soft.json.force}`);
+  await sleep(800);
+  check(
+    (await (await fetch(`${SRC}/hits`)).json()).detail === forced.detail,
+    '有章节表且刚查过 → 6 小时闸门生效，不再重复数',
+  );
+
+  console.log('\n=== 1b. 刚查过但没存过章节表的书，闸门不该拦它 ===');
+  /*
+   * 这是升级到"有 chapter_ids 这一列"之后每台机器都会遇到的状态：
+   * updates 行是有的、checked_at 是新的（客户端翻开过这本书，markSeen 写进去的），
+   * 而 chapter_ids 是 NULL。闸门只看 checked_at 的话，追漫要等整整半天才拿到表，
+   * 期间健康检查全绿、界面一切正常 —— 典型的"部署了但没在干活"。
+   */
+  await push({ shelf: [{ pluginId: PLUGIN_ID, slug: 'demo2', title: '第二本', cover: '', addedAt: 1, updatedAt: 1 }] });
+  await POST('/api/updates/seen', { key: `${PLUGIN_ID}/demo2`, anchors: 3 });
+  const before = (await (await fetch(`${SRC}/hits`)).json()).detail;
+  await POST('/api/updates/check', {});
+  const after = await waitHits((h) => h.detail > before);
+  check(after.detail > before, '章节表为空 → 即使刚查过也要补一次', `detail ${before} → ${after.detail}`);
+  await push({ deletes: [{ kind: 'shelf', id: `${PLUGIN_ID}/demo2`, updatedAt: 2 }] });
+
   let st = await runRound('未开追漫');
   check(!st.states?.done && !st.states?.queued, '在架但没开追漫 → 一章都没铺', JSON.stringify(st.states));
   check((await cacheFiles()) === 0, '盘上也没东西', `${await cacheFiles()} 张`);
