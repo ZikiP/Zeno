@@ -36,6 +36,7 @@ import { cacheDir, cacheMaxBytes } from './cache-config.mjs';
 import { reconcile } from './cache-store.mjs';
 import { shutdownBrowser } from './render.mjs';
 import { handleUpdatesApi, startUpdateScheduler } from './updates.mjs';
+import { handleWarmApi, startWarmLoop, stopWarmLoop } from './warm.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
 import { json, makeAuth } from './respond.mjs';
 
@@ -71,6 +72,9 @@ const server = createServer(async (req, res) => {
 
     /* ── 追更检查的 API ── */
     if (await handleUpdatesApi(req, res, url, auth)) return;
+
+    /* ── 追漫预热的 API ── */
+    if (await handleWarmApi(req, res, url, auth)) return;
 
     /* ── 抓取代理 ── */
     if (path === '/api/proxy') {
@@ -158,6 +162,8 @@ void reconcile().catch((e) => console.warn('[zeno] 缓存对账失败：', e.mes
 
 const token = process.env.SYNC_TOKEN || '';
 const updates = startUpdateScheduler();
+/* 预热走的是自己那条回环，所以要把真正在用的端口和令牌交给它 */
+const warm = startWarmLoop({ port: PORT, token });
 
 server.listen(PORT, '0.0.0.0', () => {
   const n = allowedHosts().size;
@@ -182,6 +188,13 @@ server.listen(PORT, '0.0.0.0', () => {
     }`,
   );
   console.log(
+    `  ├─ 追漫预热  ${
+      warm
+        ? `每 ${Math.round(warm.loopMs / 60000)} 分钟一轮，每本留未读的最近 ${warm.keep} 章（ZENO_WARM_LOOP_MS=0 关掉）`
+        : '已关闭（ZENO_WARM_LOOP_MS）'
+    }`,
+  );
+  console.log(
     `  ├─ 抓取白名单 ${n ? `${n} 个（来自已安装的插件）` : '空 — 装个插件就会自动放行对应站点'}`,
   );
   console.log(`  └─ 同步令牌  ${token ? '已启用' : '未设置（仅靠 tailnet 保护）'}`);
@@ -198,6 +211,7 @@ server.listen(PORT, '0.0.0.0', () => {
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     console.log(`\n[zeno] ${sig} 收到，退出`);
+    stopWarmLoop(); // 别再在收尾的当口起新一轮预热；铺到一半的那章由启动时的 resumeWarmQueue 补
     server.close(() => process.exit(0));
     /*
      * 收尾时把渲染浏览器的会话落盘。systemd/launchctl 走的是真信号，这边能跑完；

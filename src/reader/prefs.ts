@@ -35,13 +35,25 @@ export type FitMode = 'width' | 'height' | 'screen' | 'original';
  */
 export type TurnAnim = 'none' | 'slide' | 'flip';
 
-/** 每本书各自记的显示偏好 */
+/** 每本书各自记的偏好 */
 export interface BookPrefs {
   fit: FitMode;
   direction: Direction;
   pageMode: PageMode;
   bgColor: BgColor;
   grayscale: boolean;
+  /**
+   * 追漫：开着时，详情页一打开就把「未读的最近几章」的图片地址表交给服务端，
+   * 由那台常开的机器去把原图铺到盘上。
+   *
+   * 记在这儿而不是 shelf 那一行：bookPrefs 参与同步，而且是以 {key, data, updatedAt}
+   * 这个不透明 JSON  blob 的形式（transfer.ts / applyRemote.ts），加一项不用动
+   * 服务端的列白名单和 merge 的那一列。shelf 加字段要改四处，还得给一个
+   * 显示无关的东西动阅读进度的表。
+   *
+   * 可选而不是 DEFAULT_BOOK 里那条 false：没记过的老数据不该被写成"我选过不追"。
+   */
+  warm?: boolean;
 }
 
 /** 这台设备的偏好，不参与按书拆分 */
@@ -123,7 +135,12 @@ const TURN_KEY = 'readerTurnAnim';
 const IMMERSIVE_KEY = 'readerImmersive';
 const ENHANCE_KEY = 'readerEnhance';
 
-/** 属于单书的那几个键。写单书记录时只带这些，别把亮度也塞进去 */
+/**
+ * 属于单书的那几个键。写单书记录时只带这些，别把亮度也塞进去。
+ *
+ * BookPrefs.warm 不在这一列里，是故意的：它是"这本要不要让机器替我铺图"，
+ * 由详情页自己写（saveBookPrefs 一个 patch），阅读器既不读也不该顺手盖掉。
+ */
 export const BOOK_KEYS = ['fit', 'direction', 'pageMode', 'bgColor', 'grayscale'] as const;
 
 /**

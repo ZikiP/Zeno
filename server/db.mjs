@@ -176,6 +176,27 @@ export function openDb() {
       changed_at  INTEGER,            -- 条数最后一次发生变化的时刻（没变过就是 NULL）
       error       TEXT
     );
+
+    -- 追漫预热的台账：客户端递交的「这一章的图片地址表」。
+    -- 为什么服务端只记地址不自己去找：解析层（src/site/parse.ts）跑在浏览器包里，
+    -- 服务端不养第二套解析 —— 这跟 updates 只数条数是同一条原则。
+    -- images 存的是**上游地址**（不是 /api/proxy 那条），淘汰时要按它算缓存键。
+    CREATE TABLE IF NOT EXISTS warm (
+      plugin_id   TEXT NOT NULL,
+      slug        TEXT NOT NULL,
+      chapter_id  TEXT NOT NULL,
+      idx         INTEGER,            -- 客户端给的章节序号，保留策略按它排
+      images      TEXT NOT NULL,      -- JSON 数组：上游图片地址
+      got         INTEGER NOT NULL DEFAULT 0,
+      bytes       INTEGER NOT NULL DEFAULT 0,
+      -- queued 待铺 / running 正在铺 / done 铺完 / error 铺过但没铺全
+      state       TEXT NOT NULL DEFAULT 'queued',
+      error       TEXT,
+      warmed_at   INTEGER,            -- 首次铺完的时刻
+      updated_at  INTEGER NOT NULL,
+      PRIMARY KEY (plugin_id, slug, chapter_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_warm_state ON warm(state);
   `);
 
   /*

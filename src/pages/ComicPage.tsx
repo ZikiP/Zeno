@@ -8,6 +8,7 @@ import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf }
 import type { ShelfEntry } from '@/store/types';
 import { formatBytes } from '@/store/utils';
 import { useOfflineCache } from '@/store/useOfflineCache';
+import { useWarmFollow } from '@/store/useWarmFollow';
 import { usePlugin } from '@/store/PluginContext';
 import { onDataChange } from '@/store/dataEvents';
 import ChapterList from '@/components/ChapterList';
@@ -19,6 +20,7 @@ import {
   IconDownload,
   IconPlay,
   IconSettings,
+  IconSync,
 } from '@/components/Icons';
 import { ErrorBox, Loading } from '@/components/UI';
 
@@ -51,6 +53,9 @@ export default function ComicPage() {
     slug,
     chapters,
   );
+
+  /* 追漫：开关本身、递交进度都在 useWarmFollow 里，这一层只负责把它摆到界面上 */
+  const follow = useWarmFollow({ plugin, slug, chapters, positions: entry?.positions });
 
   /*
    * 抓的是"哪个源的哪本书"，不是插件对象的那个身份。
@@ -270,12 +275,33 @@ export default function ComicPage() {
                     <IconDownload size={16} />
                     {caching ? `下载中 ${Math.floor(caching.done)}/${caching.total}` : '离线下载'}
                   </button>
+                  {/*
+                   * 追漫跟在架才给：它的口径是"未读的最近几章"，而进度只长在书架记录上。
+                   * 不在架时 positions 是空的，点一下会把整本当未读铺过去 —— 那不是追漫，是误触发。
+                   */}
+                  {entry && (
+                    <button className="btn btn--ghost" onClick={() => follow.setWarm(!follow.warm)}>
+                      <IconSync size={16} />
+                      {follow.progress
+                        ? `追漫中 ${follow.progress.done}/${follow.progress.total}`
+                        : follow.warm
+                          ? '已追漫'
+                          : '追漫'}
+                    </button>
+                  )}
                 </div>
 
                 {cachedBytes > 0 && (
                   <div className="detail__cached">
                     已离线 {Object.keys(cached).length} 章 · {formatBytes(cachedBytes)}
                   </div>
+                )}
+                {/*
+                 * 只报结果，不报进度：跑着的时候按钮上已经是「追漫中 2/3」了，
+                 * 同一个数在底下再写一遍就是噪音。
+                 */}
+                {follow.warm && follow.note && (
+                  <div className="detail__cached">追漫 · {follow.note}</div>
                 )}
               </div>
             </div>

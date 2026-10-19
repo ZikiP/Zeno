@@ -43,6 +43,14 @@ function release() {
   waiters.shift()?.();
 }
 
+/**
+ * 代理此刻的占用。给预热用的：它跟"用户正在读的那几张"走同一条闸，
+ * 抢满就等于把阅读器拖到队列后面（实测一次长章节能占几十张）。
+ */
+export function proxyLoad() {
+  return { active, max: MAX_CONCURRENT };
+}
+
 const CORS = {
   // 代理只被同源的 PWA 用（开发期由 vite 把 /api 转发过来），
   // 原来这里的 Access-Control-Allow-Origin: * 是不需要的，

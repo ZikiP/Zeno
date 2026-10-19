@@ -6,6 +6,9 @@ import { Sheet } from '@/components/UI';
  *
  * 单独成组件有两个原因：ComicPage 本来就越了 250 行的组件上限；
  * 而这一层跟"这本漫画的数据"无关，它只是两个跳转入口。
+ *
+ * 追漫不放这儿：它跟「离线下载」是同一类动作（把内容提前弄到机器上），
+ * 那颗按钮就在动作行里，同一个状态摆两处只会让人怀疑它们是不是一回事。
  */
 export default function ComicSheet({
   sourceName,

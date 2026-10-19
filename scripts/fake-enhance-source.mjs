@@ -17,6 +17,9 @@ import { deflateSync } from 'node:zlib';
 
 const PORT = Number(process.env.FAKE_PORT || 8911);
 const PAGES = Number(process.env.FAKE_PAGES || 6);
+/** 每张图的回源延迟。0 = 本机即时（默认） */
+const DELAY_MS = Math.max(0, Number(process.env.FAKE_DELAY_MS || 0));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const W = 959;
 const H = 1300;
 
@@ -100,7 +103,7 @@ const chapterHtml = (base) =>
   Array.from({ length: PAGES }, (_, i) => `<img class="reader-img" src="${base}/img/${i}.png">`).join('') +
   `</div>`;
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
   if (url.pathname === '/detail') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -114,6 +117,14 @@ const server = createServer((req, res) => {
   }
   const m = url.pathname.match(/^\/img\/(\d+)\.png$/);
   if (m) {
+    /*
+     * FAKE_DELAY_MS：给图片按上真站的延迟。默认 0（本机几毫秒到手）。
+     *
+     * 要它是因为有一类问题在"字节立刻到手"时根本测不出来：章级预取一次发几十张
+     * 请求时，脚下那一页的字节到底排在谁后面。带上延迟才分得出先后。
+     * 只延迟图片，页面本身照旧立刻回 —— 不然量到的全是详情页的等待。
+     */
+    if (DELAY_MS) await sleep(DELAY_MS);
     const buf = pageImage(Number(m[1]));
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': buf.length });
     res.end(buf);

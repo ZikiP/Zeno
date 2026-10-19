@@ -34,6 +34,14 @@ function kvDrop(key) {
   openDb().prepare('DELETE FROM kv_local WHERE key = ?').run(key);
 }
 
+/**
+ * 只属于这台机器的配置项。
+ *
+ * 导出的原因：预热的保留策略（留几章）跟缓存目录是同一类东西 —— 都是"这台盘怎么管"，
+ * 都绝不该跟着 settings 同步到别的设备上去。再写一份 kv 助手只会让两边哪天不同步。
+ */
+export const localConfig = { get: kvGet, set: kvSet, drop: kvDrop };
+
 /** 没配过时的落点：数据库旁边，同一块盘，装完就有 */
 export function defaultCacheDir() {
   return join(dirname(dbPath()), 'cache');

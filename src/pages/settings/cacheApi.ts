@@ -45,3 +45,29 @@ export const saveCacheConfig = (p: { dir?: string; maxMb?: number }) =>
 
 export const eraseCache = () =>
   serverCall<CacheStatus>('/api/cache/clear', { method: 'POST', body: '{}' });
+
+/** 追漫预热的台账。跟缓存同一栏：管的都是"这台盘上留什么、留多久" */
+export interface WarmStatus {
+  keep: number;
+  concurrency: number;
+  /** queued / running / done / dropped / error 各有多少章 */
+  states: Record<string, number>;
+  /** 还在等的章数（queued + error） */
+  pending: number;
+  pumping: boolean;
+  cache: { files: number; bytes: number };
+  cacheMaxBytes: number;
+  lastRound: { rows: number; images: number; bytes: number; paused: string | null; at: number } | null;
+}
+
+export const getWarmStatus = () => serverCall<WarmStatus>('/api/warm');
+
+export const saveWarmKeep = (keep: number) =>
+  serverCall<{ keep: number }>('/api/warm/keep', { method: 'POST', body: JSON.stringify({ keep }) });
+
+/** 改完保留章数立刻按新口径扫一遍，不然要等到下一轮（默认 15 分钟）才生效 */
+export const sweepWarmNow = () =>
+  serverCall<{ dropped: number; files: number; freed: number }>('/api/warm/sweep', {
+    method: 'POST',
+    body: '{}',
+  });

@@ -224,6 +224,42 @@ export function lookup(url) {
 }
 
 /**
+ * 只问"盘上有没有"，**不续访问时间**。
+ *
+ * 预热要先跳过已有的那些张，但一次预热不该把 2000 张图都标成"刚被读过" ——
+ * 那会让 LRU 以为整片预热内容都是活跃的，反过来把真正在读的挤掉。
+ * 跟 lookup 的区别就只有这一条。
+ */
+export function alreadyCached(url) {
+  if (!cacheOn()) return false;
+  return !!openDb().prepare('SELECT 1 FROM cache_index WHERE key = ?').get(keyOf(url));
+}
+
+/** 上游地址 → 账本里的键。跟 lookup/collector 用的是同一个算法，别自己再算一遍 */
+export const cacheKeyOf = keyOf;
+
+/** 这一张还在不在、多大、上次被碰是什么时候。不碰访问时间（同 alreadyCached 的理由） */
+export function entryOf(key) {
+  const row = openDb().prepare('SELECT bytes, at FROM cache_index WHERE key = ?').get(key);
+  return row ? { bytes: row.bytes, at: row.at } : null;
+}
+
+/** 定点删一条（预热的保留策略用；LRU 那一刀在 evict 里成批删） */
+export async function dropEntry(key) {
+  const dir = cacheDir();
+  if (!dir) return false;
+  try {
+    await rm(pathOf(dir, key), { force: true });
+  } catch (e) {
+    flag(`删不掉 ${key.slice(0, 8)}：${e.message}`);
+    return false;
+  }
+  delRow(key);
+  touched.delete(key);
+  return true;
+}
+
+/**
  * 把进程内的访问时间刷进账本，一个事务做完。
  *
  * 只在淘汰前要排序之前调 —— 这就是它便宜的原因：512MB 的盘不是每分钟都要裁的，
