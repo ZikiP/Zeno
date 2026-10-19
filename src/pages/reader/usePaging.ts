@@ -4,6 +4,41 @@ import type { ReaderPrefs } from '@/reader/prefs';
 export type ReaderMode = 'scroll' | 'paged';
 
 /**
+ * 一屏几张。
+ *
+ * 「双页」是**翻页**这一档的选项：它决定一次手势抬走几张图。滚动模式没有"屏"，
+ * 几十页从上往下一张一张排着，所以那里永远是 1。
+ *
+ * 别小看这一条：以前它不分模式，于是"滚动 + 双页"这个组合让下游三处都以为
+ * 一屏两张 —— 其中最疼的是下一章预热的目标宽度按半个视口算（见 usePrefetch.ts），
+ * 缓存键跟实际显示宽度对不上，翻过去那一帧拿不到增强版，只能先画原图再硬换，
+ * 正是被报上来的那一下闪。
+ */
+export function perPageFor(mode: ReaderMode, pageMode: ReaderPrefs['pageMode']): number {
+  return mode === 'paged' && pageMode === 'double' ? 2 : 1;
+}
+
+/** 那一屏占多宽、这台设备几个物理像素对一个 CSS 像素 */
+export interface Viewport {
+  innerWidth: number;
+  devicePixelRatio: number;
+}
+
+/**
+ * 某一档下"一屏"在屏幕上占多宽（设备像素）。
+ *
+ * 给还没挂载的那一屏用：预热下一章时量不到 offsetWidth，而增强版是按显示宽度做的 ——
+ * 算错宽度等于算了一张用不上的图，缓存键也对不上。分页双屏占一半，
+ * 单屏和滚动的"适应宽度"都是整个视口宽。
+ *
+ * 摆在这儿、并且把 viewport 收成参数，是为了能被测试钉住（test-paging.ts）：
+ * 这个数算错既不报错也不变慢，表现只是"翻到下一章时闪一下"，最难查。
+ */
+export function warmTargetWidth(perPage: number, vp: Viewport): number {
+  return Math.round((vp.innerWidth / (perPage > 1 ? 2 : 1)) * (vp.devicePixelRatio || 1));
+}
+
+/**
  * 翻页状态机
  *
  * 管住「当前在第几页」「怎么翻」「点屏幕各处做什么」，
@@ -15,11 +50,11 @@ export type ReaderMode = 'scroll' | 'paged';
 export interface Paging {
   /** 分页模式下：屏序号。滚动模式下：估算的图片序号 */
   page: number;
-  /** 分页模式下每屏几张 */
+  /** 一屏几张。滚动模式永远是 1（见 perPageFor） */
   perPage: number;
-  /** 分页模式总屏数 */
+  /** 分页模式总屏数。滚动模式下等于图片张数，但那一档的页码不读它 */
   totalPages: number;
-  /** 当前屏第一张在整个章节里的序号 */
+  /** 当前屏第一张在整个章节里的序号。滚动模式就是当前那张 */
   startIndex: number;
   /** 当前页对应的图片序号（双页时取第一张） */
   currentImageIndex: number;
@@ -62,7 +97,7 @@ export function usePaging(
 ): Paging {
   const [page, setPage] = useState(0);
 
-  const perPage = pageMode === 'double' ? 2 : 1;
+  const perPage = perPageFor(mode, pageMode);
   const totalPages = totalImages > 0 ? Math.ceil(totalImages / perPage) : 0;
   const startIndex = page * perPage;
 

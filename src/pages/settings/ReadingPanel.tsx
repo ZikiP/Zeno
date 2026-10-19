@@ -156,8 +156,15 @@ export default function ReadingPanel() {
         <Row
           icon={<IconDouble size={18} />}
           label="双页显示"
-          hint={prefs.value.pageMode === 'double' ? '横屏一屏两页，建议配合横屏' : '一屏一页'}
+          hint={
+            mode === 'paged'
+              ? prefs.value.pageMode === 'double'
+                ? '横屏一屏两页，建议配合横屏'
+                : '一屏一页'
+              : '只有分页阅读才有"一屏几张"这件事：上面把阅读方式切成「翻页」就能用了'
+          }
           value={prefs.value.pageMode === 'double' ? '开' : '关'}
+          disabled={mode !== 'paged'}
           onClick={() =>
             prefs.patch({ pageMode: prefs.value.pageMode === 'single' ? 'double' : 'single' })
           }

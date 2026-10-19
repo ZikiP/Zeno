@@ -94,6 +94,11 @@
 .pref-row:not(.pref-row--static):active {
   background: var(--bg-elev-2);
 }
+/* 点不动的那一行：跟 .btn:disabled / .stepper__btn:disabled 同一个口径 */
+.pref-row--off {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .pref-row__text {
   flex: 1;

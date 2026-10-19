@@ -5,23 +5,12 @@ import { getCachedChapter, saveChapterTable } from '@/store/chapters';
 import { isImageReady, markImageReady } from '@/components/RetryableImage';
 import { enhanceSource } from '@/reader/enhance';
 import { loadEnhanceScreen } from '@/reader/prefs';
+import { warmTargetWidth } from './usePaging';
 
 /** 预热下一话时顺手铺几张图 —— 只要头几张，翻过去有的看就行，不多占带宽 */
 const WARM_IMAGES = 2;
 /** 当前章到手后隔多久再去取下一话：那段时间是留给本屏图片的 */
 const SETTLE_MS = 800;
-
-/**
- * 下一章那一屏在屏幕上会占多宽（设备像素）。
- *
- * 预热时那一页还没挂载，量不到 offsetWidth，而增强版是按显示宽度做的 ——
- * 算错宽度等于算了一张用不上的图，缓存键也对不上。
- * 分页双屏占一半，单屏和滚动的"适应宽度"都是整个视口宽。
- */
-function warmTargetWidth(perPage: number) {
-  const dpr = window.devicePixelRatio || 1;
-  return Math.round((window.innerWidth / (perPage > 1 ? 2 : 1)) * dpr);
-}
 
 /**
  * 预热下一话的增强版时给它一个很低的优先级。
@@ -80,7 +69,7 @@ export function usePrefetchNextChapter(args: {
           // 只存地址表：把整章几十张图偷偷下完是「离线下载」的事，不是预热的
           await saveChapterTable(pluginId, slug, nextId, images);
 
-          const targetW = loadEnhanceScreen() ? warmTargetWidth(perPage) : 0;
+          const targetW = loadEnhanceScreen() ? warmTargetWidth(perPage, window) : 0;
 
           for (const src of images.slice(0, WARM_IMAGES)) {
             if (dropped) continue;

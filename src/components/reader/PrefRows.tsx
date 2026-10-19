@@ -26,6 +26,7 @@ export function Row({
   value,
   control,
   onClick,
+  disabled,
 }: {
   icon?: ReactNode;
   label: string;
@@ -34,12 +35,24 @@ export function Row({
   control?: ReactNode;
   /** 有则整行可点 */
   onClick?: () => void;
+  /**
+   * 摆在那儿但此刻用不了。
+   *
+   * 用这个而不是"从界面里拿掉"：值还是用户的值，藏起来会让人以为设置丢了；
+   * 而 hint 正好是解释"为什么此刻点不动"的地方。
+   */
+  disabled?: boolean;
 }) {
-  const Tag = onClick ? 'button' : 'div';
+  /*
+   * disabled 时不渲染成 button：button 会留着 :active 的高亮和键盘聚焦，
+   * 点下去没反应的东西不该看起来能点。
+   */
+  const canClick = !!onClick && !disabled;
+  const Tag = canClick ? 'button' : 'div';
   return (
     <Tag
-      className={`pref-row${onClick ? '' : ' pref-row--static'}`}
-      {...(onClick ? { onClick } : {})}
+      className={`pref-row${canClick ? '' : ' pref-row--static'}${disabled ? ' pref-row--off' : ''}`}
+      {...(canClick ? { onClick } : {})}
     >
       {icon}
       <div className="pref-row__text">
