@@ -12,6 +12,9 @@
  *
  * 这一层的失败全部当"没有盘上缓存"处理：拿不到桶（无痕、老 Safari）不该让
  * 增强整体坏掉。
+ *
+ * 它自己有上限（见 cap）：这一层全是可以再生成的东西，占多的那部分不是资产而是负担 ——
+ * 配额吃紧时浏览器是整桶回收的，那之后每一章都要从头算。
  */
 
 /** 桶名。跟 Service Worker 自己的 site-pages/comic-images 分开，别互相淘汰 */
@@ -41,10 +44,53 @@ export async function readDiskBlob(key: string): Promise<Blob | null> {
   return blob && blob.size ? blob : null;
 }
 
+/**
+ * 桶里最多留多少张。
+ *
+ * 没有这一条它会一直长：实测连铺 5 章就到 220 条、浏览器报的 usage 已经 1.28GB，
+ * 而追漫的窗口是 50 章 —— 照那个数下去是 5~6GB。更糟的不是占盘而是结局：
+ * 配额吃紧时浏览器是**整桶回收**的，那一天之后每一章都要从头算，正好是黑屏本身。
+ * 500 张 ≈ 1.3GB（一张 1440 宽的 PNG 约 2.6MB），够盖住"最近十来章重读不用重算"。
+ * enhanceDiskMax 是测试和量东西时改档用的口子，平时不设。
+ */
+const cap = () => Math.max(10, Number(globalThis.localStorage?.getItem('enhanceDiskMax')) || 500);
+/**
+ * 到顶一次腾到哪儿 —— 不是刚好腾一张。
+ *
+ * 数一遍全桶是 O(条目)，挂在每张的落盘上就成了每写一张都要翻一遍 500 条；
+ * 一次腾到九成，平均下来每二十来张才数一次（见 COUNT_EVERY）。
+ */
+const TRIM_KEEP = 0.9;
+/** 每落这么多次盘才数一次条目数 */
+const COUNT_EVERY = 24;
+
+/**
+ * 该删哪几条：桶里现在是 keys（**按写入顺序**排的，头是最老的），返回要删的那段。
+ *
+ * 没超上限就返回空。写入顺序约等于阅读顺序，所以砍掉的正是"离你脚下最远的那一截" ——
+ * 这也意味着增强是沿着阅读方向往前滚的，重读最近几章仍然全是命中。
+ * Chromium 实测确实按写入顺序回（41 页的章砍到剩 9、13~43）。真有那么个浏览器
+ * 不按这个顺序回，砍错的也只是"哪几张要重算"—— 这一层全可再生成，读不坏。
+ */
+export function trimPlan(keys: readonly string[], max = cap(), keep = TRIM_KEEP): string[] {
+  if (keys.length <= max) return [];
+  const to = Math.max(1, Math.floor(max * keep));
+  return keys.slice(0, keys.length - to);
+}
+
+let writes = 0;
+
 export function persistDiskBlob(key: string, blob: Blob): Promise<unknown> {
-  return bucket().then((c) =>
-    c ? c.put(new Request(diskKey(key)), new Response(blob, { headers: { 'Content-Type': blob.type || 'image/png' } })) : undefined,
-  ).catch(() => {});
+  return bucket()
+    .then(async (c) => {
+      if (!c) return;
+      await c.put(new Request(diskKey(key)), new Response(blob, { headers: { 'Content-Type': blob.type || 'image/png' } })).catch(() => {});
+      if (++writes < COUNT_EVERY) return;
+      writes = 0;
+      const doomed = trimPlan((await c.keys().catch(() => [])).map((r) => r.url));
+      for (const url of doomed) await c.delete(new Request(url)).catch(() => {});
+    })
+    .catch(() => {});
 }
 
 /** 想要就持久一点：这些全可再生成，被系统清掉也能活着，但能少清就少清 */

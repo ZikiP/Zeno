@@ -7,6 +7,7 @@
  * 这些在界面上都不显眼，所以拿几条数学性质直接钉住。
  */
 import { ENHANCE, enhance, resample, targetHeight, unsharp, type Pixels } from '../src/reader/enhanceCore';
+import { trimPlan } from '../src/reader/enhanceDisk';
 
 let fails = 0;
 const check = (ok: boolean, msg: string) => {
@@ -165,6 +166,19 @@ check(
   ENHANCE.radius === 3 && ENHANCE.amount === 0.6 && ENHANCE.sigma === 1.1 && ENHANCE.threshold === 2,
   `Lanczos${ENHANCE.radius} / amount ${ENHANCE.amount} / σ ${ENHANCE.sigma} / 阈值 ${ENHANCE.threshold} —— 这组是拿真页面量出来的`,
 );
+
+console.log('\n=== 6. 盘上那一层的封顶 ===');
+/*
+ * 桶里的东西全可再生成，但它一直在长：实测连铺 5 章就 220 条 / usage 1.28GB，
+ * 追漫的窗口是 50 章。配额吃紧时浏览器整桶回收，那之后每一章都要从头算 ——
+ * 所以自己封顶。这里钉的是"砍的是哪一头"：keys 按写入顺序排，必须砍头不砍尾。
+ */
+check(trimPlan(Array.from({ length: 100 }, (_, i) => `k${i}`), 500).length === 0, '没到上限一条都不删');
+check(trimPlan(Array.from({ length: 500 }, (_, i) => `k${i}`), 500).length === 0, '正好到上限也还不删（到顶才腾，不是超一张腾一张）');
+const cut = trimPlan(Array.from({ length: 600 }, (_, i) => `k${i}`), 500);
+check(cut.length === 600 - Math.floor(500 * 0.9), `超了才腾，一次腾到九成：删 ${cut.length} 条`);
+check(cut[0] === 'k0' && cut[cut.length - 1] === `k${cut.length - 1}`, '删的是最老的那一段（写入顺序的头）');
+check(trimPlan([], 500).length === 0 && trimPlan(['a', 'b'], 1).length >= 1, '空桶和极小上限都不炸');
 
 console.log(fails ? `\n${fails} 条没过` : '\n全部通过 — 像素数学站得住');
 process.exit(fails ? 1 : 0);
