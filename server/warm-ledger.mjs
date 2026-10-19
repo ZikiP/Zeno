@@ -117,28 +117,39 @@ export function followedBooks() {
 /**
  * 补齐一轮。返回 { resolved, queued, failed, skipped }。
  *
- * browser 模式的站在渲染槽满的时候这一轮直接跳过 —— 那是用户正在翻别的章，
- * 追漫不该把他挤出去。fetch 模式的站不占槽，照解。
+ * browser 模式的站在渲染槽满的时候跳过 —— 那是用户正在翻别的章，追漫不该把他
+ * 挤出去。fetch 模式的站不占槽，照解。
  */
 export async function reconcileLedger() {
   const byId = new Map(installedPlugins().map((p) => [p.meta?.id, p]));
   const summary = { resolved: 0, queued: 0, failed: 0, skipped: 0 };
   let budget = RESOLVE_PER_ROUND;
+  const renderBusy = () => renderLoad().openPages >= renderLoad().max;
 
-  for (const book of followedBooks()) {
-    if (budget <= 0) break;
-    const plugin = byId.get(book.pluginId);
-    if (!plugin) {
-      summary.skipped++; // 源被卸了。台账留着，等它装回来
-      continue;
-    }
-    const targets = book.missing.slice(0, Math.min(keepChapters(), budget));
-    for (const c of targets) {
-      if (budget <= 0) break;
+  const books = followedBooks();
+  /*
+   * 每本轮流拿额度。按"这本填满意了再下一本"分的话，排在前面的那本会把整轮预算
+   * 吃光 —— 两本书都开着爱心时，第二本永远铺不上，而它看上去跟"还没轮到它"
+   * 一模一样，界面上不会说错一个字。
+   */
+  const cursors = books.map(() => 0);
+
+  for (;;) {
+    let took = false;
+    for (let i = 0; i < books.length && budget > 0; i++) {
+      const book = books[i];
+      if (cursors[i] >= book.missing.length) continue;
+      const plugin = byId.get(book.pluginId);
+      const c = book.missing[cursors[i]++];
+      if (!plugin) {
+        summary.skipped++; // 源被卸了。台账留着，等它装回来
+        continue;
+      }
+      took = true;
       budget--;
-      if (renderLoad().openPages >= renderLoad().max) {
+      if (renderBusy()) {
         summary.skipped++;
-        break; // 渲染槽被用户占着，这本下一轮再说
+        continue; // 渲染槽被用户占着，这一章下一轮再说
       }
       try {
         const { images, partial } = await resolveChapter(plugin, book.slug, c.id);
@@ -148,12 +159,13 @@ export async function reconcileLedger() {
         // 铺是铺了、但不全：只留一句备注。别去擦这一行，那等于把下好的图也判没了
         if (partial) noteRow(book.pluginId, book.slug, c.id, '只解出部分内页');
       } catch (e) {
-        // 留一行 error：不然下一轮又去解同一章，白敲站点
+        // 地址表留一行 error：不然下一轮又去解同一章，白敲站点
         markUnresolved(book.pluginId, book.slug, c.id, c.index, e?.message ?? e);
         summary.failed++;
       }
       await sleep(BOOK_GAP_MS);
     }
+    if (!took || budget <= 0) break;
   }
   return summary;
 }

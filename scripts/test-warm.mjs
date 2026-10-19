@@ -104,6 +104,7 @@ const srv = spawn(process.execPath, ['server/index.mjs'], {
     ZENO_CACHE_MAX_MB: '512',
     ZENO_UPDATE_CHECK_MS: '0', // 不自己起循环，全部由测试手动踢
     ZENO_WARM_LOOP_MS: '0',
+    ZENO_WARM_RESOLVE_PER_ROUND: '2', // 预算压到 2：两本同时缺章时才看得出公平不公平
     ZENO_WARM_READ_GRACE_MS: '0', // 读完/掉出窗口的，这一轮就该删
     ZENO_WARM_UNFOLLOW_GRACE_MS: '2000', // 取消追漫留 2 秒反悔，测试等得起
   },
@@ -173,13 +174,18 @@ async function waitHits(pred, ms = 8000) {
   }
 }
 
-/** 踢一轮，等到不再 pumping */
+/**
+ * 踢轮直到这一本真的没得可补。
+ *
+ * 不能只看 pending：还没解过地址的章根本不在台账里，pending 当然是 0。
+ * 判据得是"某一轮 resolved 为 0 且没在跑" —— 每轮预算小的时候一本书要好几轮才铺满。
+ */
 async function runRound(label) {
   for (let i = 0; i < 60; i++) {
     const r = await POST('/api/warm/run');
     if (r.status !== 200) throw new Error(`${label}：踢轮失败 ${JSON.stringify(r.json)}`);
-    if (!r.json.round?.rows || !warm) break;
-    if (!(await warm()).pumping) break;
+    const s = await warm();
+    if (!s.pumping && !s.pending && !(r.json.round?.resolved ?? 0)) return s;
     await sleep(300);
   }
   return warm();
