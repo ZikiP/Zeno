@@ -102,6 +102,8 @@ const INIT = `(() => {
   const save = () => { try { sessionStorage.setItem('__f', JSON.stringify(T)); } catch(e){} };
   window.__T = T;
   window.__reset = (l) => { T.ev = [{ t: Math.round(performance.now()), ev: 'MARK', now: l }]; T.tl = []; T.pop = 0; T.blankMs = 0; T.frames = 0; T.blankStart = 0; save(); };
+  window.addEventListener('error', (e) => { (T.errs = T.errs || []).push(String(e.message).slice(0, 120)); });
+  window.addEventListener('unhandledrejection', (e) => { (T.errs = T.errs || []).push('reject:' + String(e.reason).slice(0, 120)); });
   window.__mark = (l) => { T.ev.push({ t: Math.round(performance.now()), ev: 'MARK', now: l }); save(); };
   const isBlob = (s) => (s||'').startsWith('blob:');
   /**
@@ -299,6 +301,23 @@ if (REAL) {
       `  现在第一张：${JSON.stringify(st)}；Worker ${(tr?.workers || []).length} 台 / 发活 ${tr?.posted ?? 0}`,
   );
   console.log(`  前 8 条事件：${JSON.stringify(evs.slice(0, 8))}`);
+  if (process.env.ZENO_WATCH) {
+    let prev = -1;
+    for (let i = 0; i < Number(process.env.ZENO_WATCH); i++) {
+      const w = await page.evaluate(() => {
+        const all = [...document.querySelectorAll('.reader__page')];
+        return {
+          blob: all.filter((x) => x.src.startsWith('blob:')).length,
+          gated: all.filter((x) => getComputedStyle(x).opacity === '0' && x.naturalWidth > 0).length,
+          posted: window.__T?.posted ?? 0,
+          workers: (window.__T?.workers || []).length,
+          errs: (window.__T?.errs || []).slice(-3),
+        };
+      });
+      if (w.blob !== prev) { console.log(`  +${i * 3}s blob=${w.blob} gated空白=${w.gated} 发活=${w.posted} Worker=${w.workers}`); prev = w.blob; }
+      await page.waitForTimeout(3000);
+    }
+  }
   await page.screenshot({ path: join(ROOT, 'dist/enhance-wide.png'), clip: { x: 0, y: 0, width: Math.min(vw, 1400), height: 700 } });
   console.log(`  截图 dist/enhance-wide.png`);
   await browser.close();
