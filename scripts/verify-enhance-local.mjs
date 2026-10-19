@@ -22,7 +22,9 @@ import { findBrowser } from '../server/render.mjs';
 const ROOT = resolve(import.meta.dirname, '..');
 const FAKE = 8911;
 const PORT = 8912;
-const BASE = `http://127.0.0.1:${PORT}`;
+/** ZENO_BASE 指到别的实例（比如 5178 的开发服务），ZENO_REAL 就不自起后端和合成源 */
+const BASE = process.env.ZENO_BASE || `http://127.0.0.1:${PORT}`;
+const REAL = !!process.env.ZENO_REAL;
 const PLUGIN = 'fakesrc';
 /** 一屏两张时翻页要用它；ZENO_PAGES=40 可以模拟长章 */
 const PAGES = Number(process.env.ZENO_PAGES || 6);
@@ -60,8 +62,8 @@ const run = (cmd, args, env) => {
   kill.push(p);
   return p;
 };
-run(process.execPath, ['scripts/fake-enhance-source.mjs'], { FAKE_PORT: String(FAKE), FAKE_PAGES: String(PAGES) });
-run(process.execPath, ['server/index.mjs'], {
+if (!REAL) run(process.execPath, ['scripts/fake-enhance-source.mjs'], { FAKE_PORT: String(FAKE), FAKE_PAGES: String(PAGES) });
+if (!REAL) run(process.execPath, ['server/index.mjs'], {
   PORT: String(PORT),
   DB_PATH: join(tmp, 'f.db'),
   DIST_DIR: join(ROOT, 'dist'),
@@ -72,7 +74,7 @@ run(process.execPath, ['server/index.mjs'], {
 });
 await new Promise((r) => setTimeout(r, 2500));
 
-await fetch(`${BASE}/api/sync/push`, {
+if (!REAL) await fetch(`${BASE}/api/sync/push`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -81,6 +83,9 @@ await fetch(`${BASE}/api/sync/push`, {
     plugins: [{ id: PLUGIN, origin: 'imported', data: JSON.stringify(plugin), updatedAt: Date.now() }],
   }),
 });
+const REAL_SLUG = process.env.ZENO_SLUG || 'banbendays';
+const REAL_CH = process.env.ZENO_CHAPTER || '4d7c0e04-aac6-11ed-9fa5-024352452ce0';
+const REAL_PLUGIN = process.env.ZENO_PLUGIN || 'copymanga';
 
 const INIT = `(() => {
   try { localStorage.setItem('readerEnhance','1'); } catch(e){}
@@ -105,6 +110,12 @@ const INIT = `(() => {
    */
   const vis = new WeakMap();
   const painted = (el) => vis.get(el) === 'on';
+  /**
+   * 换图那一刻元素上挂的是不是**已解码的原图**（nat>0 且不是 blob）。
+   * 是 —— 那用户就在这一帧之前看过它，这次替换就是硬切。这比"稳定两帧 op=1"
+   * 难骗：空白期根本不会点亮那个口径，会把真硬切数成 0。
+   */
+  const onOriginal = (el) => !isBlob(el.getAttribute('src') || '') && el.naturalWidth > 0;
   document.addEventListener('DOMContentLoaded', () => {
     const seen = new WeakMap();
     new MutationObserver((ms) => {
@@ -117,9 +128,9 @@ const INIT = `(() => {
         const was = isBlob(prev);
         seen.set(el, s);
         const swap = !was && isBlob(s);
-        if (swap && painted(el)) {
-          T.pop++;   // 已经画出来了还被换成增强版 = 硬切，就是要数的那个 0
-          T.ev.push({ t: Math.round(performance.now()), ev: 'POP', i: [...document.images].indexOf(el), shown: Math.round(el.offsetWidth), nat: el.naturalWidth });
+        if (swap && (painted(el) || onOriginal(el))) {
+          T.pop++;   // 原图已经解码在元素上却被换掉 = 硬切，就是要数的那个 0
+          T.ev.push({ t: Math.round(performance.now()), ev: 'POP', i: [...document.images].indexOf(el), shown: Math.round(el.offsetWidth), nat: el.naturalWidth, op: getComputedStyle(el).opacity, why: painted(el) ? 'stable-on' : 'decoded-original' });
         }
         T.ev.push({
           t: Math.round(performance.now()),
@@ -168,8 +179,8 @@ const INIT = `(() => {
 
 const browser = await chromium.launch({ headless: true, executablePath: found.exe });
 let ctx = await browser.newContext({
-  viewport: { width: 390, height: 844 },
-  deviceScaleFactor: 3,
+  viewport: { width: Number(process.env.ZENO_W || 390), height: Number(process.env.ZENO_H || 844) },
+  deviceScaleFactor: Number(process.env.ZENO_DPR || 3),
   locale: 'zh-CN',
   userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 });
@@ -252,6 +263,49 @@ async function pickFromDrawer(offset) {
 
 /** 全新 profile 要先有插件；还得从详情页进一次，章节表才有缓存（抽屉点章靠它） */
 await page.goto(`${BASE}/shelf`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+if (REAL) {
+  /* 真源真机档：直接开一章，量「第一张增强图多久落地、有没有硬切、空白多久」 */
+  const vw = Number(process.env.ZENO_W || 390);
+  await page.evaluate((wipe) => {
+    try { sessionStorage.clear(); if (wipe) caches.delete('zeno-enhanced'); } catch (e) {}
+    window.__reset('realCold');
+  }, !!process.env.ZENO_WIPE_DISK);
+  const at = await page.evaluate(() => performance.now());
+  await page.goto(`${BASE}/read/${REAL_PLUGIN}/${REAL_SLUG}/${REAL_CH}`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+  await page.waitForSelector('.reader__cell img, .reader__page', { timeout: 120_000, state: 'attached' }).catch(() => dump('real-attach'));
+  let tr = null;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 60_000) {
+    tr = await readTrace();
+    if ((tr?.ev || []).some((e) => e.ev === 'UPGRADE')) break;
+    await page.waitForTimeout(500);
+  }
+  const st = await page.evaluate(() => {
+    const img = document.querySelector('.reader__cell img') || document.querySelector('.reader__page');
+    return img ? { blob: img.src.startsWith('blob:'), shown: Math.round(img.offsetWidth), nat: img.naturalWidth, op: getComputedStyle(img).opacity, dpr: window.devicePixelRatio, targetW: Math.round(img.offsetWidth * window.devicePixelRatio) } : null;
+  });
+  const evs = tr?.ev || [];
+  const up = evs.find((e) => e.ev === 'UPGRADE');
+  console.log(
+    `
+=== 真源 ${REAL_PLUGIN}/${REAL_SLUG} @ ${vw}x${Number(process.env.ZENO_H || 844)} dpr${Number(process.env.ZENO_DPR || 3)} ===
+` +
+      `  页图：显示宽 ${st?.shown} × dpr = 目标宽，源图 ${st?.nat} 宽
+` +
+      `  首张增强落地：${up ? `${Math.round(up.t - at)}ms（事件 ${JSON.stringify(up)}）` : '没等到 —— 说明这一档不触发或被跳过'}
+` +
+      `  硬切 ${tr?.pop ?? 0} 次，空白 ${Math.round(tr?.blankMs ?? 0)}ms，逐帧 ${evs.slice(0, 3).map((e) => `${e.t}:${e.ev}:${e.nat}`).join(' / ')}
+` +
+      `  现在第一张：${JSON.stringify(st)}；Worker ${(tr?.workers || []).length} 台 / 发活 ${tr?.posted ?? 0}`,
+  );
+  console.log(`  前 8 条事件：${JSON.stringify(evs.slice(0, 8))}`);
+  await page.screenshot({ path: join(ROOT, 'dist/enhance-wide.png'), clip: { x: 0, y: 0, width: Math.min(vw, 1400), height: 700 } });
+  console.log(`  截图 dist/enhance-wide.png`);
+  await browser.close();
+  for (const p of kill) p.kill();
+  try { rmSync(tmp, { recursive: true, force: true }); } catch (e) { console.log(`(临时目录没删：${tmp})`); }
+  process.exit(0);
+}
 await page.waitForTimeout(1200);
 await page.evaluate(
   (item) =>
