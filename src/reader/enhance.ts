@@ -1,39 +1,19 @@
 /**
  * 画面增强：主线程这一侧
  *
- * 五件事：排队（几台 Worker 并行，离屏幕近的先干）、内存里的结果（同一张图同一
- * 显示宽度只算一次）、盘上的结果（Cache Storage，重读不用重算）、同步问一句有没有
- * 现成的（peekEnhanced），以及门控 —— 增强版没就绪时这一页先不画，别让原图占一帧
- * 再被硬换掉。
+ * 这一层管三件事：**取字节**（按优先级放行，别把整章一起拽下来）、**算**（几台 Worker
+ * 并行、谁先谁后、跑完记账）、**收场**（成功、跳过、超时、失败都从 settle 走）。
+ * 内存里那一份在 enhanceCache.ts（同一张图同一显示宽度只算一次），盘上那一份在
+ * enhanceDisk.ts，"这一页什么时候可以画"在 enhancePage.ts。
  *
  * 换 src 而不是叠一层 canvas 盖在原图上：覆盖层要么每页挂一张 8MB 的
  * <canvas>（一屏十几页就是上百 MB，手机上必炸），要么把结果编成图再贴上去 ——
  * 既然横竖要编成图，那就直接当 <img> 的 src，object-fit、翻页动画、长按放大都不用改。
  */
-import { markImageReady } from '@/components/RetryableImage';
+import { bad, cache, keyOf, remember, seenKeys } from './enhanceCache';
 import { persistDiskBlob, readDiskBlob } from './enhanceDisk';
 import type { EnhanceRequest, EnhanceResponse } from './enhance.worker';
 import EnhanceWorker from './enhance.worker?worker';
-
-/**
- * 内存里同时留几张增强结果。
- *
- * 这条上限就是"翻过去的那一页是增强图还是空白"的另一半：预取排得再前，
- * 算完的结果要是先被挤掉了，那一页还是要重算、还是要等。blob 活在浏览器的
- * blob store 里（不在 JS 堆上，见 enhance.worker.ts），放宽的代价是那些 PNG
- * 副本，约 2.6MB × 张数。
- */
-const CACHE_MAX = 80;
-/**
- * 超出上限太多时，连"还挂在 DOM 上"的也撤销。
- *
- * 撤销一个正在用的 blob 地址不会把已显示的图弄坏 —— <img> 早就解码进自己的
- * 位图了，revoke 只挡住"以后再用这个地址加载一次"。真正会被咬到的只有这一种：
- * 组件卸载重挂、拿同一个地址重新加载一遍。所以留 8 张余量（一屏最多两张、
- * 回翻时同时挂着的也就这个量级），到顶再硬撤销。
- */
-const CACHE_HARD = CACHE_MAX + 8;
-export const cache = new Map<string, string>();
 
 /** 排队中（等字节到手）和正在跑（占了槽位）都记在这，两份共用一个形状 */
 type Job = { id: number; key: string; src: string; targetW: number; cbs: ((url: string | null) => void)[]; prio?: number; buf?: ArrayBuffer };
@@ -78,74 +58,21 @@ const newWorker = (slot: number): Worker => {
 
 let seq = 0;
 
-export function keyOf(src: string, targetW: number) {
-  return `${src}@${targetW}`;
-}
 
-/**
- * 正在被某页显示着的地址，按消费者计数。
- * 两张页共用同一个地址时（章节里出现重复图），其中一张卸载不能把另一张的保护撤掉。
- */
-const pins = new Map<string, number>();
-export function pinEnhanced(url: string) {
-  pins.set(url, (pins.get(url) ?? 0) + 1);
-}
-export function unpinEnhanced(url: string) {
-  const n = (pins.get(url) ?? 0) - 1;
-  if (n > 0) pins.set(url, n);
-  else pins.delete(url);
-}
 
-/**
- * LRU：命中就重新插到末尾。
- *
- * 规矩，缺一条就会把还在显示的地址撤销掉（都踩过）：
- *   - 刚插进来的这条不能是自己的淘汰对象 —— 它这会儿还没被组件 pin 上，
- *     一旦轮到它，页面拿到的就是一个已失效的 blob 地址，直接「加载失败」。
- *   - 只撤销 refcount 为 0 的，一次腾一个位置。
- *   - 但**必须有顶**：滚动模式整章都挂在 DOM 上、全都被 pin 住，190 页读到底
- *     就是 190 张 × 2.6MB。所以超过 CACHE_HARD 时开始撤销最老的、还在显示的，
- *     理由见 CACHE_MAX 那段（已解码的那张不会被弄坏）。撤销过的地址盘上还有，
- *     真被重新要用时从盘上取回来，不重算。
- */
-function remember(key: string, url: string) {
-  cache.delete(key);
-  cache.set(key, url);
-  if (cache.size <= CACHE_MAX) return;
-  for (const [k, u] of cache) {
-    if (k === key || (pins.get(u) ?? 0) > 0) continue;
-    drop(k, u);
-    break;
-  }
-  if (cache.size <= CACHE_HARD) return;
-  for (const [k, u] of cache) {
-    if (k === key) continue;
-    drop(k, u);
-    break;
-  }
-}
-
-/**
- * 从内存里腾位置。
- *
- * **盘上那一份不动** —— 这一层就是内存腾不出来的去处，删了它等于白落盘
- * （实测过：40 页读到底、内存把开头几张顶掉之后再回去，盘上也没了，
- * 于是又老老实实重算一遍）。体积交给浏览器的配额管理，它自己会清。
- */
-function drop(key: string, url: string) {
-  cache.delete(key);
-  URL.revokeObjectURL(url);
-}
 
 /**
  * Worker 池。
  *
- * 一页要算 310~500ms 而它只吃一个核 —— 章级预取排到章尾之后，队列的排空速度
- * 就是阅读能不能不被空白追上。手机上 hardwareConcurrency 常常是 8，但那是
- * 大小核一起报，浏览器给 Worker 的未必是 8 个真并行，而且增强是锦上添花，
- * 不该把用户的机器占满 —— 顶多两台。
+ * 一页在 1440 显示宽下要算 600~900ms，队列排空速度就是台数 × 张数/秒。实测同一章
+ * （43~51 页、1440×900 dpr1、Ryzen 7 8745H 16 线程，scripts/verify-enhance-throughput.mjs）：
+ *   2 台 1.82 页/秒 · 4 台 3.17 · 6 台 4.08 · 8 台 3.55（回落，抢内存带宽）
+ * 所以按核心数开、6 台封底。原来写死 2 台的顾虑是"增强是锦上添花，别把机器占满"，
+ * 代价是预取整章要 24 秒 —— 往下翻的人 20 秒就能翻到第 40 页，追不上就是黑屏。
  */
-const POOL = Math.max(1, Math.min(2, navigator.hardwareConcurrency || 2));
+const DEFAULT_POOL = Math.max(2, Math.min(6, Math.round((navigator.hardwareConcurrency || 2) / 2.5)));
+/** enhancePool 是量吞吐时改档用的口子（scripts/verify-enhance-throughput.mjs 靠它），平时不设 */
+const POOL = Math.max(1, Number(localStorage.getItem('enhancePool')) || DEFAULT_POOL);
 const workers: (Worker | undefined)[] = [];
 
 /** 一张干完（成功、跳过、失败都算）：交结果、还槽位 */
@@ -209,13 +136,49 @@ function pump() {
 }
 
 /**
- * 算出来过、但挂上去失败的地址对应的键。
- * 失败一次就不再重来 —— 否则"退回原图 → 观察器又触发 → 又算一版 → 又失败"会转圈。
+ * 还没拿到字节的活（也在 waiting 里挂号）。
+ *
+ * 为什么不照着请求发出去：一章 51 张一起 fetch 就是 21~24MB（实测 resource timing）
+ * 挤在同域那 6 条 HTTP/1.1 连接上，屏上那张自己要的字节排在同一个队里；
+ * `arrayBuffer()` 又是主线程解的，51 份连着到货会把之后每一帧都往后推。
+ * 现在按 prio 取、同时在飞的只有 POOL×2 条：一条字节 ~0.4 秒，12 条并行供 30 页/秒，
+ * 而算只有 4~6 页/秒 —— Worker 那边照样不断粮，内存里最多也只留十来份字节。
  */
-export const bad = new Set<string>();
+const prep: Job[] = [];
+let fetching = 0;
+const FETCH_MAX = POOL * 2;
 
-/** 已经交过活（在排、在算、已算完）的键，只给 queueAhead 用来不重复排队 */
-export const seenKeys = new Set<string>();
+/** 一张的准备工作：盘上有就包装，没有就取字节再交给算的那一侧 */
+async function prepare(job: Job) {
+  /* 盘上有就直接包装，一趟 Worker 都不用 */
+  const fromDisk = await readDiskBlob(job.key);
+  if (fromDisk) return settle(job, fromDisk, true);
+  try {
+    /* 取字节走主线程的 fetch：离线缓存是 Service Worker 拦文档请求做的，Worker 自己发请求会绕过它 */
+    const res = await fetch(job.src);
+    const buf = res.ok ? await res.arrayBuffer() : null;
+    if (!buf) return settle(job, null);
+    job.buf = buf;
+    queue.push(job);
+    pump();
+  } catch {
+    settle(job, null);
+  }
+}
+
+function pumpPrep() {
+  while (fetching < FETCH_MAX && prep.length) {
+    let best = 0;
+    for (let i = 1; i < prep.length; i++) if ((prep[i].prio ?? 0) < (prep[best].prio ?? 0)) best = i;
+    const [job] = prep.splice(best, 1);
+    fetching++;
+    void prepare(job).finally(() => {
+      fetching--;
+      pumpPrep();
+    });
+  }
+}
+
 
 /**
  * 取某张图在 targetW 下的增强版地址。
@@ -237,62 +200,52 @@ export function enhanceSource(src: string, targetW: number, prio = 0): Promise<s
   return new Promise<string | null>((resolve) => {
     const running = byKey.get(key);
     if (running !== undefined) {
-      /* 这一张已经在排或在算：挂到同一件事上，不要再开一份 */
+      /*
+       * 这一张已经在排或在算：挂到同一件事上，不要再开一份。
+       * 顺手把它往前挪 —— 章级预排是按"离章头多远"给的优先级，用户跳到第 20 页时
+       * 那一页排在第 20 号位，于是脚下的图要等前面 19 张算完（实测黑 6.5 秒）。
+       * 只准提前不准延后，已经在跑的那几张不动。
+       */
       const job = pool.find((p) => p?.id === running) ?? waiting.get(running);
-      job?.cbs.push(resolve);
-      if (!job) settle({ id: running, key, src, targetW, cbs: [resolve] }, null);
+      if (job) {
+        if ((job.prio ?? 0) > prio) job.prio = prio;
+        job.cbs.push(resolve);
+      } else settle({ id: running, key, src, targetW, cbs: [resolve] }, null);
       return;
     }
     const job: Job = { id: ++seq, key, src, targetW, prio, cbs: [resolve] };
     waiting.set(job.id, job);
     byKey.set(key, job.id);
-    void (async () => {
-      /* 盘上有就直接包装，一趟 Worker 都不用 */
-      const fromDisk = await readDiskBlob(key);
-      if (fromDisk) return settle(job, fromDisk);
-      /* 取字节走主线程的 fetch：离线缓存是 Service Worker 拦文档请求做的，Worker 自己发请求会绕过它 */
-      try {
-        const res = await fetch(src);
-        const buf = res.ok ? await res.arrayBuffer() : null;
-        if (!buf) return settle(job, null);
-        job.buf = buf;
-        queue.push(job);
-        pump();
-      } catch {
-        settle(job, null);
-      }
-    })();
+    /* 不在这里就发请求 —— 取字节归 prep 那一档限流管，见 pumpPrep */
+    prep.push(job);
+    pumpPrep();
   });
 }
 
 /** 还没占槽位的活提前收场（盘上命中、字节拿不到、账本对不上） */
-function settle(job: Job, blob: Blob | null) {
+function settle(job: Job, blob: Blob | null, fromDisk = false) {
   waiting.delete(job.id);
   if (byKey.get(job.key) === job.id) byKey.delete(job.key);
   const url = blob ? URL.createObjectURL(blob) : null;
   if (url) {
     remember(job.key, url);
-    void persistDiskBlob(job.key, blob!);
+    /* 盘上来的那份不再写回盘 —— 实测重开一章因此白写 39 次 × 2.6MB，全在用户正看着的时候 */
+    if (!fromDisk) void persistDiskBlob(job.key, blob!);
   }
   for (const cb of job.cbs) cb(url);
   job.cbs.length = 0;
 }
 
 /**
- * 同步问一句：这张图的增强版是不是已经躺在那儿了。
- * 命中就能在 useLayoutEffect 里直接当 src 用 —— 第一次 paint 画的就是增强版。
+ * 把还排在队里的活往前挪（只准提前，不动已经在跑的那几张）。
+ * 章级预排的 prio 是"离章头多远"，用户跳到第 20 页时它就在第 20 号位 —— 由排版那一侧
+ * 按下屏的那一刻来纠偏。
  */
-export function peekEnhanced(src: string, targetW: number): string | null {
-  const key = keyOf(src, targetW);
-  if (bad.has(key) || targetW < 2) return null;
-  const hit = cache.get(key);
-  if (!hit) return null;
-  remember(key, hit);
-  markImageReady(hit);
-  return hit;
+export function raisePriority(key: string, prio: number) {
+  const id = byKey.get(key);
+  if (id === undefined) return;
+  const job = pool.find((p) => p?.id === id) ?? waiting.get(id);
+  if (job && (job.prio ?? 0) > prio) job.prio = prio;
 }
 
-/** 这一版挂上去失败过：这个键不再重试，免得退回原图后又被同一个坏地址顶上 */
-export function giveUp(src: string, targetW: number) {
-  bad.add(keyOf(src, targetW));
-}
+

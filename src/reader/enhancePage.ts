@@ -6,7 +6,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { markImageReady } from '@/components/RetryableImage';
-import { enhanceSource, giveUp, peekEnhanced, pinEnhanced, unpinEnhanced } from './enhance';
+import { giveUp, peekEnhanced, pinEnhanced, unpinEnhanced } from './enhanceCache';
+import { enhanceSource } from './enhance';
 
 /** 每张图自己的观察窗：章级预取排到章尾，这里只兜"没被排到"的情况（回翻、改宽度） */
 const OBSERVE_MARGIN = '200% 0px';

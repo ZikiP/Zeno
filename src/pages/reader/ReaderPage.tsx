@@ -186,12 +186,14 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   });
 
   /*
-   * 画面增强的章级预取。只在 images 到手那一刻排一次：往下的活由那条单 Worker
-   * 队列自己串行消化，中途不再按滚动重排（重排只会把已经在排的顺序打乱）。
+   * 画面增强的章级预取。章到手时排一次，之后每次挪位置再排一次 ——
+   * 后排的那次不重算任何东西，只把"以脚下为起点"的顺序纠回来
+   * （见 enhanceQueue.queueAhead：只准提前，不准延后）。
+   * 不往下的话，跳章/读到一半重进时会站在黑屏里等前面十几张算完。
    */
   useEffect(() => {
     if (prefs.value.enhanceScreen) prefetchChapterEnhancement(images, paging.startIndex);
-  }, [images, prefs.value.enhanceScreen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [images, prefs.value.enhanceScreen, paging.startIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 快捷键 ── */
   useReaderHotkeys(

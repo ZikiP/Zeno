@@ -5,18 +5,23 @@
  * **按什么顺序、提前多远**去要那一堆增强版。
  *
  * 为什么要预取到章尾：每张图自己那套 IntersectionObserver 只提前两屏
- * （见 enhancePage.ts 的 OBSERVE_MARGIN），而一页要算 500ms 且只有一台 Worker ——
+ * （见 enhancePage.ts 的 OBSERVE_MARGIN），而一页在 1440 显示宽下要算 600~900ms ——
  * 一秒滑过两屏就追不上。追不上的那些不是"先给你看原图"，而是黑底空白：
  * 增强版没就绪时那一页被按住不画（这是"不掉闪"换来的代价，别搞反）。
  * 实测对照（40 页合成章、冷开 1 秒后一下跳到章末）：不预取时 20 秒后仍空着 36 张，
  * 预取到章尾时同一时刻 40 张全已就绪。
  */
-import { bad, cache, enhanceSource, keyOf, seenKeys } from './enhance';
+import { enhanceSource, raisePriority } from './enhance';
+import { bad, cache, keyOf, seenKeys } from './enhanceCache';
 
 /**
  * 把整章的增强活排进队列：先脚下那一页，再一路往后。
  *
  * 幂等：已经算过、正在排、已经放弃的都跳过，所以翻到章末把它整个再叫一遍也不浪费。
+ * 已经排在队里的那些不重来，但会被**往前挪**（只准提前，不准延后）——
+ * 预排的 prio 按"离章头多远"算，人在第 20 页时那一页就排在第 20 号位，
+ * 于是脚下这一页要等前面十几张算完（实测黑 6.5 秒）。翻页/跳转后重新叫一次就是把
+ * 这个顺序纠回"以脚下为起点"。
  */
 export function queueAhead(srcs: readonly string[], targetW: number, fromIndex = 0): void {
   if (!srcs.length || targetW < 2) return;
@@ -24,8 +29,9 @@ export function queueAhead(srcs: readonly string[], targetW: number, fromIndex =
     const src = srcs[(fromIndex + i) % srcs.length];
     const key = keyOf(src, targetW);
     /* 越靠后的排得越远：prio 只要保证顺序就行，不必是真实像素距离 */
-    if (cache.has(key) || seenKeys.has(key) || bad.has(key)) continue;
-    void enhanceSource(src, targetW, i).catch(() => {});
+    if (cache.has(key) || bad.has(key)) continue;
+    if (seenKeys.has(key)) raisePriority(key, i);
+    else void enhanceSource(src, targetW, i).catch(() => {});
   }
 }
 
