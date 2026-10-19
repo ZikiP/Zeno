@@ -253,8 +253,15 @@ try {
   check(marks2.chapters.filter((c) => c.cached).length === 2, '标记也跟着少一个', JSON.stringify(marks2.chapters.map((c) => [c.id, c.state])));
 
   console.log('\n=== 5. 读完的章：过宽限期删，且按"读完那一刻"算 ===');
-  /* 进度写成 4 天前读完的：窗口是 2，未读只剩 ch3 —— ch2 虽在窗口内但已读，该走 */
-  await push({ positions: [{ pluginId: PLUGIN_ID, slug: SLUG, chapterId: '2', percent: 100, updatedAt: Date.now() - 4 * 24 * 3600_000 }] });
+  /*
+   * 先把锚点钉在第 1 章：不钉的话，"没有 last_chapter 就取进度最靠后的一章"那条兜底
+   * 会被下面这条已读记录触发、把窗口整个前移，这一节测的就不是"读完要删"了。
+   * 钉住之后窗口是 [ch1, ch3]：ch2 读完腾掉，ch3 补进来。
+   */
+  await push({
+    lastChapter: [{ pluginId: PLUGIN_ID, slug: SLUG, chapterId: '1', updatedAt: 1 }],
+    positions: [{ pluginId: PLUGIN_ID, slug: SLUG, chapterId: '2', percent: 100, updatedAt: Date.now() - 4 * 24 * 3600_000 }],
+  });
   await POST('/api/warm/sweep');
   await runRound('读完之后');
   st = await warm();
@@ -265,9 +272,10 @@ try {
     '标记现在是第 1、3 章',
     JSON.stringify(marks3.chapters.map((c) => [c.id, c.cached])),
   );
+  check((await cacheFiles()) === 6, '盘上是这两章的六张', `${await cacheFiles()} 张`);
 
   console.log('\n=== 6. 正在读的章不动刀 ===');
-  // ch1 也在窗口边缘，但进度是刚刚报的 → 该被"正在读"护栏留下
+  // ch1 掉出窗口（刚被标成读完），但进度是刚刚报的 → 字节该被"正在读"护栏留下
   await push({ positions: [{ pluginId: PLUGIN_ID, slug: SLUG, chapterId: '1', percent: 100, updatedAt: Date.now() }] });
   await POST('/api/warm/sweep');
   const afterGuard = await cacheFiles();
@@ -316,7 +324,53 @@ try {
   );
   check((await cacheFiles()) > 0, '此刻字节还在（一天内加回来就不删）', `${await cacheFiles()} 张`);
 
-  console.log('\n=== 9. 参数校验 ===');
+  console.log('\n=== 10. 中途开始读：窗口从你在读那一章往后开，不是从第一章 ===');
+  /*
+   * 用一本干净的 slug 单验：前面几节在 demo 上留了"已读"进度，而 percent=100
+   * 是防降级的（同步那边特意保护过），拿它当底子测出来的锚点说不清是谁的功劳。
+   *
+   * 这本假源有 3 章，用户从第 2 章开始读（前面在别处看过了），那么第 1 章
+   * 永远不会有进度 —— 按"最小的未读章"算的话，窗口就钉死在第 1 章，
+   * 每轮解它的地址、铺它的图，而那人永远不会翻回去。
+   */
+  const S2 = 'demo3';
+  const push2 = (what) => push({ shelf: [], bookPrefs: [], positions: [], lastChapter: [], ...what });
+  await push2({
+    plugins: [{ id: PLUGIN_ID, origin: 'imported', data: JSON.stringify(plugin), updatedAt: 1 }],
+    shelf: [{ pluginId: PLUGIN_ID, slug: S2, title: '中途开始', cover: '', addedAt: 9, updatedAt: 9 }],
+    bookPrefs: [{ pluginId: PLUGIN_ID, slug: S2, data: JSON.stringify({ warm: true }), updatedAt: 9 }],
+    lastChapter: [{ pluginId: PLUGIN_ID, slug: S2, chapterId: '2', updatedAt: 9 }],
+  });
+  await POST('/api/updates/check', { force: true });
+  await sleep(1500); // 那一轮是后台跑的，等它把 demo3 的章节表写进库
+  await POST('/api/warm/keep', { keep: 1 });
+  const filesBefore = await cacheFiles();
+  await runRound('锚在第 2 章');
+  const book2 = async () => (await GET(`/api/warm/book?pluginId=${PLUGIN_ID}&slug=${S2}`)).json;
+  let m = await book2();
+  check(
+    m.chapters.length === 1 && m.chapters[0].id === '2',
+    '窗口只含第 2 章：第 1 章没被铺',
+    JSON.stringify(m.chapters.map((c) => c.id)),
+  );
+  check(
+    (await cacheFiles()) - filesBefore === 3,
+    '盘上只多了这一章的三张',
+    `+${(await cacheFiles()) - filesBefore} 张`,
+  );
+
+  /* 往回补番也一样：锚点退到第 1 章，窗口跟着退，不是永远往前 */
+  await push2({ lastChapter: [{ pluginId: PLUGIN_ID, slug: S2, chapterId: '1', updatedAt: 10 }] });
+  await runRound('锚退回第 1 章');
+  await POST('/api/warm/sweep');
+  m = await book2();
+  check(
+    m.chapters.filter((c) => c.cached).map((c) => c.id).join(',') === '1',
+    '锚点退回 → 窗口跟着退回第 1 章，第 2 章掉出去',
+    JSON.stringify(m.chapters.map((c) => [c.id, c.cached])),
+  );
+
+  console.log('\n=== 11. 参数校验 ===');
   check((await GET('/api/warm/book')).status === 400, '缺 pluginId/slug 挡下来');
   check((await GET('/api/warm/book?pluginId=a/b&slug=x')).status === 400, 'pluginId 带 / 挡下来');
   check((await POST('/api/warm/keep', { keep: 'abc' })).status === 400, '保留章数不是个数就挡下来');

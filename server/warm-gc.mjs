@@ -23,31 +23,9 @@ const RECENT_MS = Number(process.env.ZENO_WARM_RECENT_MS || 24 * 3600_000);
 /** 铺失败（error）的章过了这么久重新排队：多半只是上游那一刻抽风 */
 const RETRY_MS = Number(process.env.ZENO_WARM_RETRY_MS || 24 * 3600_000);
 
-/** 这本书现在还追不追：在架 且 book_prefs.warm === true */
-function stillFollowed(d, pluginId, slug) {
-  if (!d.prepare('SELECT 1 FROM shelf WHERE plugin_id = ? AND slug = ?').get(pluginId, slug)) return false;
-  const pref = d.prepare('SELECT data FROM book_prefs WHERE plugin_id = ? AND slug = ?').get(pluginId, slug);
-  try {
-    return JSON.parse(pref?.data ?? '{}')?.warm === true;
-  } catch {
-    return false;
-  }
-}
-
-/** 这本书的章各自"什么时候读完的"。追漫的到期时间要跟着它，而不是跟着台账被碰的时间 */
-function readAt(d, pluginId, slug) {
-  const out = new Map();
-  for (const r of d
-    .prepare('SELECT chapter_id, updated_at FROM positions WHERE plugin_id = ? AND slug = ? AND percent >= ?')
-    .all(pluginId, slug, READ_AT)) {
-    out.set(r.chapter_id, r.updated_at);
-  }
-  return out;
-}
-
 /**
- * 这本书还在用的章，按客户端给的序号排；没序号的排在后面，照递交先后。
- * 已读的也算进来 —— 它们要被标掉，正因为要标掉才得先看见。
+ * 这本书还在用的章，按客户端给的序号排；没序号的排在后面，照进台账的先后。
+ * "该不该留"由 warm-ledger 的计划说了算，这里只负责把它们摆出来给它看。
  */
 function liveRows(d, pluginId, slug) {
   return d
@@ -59,14 +37,16 @@ function liveRows(d, pluginId, slug) {
 }
 
 /**
- * 扫一遍。keep 由调用方给（warm.mjs 持有那份配置），这里不反向 import 它。
+ * 扫一遍。plan 是 warm-ledger 的 followedBooks() —— 该留哪几章由它一处算，
+ * 这里只照着执行，不再自己算第二遍"最近 K 章"。
  *
  * 一轮做三件事：整本级的到期标记（打上/撤销）、把不该留的章标掉、把到期了的删干净。
  */
-export async function sweepWarm(keep) {
+export async function sweepWarm(plan) {
   const d = openDb();
   const now = Date.now();
   const out = { dropped: 0, freed: 0, files: 0, requeued: 0, scheduled: 0, cancelled: 0 };
+  const byBook = new Map(plan.map((b) => [`${b.pluginId}/${b.slug}`, b]));
 
   out.requeued = d
     .prepare('UPDATE warm SET state = ?, updated_at = ? WHERE state = ? AND updated_at < ?')
@@ -76,7 +56,7 @@ export async function sweepWarm(keep) {
 
   /* ── 1. 整本级：不追了 / 不在架 → 排上一天后清；追回来了 → 撤销 ── */
   for (const b of books) {
-    const followed = stillFollowed(d, b.plugin_id, b.slug);
+    const followed = byBook.has(`${b.plugin_id}/${b.slug}`);
     if (followed) {
       out.cancelled += d
         .prepare('UPDATE warm SET purge_at = NULL WHERE plugin_id = ? AND slug = ? AND purge_at IS NOT NULL')
@@ -88,23 +68,16 @@ export async function sweepWarm(keep) {
       .run(now + UNFOLLOW_GRACE_MS, b.plugin_id, b.slug).changes;
   }
 
-  /* ── 2. 章级：未读的最近 K 章之外，都标成不留 ── */
-  for (const b of books) {
-    if (!stillFollowed(d, b.plugin_id, b.slug)) continue; // 整本已经在等着清了，别再改它们的状态
-    const rows = liveRows(d, b.plugin_id, b.slug);
-    if (!rows.length) continue;
-    const read = readAt(d, b.plugin_id, b.slug);
-    let unread = 0;
-    for (const row of rows) {
-      // 未读的最近 K 章留下；读完的、以及 K 之外的那些都标掉
-      if (!read.has(row.chapter_id) && unread < keep) {
-        unread++;
-        continue;
-      }
+  /* ── 2. 章级：不在窗口里的那些，标成不留 ── */
+  for (const b of plan) {
+    // 还没数出章节表：不知道该留谁，这一本原样等下一轮（乱删会把刚铺好的删光）
+    if (!b.hasTable) continue;
+    for (const row of liveRows(d, b.pluginId, b.slug)) {
+      if (b.keepIds.has(row.chapter_id)) continue;
       d.prepare('UPDATE warm SET state = ?, updated_at = ? WHERE plugin_id = ? AND slug = ? AND chapter_id = ?').run(
         'dropped',
         now,
-        b.plugin_id,
+        b.pluginId,
         b.slug,
         row.chapter_id,
       );

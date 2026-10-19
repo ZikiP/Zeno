@@ -29,7 +29,7 @@ import {
   setSelf,
   settleRow,
 } from './warm-store.mjs';
-import { reconcileLedger } from './warm-ledger.mjs';
+import { followedBooks, reconcileLedger } from './warm-ledger.mjs';
 import { alreadyCached, totals } from './cache-store.mjs';
 import { cacheMaxBytes, cacheOn } from './cache-config.mjs';
 import { proxyLoad } from './proxy.mjs';
@@ -230,7 +230,7 @@ export async function handleWarmApi(req, res, url, auth) {
      * 不然新口径要等到下一轮（默认 15 分钟）才生效。
      */
     if (path === '/api/warm/sweep' && req.method === 'POST') {
-      json(res, 200, { ok: true, ...(await sweepWarm(keepChapters())) });
+      json(res, 200, { ok: true, ...(await sweepWarm(followedBooks())) });
       return true;
     }
     json(res, 404, { error: 'not found' });
@@ -253,7 +253,7 @@ export function startWarmLoop({ port, token } = {}) {
   const info = { keep: keepChapters(), loopMs: LOOP_MS, startDelayMs: START_DELAY_MS };
   const tick = async () => {
     try {
-      await sweepWarm(keepChapters());
+      await sweepWarm(followedBooks());
       await runWarmRound();
     } catch {
       /* 后台循环的失败不惊动用户：下一轮自己再来 */

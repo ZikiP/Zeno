@@ -24,13 +24,51 @@ const BOOK_GAP_MS = Number(process.env.ZENO_WARM_BOOK_GAP_MS || 1000);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * 开了追漫、且在架的书，各自"该铺的章"是哪几章。
+ * 这本书的窗口从哪一章开始算。
  *
- * 顺序照 chapter_ids（listChapters 末尾按 index 升序排过，那就是阅读顺序），
- * 已读的整段跳过 —— 已读章的字节走的是另一条到期路（读过 3 天后腾盘）。
+ * **从"你正在读的那一章"往后数，不是从头数。** 中途开始看的书（从第 300 话补起）
+ * 前面几百章根本没有进度记录，按"最小的未读章"算的话，窗口永远钉在第 1 章，
+ * 而那几章你永远不会去读 —— 铺下来的全是白铺，还每轮重新解一遍地址。
+ *
+ * 锚点跟着你走：往回补番时 last_chapter 会退到前面那一章，窗口于是也跟着退，
+ * 这才是"我读到哪儿、缓存铺到哪儿"。
+ */
+function anchorIndex(d, pluginId, slug, chapters) {
+  const idxOf = new Map(chapters.map((c) => [c.id, c.index]));
+  const last = d
+    .prepare('SELECT chapter_id, chapter_index FROM last_chapter WHERE plugin_id = ? AND slug = ?')
+    .get(pluginId, slug);
+  if (last) {
+    // 优先用本次那份章节表里的序号：它是候选集同一把尺子，量出来的才可比
+    const i = idxOf.get(last.chapter_id);
+    if (i != null) return i;
+    if (Number.isFinite(last.chapter_index)) return last.chapter_index;
+  }
+  /*
+   * 没有"读到哪一章"这条记录（老设备、或从没同步过书架进度）：退一步，
+   * 拿进度表里最靠后的一章当锚点。再没有就是 0 —— 那是一本真没碰过的书，
+   * 从第一章铺是对的。
+   */
+  let best = null;
+  for (const p of d
+    .prepare('SELECT chapter_id FROM positions WHERE plugin_id = ? AND slug = ? AND percent > 0')
+    .all(pluginId, slug)) {
+    const i = idxOf.get(p.chapter_id);
+    if (i != null && (best === null || i > best)) best = i;
+  }
+  return best ?? 0;
+}
+
+/**
+ * 每本开了追漫的书：窗口该有哪几章、还缺哪几章。
+ *
+ * 这份计划**同时喂给两边** —— 补齐台账要照着它去解地址，保留策略要照着它把掉出窗口的
+ * 标掉。两处各算一遍"最近 K 章"是迟早要分叉的：一边按锚点往前数、另一边按最小序号留，
+ * 结果就是刚铺好的章下一轮被自己删掉。
  */
 export function followedBooks() {
   const d = openDb();
+  const keep = keepChapters();
   const out = [];
   for (const s of d.prepare('SELECT plugin_id, slug FROM shelf').all()) {
     const pref = d.prepare('SELECT data FROM book_prefs WHERE plugin_id = ? AND slug = ?').get(s.plugin_id, s.slug);
@@ -45,9 +83,15 @@ export function followedBooks() {
     const upd = d.prepare('SELECT chapter_ids FROM updates WHERE key = ?').get(`${s.plugin_id}/${s.slug}`);
     let chapters = [];
     try {
-      chapters = JSON.parse(upd?.chapter_ids ?? '[]');
+      chapters = JSON.parse(upd?.chapter_ids ?? '[]').filter((c) => c?.id && Number.isFinite(c.index));
     } catch {
       chapters = [];
+    }
+    // 没数过章节表的书这轮跳过：追更循环还没跑到它，下一轮就有了。
+    // hasTable=false 是给保留策略看的 —— 不知道该留谁的时候，一本都不许删。
+    if (!chapters.length) {
+      out.push({ pluginId: s.plugin_id, slug: s.slug, anchor: 0, hasTable: false, keepIds: new Set(), missing: [] });
+      continue;
     }
     const read = new Set(
       d
@@ -55,12 +99,16 @@ export function followedBooks() {
         .all(s.plugin_id, s.slug, READ_AT)
         .map((r) => r.chapter_id),
     );
+    const anchor = anchorIndex(d, s.plugin_id, s.slug, chapters);
+    const window = chapters.filter((c) => c.index >= anchor && !read.has(c.id)).slice(0, keep);
+    const have = warmIds(s.plugin_id, s.slug);
     out.push({
       pluginId: s.plugin_id,
       slug: s.slug,
-      // 没数过章节表的书这轮跳过：追更循环还没跑到它，下一轮就有了
-      unread: chapters.filter((c) => c?.id && !read.has(c.id)),
-      have: warmIds(s.plugin_id, s.slug),
+      anchor,
+      hasTable: true,
+      keepIds: new Set(window.map((c) => c.id)),
+      missing: window.filter((c) => !have.has(c.id)),
     });
   }
   return out;
@@ -73,7 +121,6 @@ export function followedBooks() {
  * 追漫不该把他挤出去。fetch 模式的站不占槽，照解。
  */
 export async function reconcileLedger() {
-  const keep = keepChapters();
   const byId = new Map(installedPlugins().map((p) => [p.meta?.id, p]));
   const summary = { resolved: 0, queued: 0, failed: 0, skipped: 0 };
   let budget = RESOLVE_PER_ROUND;
@@ -85,7 +132,7 @@ export async function reconcileLedger() {
       summary.skipped++; // 源被卸了。台账留着，等它装回来
       continue;
     }
-    const targets = book.unread.filter((c) => !book.have.has(c.id)).slice(0, Math.min(keep, budget));
+    const targets = book.missing.slice(0, Math.min(keepChapters(), budget));
     for (const c of targets) {
       if (budget <= 0) break;
       budget--;
