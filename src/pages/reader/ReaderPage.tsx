@@ -5,6 +5,7 @@ import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
 import { usePrefetchNextChapter } from './usePrefetch';
+import { prefetchChapterEnhancement } from '@/reader/enhanceQueue';
 import { useChapterLoader } from './useChapterLoader';
 import { useChapterNeighbors } from './useChapterNeighbors';
 import { useBookmarks } from './useBookmarks';
@@ -176,7 +177,21 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   useKeepAwake(prefs.value.keepAwake, !!images);
   const fs = useImmersiveFullscreen(prefs.value.immersive);
   useImagePreload(images, paging.startIndex, paging.perPage, mode === 'paged');
-  usePrefetchNextChapter({ plugin, slug, nextId, ready: !!images && !loading && !error });
+  usePrefetchNextChapter({
+    plugin,
+    slug,
+    nextId,
+    ready: !!images && !loading && !error,
+    perPage: paging.perPage,
+  });
+
+  /*
+   * 画面增强的章级预取。只在 images 到手那一刻排一次：往下的活由那条单 Worker
+   * 队列自己串行消化，中途不再按滚动重排（重排只会把已经在排的顺序打乱）。
+   */
+  useEffect(() => {
+    if (prefs.value.enhanceScreen) prefetchChapterEnhancement(images, paging.startIndex);
+  }, [images, prefs.value.enhanceScreen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 快捷键 ── */
   useReaderHotkeys(

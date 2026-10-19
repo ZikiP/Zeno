@@ -32,6 +32,12 @@ export interface RetryableImageProps {
    * 重试三次也不会变成能加载，该让出地方换回原图。
    */
   onSourceFailed?: () => void;
+  /**
+   * 强制先不画：内容为「还没到」而不是「坏了」。
+   * 画面增强用它 —— 增强版没就绪时宁可留一张空的（阅读器底色就是黑的，
+   * 看着和这一页还在加载一样），也不要先画原图再半秒后硬换成增强版。
+   */
+  hidden?: boolean;
 }
 
 const RETRY_DELAYS = [0, 600, 1800];
@@ -117,6 +123,7 @@ export function RetryableImage({
   onDoubleClick,
   onContextMenu,
   onSourceFailed,
+  hidden,
 }: RetryableImageProps) {
   const [state, setState] = useState<ImageState>(() =>
     readySrcs.has(src) ? 'ok' : 'loading',
@@ -209,7 +216,7 @@ export function RetryableImage({
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
-      style={{ opacity: state === 'ok' ? 1 : 0 }}
+      style={{ opacity: !hidden && state === 'ok' ? 1 : 0 }}
       onLoad={() => {
         markReady(src);
         noteFailed(src, false);

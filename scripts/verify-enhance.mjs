@@ -15,7 +15,9 @@
  * 顺带量出来一条和直觉相反的事实：桌面 1400 宽的窗口下，滚动模式要把 959 的源页
  * 撑到 1400 —— 放大 1.46 倍，比手机上那 1.22 倍还狠。"桌面不需要增强"是想当然。
  *
- * 再拿 rAF 逐帧盯住第一张页图的透明度，换图过程中不许出现 0。
+ * 再拿 rAF 逐帧盯住第一张页图的透明度：**已经画出来之后**不许再回到透明。
+ * （门控改了新语义：增强版没就绪时那一页本来就是空的，所以"第一次画之前就透明"
+ * 不算闪 —— startOpacityWatch 里的 ready 正是这道分界。）
  *
  * 跑法：node scripts/verify-enhance.mjs
  * 不进 npm test：要真浏览器 + 外网。
@@ -34,6 +36,10 @@ const PLUGIN = 'baozimh';
 const SLUG = 'woduzishengji-duburedicestudio';
 /** 和 verify-autojump 同一本同一章：这一章的页图是 959 宽，手机上正好要放大 */
 const CHAPTER = '0_113';
+
+/** 和 src/reader/enhance.ts 的 CACHE_MAX 对齐（从源码里读，免得两边各写一个数） */
+const ENHANCE_CACHE_MAX =
+  Number(readFileSync(join(ROOT, 'src/reader/enhance.ts'), 'utf8').match(/CACHE_MAX = (\d+)/)?.[1]) || 12;
 
 let fails = 0;
 const check = (ok, msg) => {
@@ -319,8 +325,11 @@ async function run(label, viewport, opts) {
     check(swept.broken === 0, `坏图 ${swept.broken} 张（在场 ${swept.imgs} 张、挂着增强版 ${swept.blob} 张）`);
     if (!paged) {
       /* 滚动模式 50 页全挂在 DOM 上，所以留存数会越过上限；分页模式台面只有两张，
-         越过上限反而是错的，那一档由上面两条把关 */
-      check(swept.blob > 12, `留存增强图 ${swept.blob} 张 > 缓存上限 12 —— "还在显示的不许撤销"这条生效了`);
+         越过上限反而是错的，那一档由上面两条把关。上限跟 src/reader/enhance.ts 的 CACHE_MAX */
+      check(
+        swept.blob > ENHANCE_CACHE_MAX || swept.imgs <= ENHANCE_CACHE_MAX,
+        `留存增强图 ${swept.blob} 张（上限 ${ENHANCE_CACHE_MAX}，在场 ${swept.imgs} 张）—— "还在显示的不许撤销"这条生效了`,
+      );
     }
     check(errors.length === errBase, `走过 ${paged ? '16 次翻页' : '整章'}没有引出报错`);
     await page.screenshot({ path: join(ROOT, `dist/on-${paged ? 'paged' : 'phone'}.png`), clip: { x: 0, y: 0, width: 390, height: 520 } });

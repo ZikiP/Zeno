@@ -12,7 +12,8 @@
  *   PNG  95ms / 2.6MB / 锐度 100% 保留
  *   WebP 407ms / 0.65MB / 96%
  * 慢四倍还顺手把刚补出来的高频糊回去一点，而这功能卖的就是那一点高频。
- * 体积不是问题：这些 blob 只在内存里活几分钟，不落盘、不进缓存。
+ * 体积在内存里用不上（blob 只是 <img> 的 src），但**盘上是会存的**：
+ * 主线程会把这份写进 Cache Storage（见 enhance.ts 的 persist），重读同一章不重算。
  */
 import { enhance, targetHeight, type Pixels } from './enhanceCore';
 

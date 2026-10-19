@@ -27,7 +27,7 @@ export default function ExperimentPanel() {
         <Row
           icon={<IconZoom size={18} />}
           label="画面增强"
-          hint="页面图比屏幕窄时（手机和高倍屏上最常见），改由本机按显示尺寸重新采样并补一档高频，线条和小字更利落。每张图晚约半秒出，费一点电；源图本来就够宽时不会动它。"
+          hint="页面图比屏幕窄时（手机和高倍屏上最常见），改由本机按显示尺寸重新采样并补一档高频，线条和小字更利落。增强版没算好之前这一页先空着（第一次打开一章约半秒），不会先给你看模糊的原图再换；算过的页回来还是那张增强图，不再换一次。费一点电；源图本来就够宽时不会动它。"
           control={<div className={`switch${prefs.value.enhanceScreen ? ' on' : ''}`} />}
           onClick={() => prefs.patch({ enhanceScreen: !prefs.value.enhanceScreen })}
         />
