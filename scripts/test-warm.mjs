@@ -14,6 +14,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -144,6 +145,23 @@ const cacheFiles = async () => (await GET('/api/cache')).json.files;
 const push = (what) =>
   POST('/api/sync/push', { deviceId: 'test', seq: 0, plugins: [], shelf: [], positions: [], bookPrefs: [], ...what });
 
+/**
+ * 把台账时间整体推到某个时刻，用完记得推回去。
+ *
+ * 只从接口是造不出"这一行被动过但没重铺"的状态的 —— 在册的章根本不会再解一遍，
+ * 而真会碰 updated_at 的两条路（标掉/失败重排）在这个 env 下都当场就把行删了
+ * （宽限期设的 0）。所以直接从外面改，改完立刻改回去，别影响后面几节的腾盘判断。
+ */
+function pokeLedgerTime(ts) {
+  const d = new DatabaseSync(join(BASE_DIR, 'zeno.db'));
+  try {
+    d.exec('PRAGMA busy_timeout = 3000');
+    d.prepare('UPDATE warm SET updated_at = ?').run(ts);
+  } finally {
+    d.close();
+  }
+}
+
 const plugin = {
   format: 'zeno-plugin@1',
   meta: { id: PLUGIN_ID, name: '本地合成源', description: '追漫测试用', author: 'local', version: '1.0.0', icon: '🧪' },
@@ -244,10 +262,46 @@ try {
   check(marks.chapters.length === 3 && marks.chapters.every((c) => c.cached), '标记端点：三章都报"已缓存"', JSON.stringify(marks.chapters.map((c) => c.cached)));
   check(marks.chapters[0].id === '1' && marks.chapters[2].id === '3', '标记按阅读顺序回', marks.chapters.map((c) => c.id).join(','));
 
+  console.log('\n=== 2b. 缓存记录：设置页那一栏列的就是这个 ===');
+  const log = (await GET('/api/warm/log')).json;
+  check(
+    log.records.length === 3 && log.records.every((r) => r.state === 'done' && r.title === '合成漫画'),
+    '三章都在，书名是从书架那行带出来的',
+    JSON.stringify(log.records.map((r) => [r.title, r.state])),
+  );
+  check(
+    log.records.every((r) => r.got === 3 && r.bytes > 0),
+    '每条记了三张和字节',
+    JSON.stringify(log.records.map((r) => [r.got, r.bytes])),
+  );
+  check(log.warm.files === 9 && log.warm.bytes > 0, '汇总只算在册的（queued/running/done）', JSON.stringify(log.warm));
+  check(
+    log.records.every((r, i) => i === 0 || log.records[i - 1].at >= r.at),
+    '按铺完那一刻倒序',
+    JSON.stringify(log.records.map((r) => r.at)),
+  );
+  const atOf = Object.fromEntries(log.records.map((r) => [r.chapterId, r.at]));
+  const order = log.records.map((r) => r.chapterId).join(',');
+
   console.log('\n=== 3. 重跑一轮不重下 ===');
   const imgHits = hits.img;
   await runRound('重跑');
   check(hits.img === imgHits, '一张图都没重新回源', `${imgHits} → ${hits.img}`);
+
+  console.log('\n=== 3b. 记录记的是进盘那一刻，不是台账时间 ===');
+  /*
+   * 把台账时间推到半小时"以后"再看记录。它要是跟着漂，说明排的是 updated_at ——
+   * 那种时间被标掉、重排队都会碰，跟"这堆字节什么时候进盘的"不是一回事。
+   */
+  pokeLedgerTime(Date.now() + 30 * 60_000);
+  const log2 = (await GET('/api/warm/log')).json.records;
+  pokeLedgerTime(Date.now() - 60_000);
+  check(
+    log2.every((r) => r.at === atOf[r.chapterId]),
+    '台账时间被推走，记录时间没动',
+    JSON.stringify(log2.map((r) => [r.chapterId, r.at, atOf[r.chapterId]])),
+  );
+  check(log2.map((r) => r.chapterId).join(',') === order, '顺序也没跟着漂', `${order} → ${log2.map((r) => r.chapterId).join(',')}`);
 
   console.log('\n=== 4. 窗口收窄：keep=2 之后掉出去的那章腾盘 ===');
   check((await POST('/api/warm/keep', { keep: 2 })).json.keep === 2, '保留章数改成 2');
@@ -297,6 +351,13 @@ try {
     JSON.stringify(scheduled.chapters.map((c) => c.purgeAt)),
   );
   check((await cacheFiles()) >= 6, '字节此刻还在', `${await cacheFiles()} 张`);
+  /* 记录里也得看得见"这颗章已经排上到期了" —— 界面那顆「待腾盘」标签就靠它 */
+  const logP = (await GET('/api/warm/log')).json.records;
+  check(
+    logP.length > 0 && logP.every((r) => r.purgeAt > Date.now() - 5000),
+    '记录带着到期时间',
+    JSON.stringify(logP.map((r) => [r.chapterId, r.purgeAt])),
+  );
 
   await push({ bookPrefs: [{ pluginId: PLUGIN_ID, slug: SLUG, data: JSON.stringify({ warm: true }), updatedAt: 4 }] });
   await POST('/api/warm/sweep');

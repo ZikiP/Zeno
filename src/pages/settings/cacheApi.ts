@@ -62,6 +62,34 @@ export interface WarmStatus {
 
 export const getWarmStatus = () => serverCall<WarmStatus>('/api/warm');
 
+/** 一条落盘记录：台账里的一章，配上书架上的书名 */
+export interface WarmRecord {
+  pluginId: string;
+  slug: string;
+  title: string;
+  chapterId: string;
+  /** 站点自己的话数；老递交没带序号时为 null */
+  idx: number | null;
+  state: 'queued' | 'running' | 'done' | 'error' | 'dropped';
+  got: number;
+  bytes: number;
+  /** 铺完那一刻；没铺完的按台账时间 */
+  at: number;
+  /** 整本取消追漫 / 移出书架后排上的到期时间 */
+  purgeAt: number | null;
+  /** 铺了但不全（站点没写页码标记，只认了第 1 页） */
+  partial: boolean;
+}
+
+export interface WarmLog {
+  records: WarmRecord[];
+  /** 在册（queued/running/done）的一共多少张、多少字节 */
+  warm: { files: number; bytes: number };
+}
+
+export const getWarmLog = (limit = 50) =>
+  serverCall<WarmLog>(`/api/warm/log?limit=${limit}`);
+
 export const saveWarmKeep = (keep: number) =>
   serverCall<{ keep: number }>('/api/warm/keep', { method: 'POST', body: JSON.stringify({ keep }) });
 

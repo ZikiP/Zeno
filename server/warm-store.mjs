@@ -196,3 +196,53 @@ export function bookLedger(pluginId, slug) {
 export function resumeRunning() {
   return openDb().prepare("UPDATE warm SET state = 'queued' WHERE state = 'running'").run().changes;
 }
+
+/**
+ * 落盘记录：最近铺完的章，各带书名、张数、字节。设置页那一栏列的就是这个。
+ *
+ * 时间取 `warmed_at`（首次铺完那一刻），不是台账时间 `updated_at`。后者记的是
+ * "这一行上一次被动过"—— 掉出窗口被标掉、补回来重排队都会碰它，而记录要回答的是
+ * "这堆字节什么时候进盘的"。没铺完的行没有 warmed_at，排在铺完的后面按台账时间：
+ * 它们一个字节都还没有，摆在最前面只会让人以为刚铺了什么。
+ *
+ * 书名 LEFT JOIN 书架：整本取消追漫之后 shelf 那行可能先没了（移出书架），
+ * 而台账还要留一天反悔，这时退回显示 slug，别让记录凭空变成空白。
+ */
+export function cacheRecords(limit = 50) {
+  const n = Math.min(500, Math.max(1, Math.round(Number(limit)) || 50));
+  return openDb()
+    .prepare(
+      `SELECT w.plugin_id, w.slug, w.chapter_id, w.idx, w.state, w.got, w.bytes,
+              w.warmed_at, w.updated_at, w.purge_at, w.error, s.title
+         FROM warm w
+         LEFT JOIN shelf s ON s.plugin_id = w.plugin_id AND s.slug = w.slug
+        ORDER BY CASE WHEN w.warmed_at IS NULL THEN 1 ELSE 0 END,
+                 COALESCE(w.warmed_at, w.updated_at) DESC
+        LIMIT ?`,
+    )
+    .all(n)
+    .map((r) => ({
+      pluginId: r.plugin_id,
+      slug: r.slug,
+      title: r.title ?? r.slug,
+      chapterId: r.chapter_id,
+      idx: r.idx,
+      state: r.state,
+      /** 铺到几张。之后被 LRU 裁掉的不回溯 —— 这记的是"铺的那一刻" */
+      got: r.got,
+      bytes: r.bytes,
+      at: r.warmed_at ?? r.updated_at,
+      purgeAt: r.purge_at,
+      partial: !!r.error,
+    }));
+}
+
+/** 追漫在册的这些章一共占了多少。界面用它那句"其余是阅读时现取的" */
+export function warmBytes() {
+  const r = openDb()
+    .prepare(
+      "SELECT COALESCE(SUM(got), 0) AS files, COALESCE(SUM(bytes), 0) AS bytes FROM warm WHERE state IN ('queued','running','done')",
+    )
+    .get();
+  return { files: r.files, bytes: r.bytes };
+}

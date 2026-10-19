@@ -17,6 +17,7 @@
  */
 import {
   bookLedger,
+  cacheRecords,
   claimRow,
   failRow,
   keepChapters,
@@ -28,6 +29,7 @@ import {
   selfToken,
   setSelf,
   settleRow,
+  warmBytes,
 } from './warm-store.mjs';
 import { followedBooks, reconcileLedger } from './warm-ledger.mjs';
 import { alreadyCached, totals } from './cache-store.mjs';
@@ -218,6 +220,15 @@ export async function handleWarmApi(req, res, url, auth) {
         return true;
       }
       json(res, 200, { keep: keepChapters(), chapters: bookLedger(pluginId, slug) });
+      return true;
+    }
+    /*
+     * 落盘记录：给设置页那栏列"盘上这些字节是哪一章、什么时候铺的、多大"。
+     * 只翻台账，不碰缓存目录 —— 那边 cache_index 记的是 URL 的 sha256，
+     * 单看它认不出是谁的哪一章。
+     */
+    if (path === '/api/warm/log' && req.method === 'GET') {
+      json(res, 200, { records: cacheRecords(url.searchParams.get('limit') ?? 50), warm: warmBytes() });
       return true;
     }
     if (path === '/api/warm/keep' && req.method === 'POST') {

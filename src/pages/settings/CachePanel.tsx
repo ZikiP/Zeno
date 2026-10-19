@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Field, FieldGroup } from '@/components/FormKit';
 import { formatBytes } from '@/store/utils';
+import CacheRecords from './CacheRecords';
 import DirPicker from './DirPicker';
 import {
   eraseCache,
@@ -14,14 +15,6 @@ import {
 } from './cacheApi';
 
 const MB = 1024 * 1024;
-
-/** 服务端那一轮为什么停下来了。给的是人话，不是状态码 */
-const PAUSE_LABEL: Record<string, string> = {
-  'cache-full': '盘到上限了',
-  'cache-off': '缓存关着',
-  'reader-busy': '有人在读，让路',
-  budget: '这一轮时间用完，下轮继续',
-};
 
 /**
  * 服务端图片缓存
@@ -40,6 +33,8 @@ export default function CachePanel() {
   const [picking, setPicking] = useState(false);
   const [warm, setWarm] = useState<WarmStatus | null>(null);
   const [keep, setKeep] = useState('');
+  /** 改过盘上的东西就 +1，让下面那栏缓存记录跟着重取 */
+  const [tick, setTick] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -92,6 +87,7 @@ export default function CachePanel() {
         const swept = await sweepWarmNow();
         setWarm(await getWarmStatus());
         setKeep(String(r.keep));
+        setTick((t) => t + 1);
         setNote((n) => `${n ?? ''} 保留 ${r.keep} 章，腾出 ${swept.files} 张`.trim());
       }
     } catch (e) {
@@ -108,6 +104,7 @@ export default function CachePanel() {
     try {
       setSt(await eraseCache());
       setNote('已清空');
+      setTick((t) => t + 1);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -150,20 +147,6 @@ export default function CachePanel() {
                 {st.freeBytes === null ? '目录还没建出来' : formatBytes(st.freeBytes)}
               </span>
             </div>
-            {warm && (
-              <div className="settings-row">
-                <span className="settings-row__name">追漫在册</span>
-                <span className="settings-row__value">
-                  {`${warm.states?.done ?? 0} 章已铺 · ${warm.pending} 章在等`}
-                  {/*
-                   * 卡住的原因必须写在脸上。这一栏静默退化过同类问题：
-                   * 用户开着追漫、服务端其实一章都没铺，界面上却一切正常。
-                   */
-                  }
-                  {warm.lastRound?.paused ? ` · 暂停：${PAUSE_LABEL[warm.lastRound.paused] ?? warm.lastRound.paused}` : ''}
-                </span>
-              </div>
-            )}
           </div>
 
           {st.enabled && (
@@ -171,6 +154,8 @@ export default function CachePanel() {
               <div className="settings-progress__bar" style={{ width: `${usedPct}%` }} />
             </div>
           )}
+
+          <CacheRecords warm={warm} tick={tick} />
 
           <FieldGroup>
             {/*

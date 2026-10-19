@@ -523,4 +523,13 @@
   background: rgba(16, 185, 129, 0.15);
   color: #34d399;
 }
+/* 缓存记录里那两种"不算就绪"：琥珀=铺砸了/只铺了一半，灰=马上就腾掉 */
+.badge-warn {
+  background: color-mix(in oklab, var(--warn) 15%, transparent);
+  color: var(--warn);
+}
+.badge-dim {
+  background: color-mix(in oklab, var(--text-faint) 15%, transparent);
+  color: var(--text-faint);
+}
 
