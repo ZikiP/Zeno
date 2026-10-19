@@ -287,6 +287,30 @@ try {
   const atOf = Object.fromEntries(log.records.map((r) => [r.chapterId, r.at]));
   const order = log.records.map((r) => r.chapterId).join(',');
 
+  console.log('\n=== 2c. 已铺完的章：客户端能抄到地址表 ===');
+  /*
+   * 这条通路省掉的是"进一章要先回站点把章节页重取一遍"（真站实测第一次 1.77 秒、
+   * 之后 0.42 秒，那段时间屏幕上是空的）。判据两半：铺完的行才给、老过 TTL 的行不给。
+   */
+  const one = await GET('/api/warm/chapter?pluginId=fakesrc&slug=demo&chapterId=1');
+  check(one.status === 200 && one.json.images?.length === 3, '铺完的章回了三张的地址表', `${one.status}/${one.json.images?.length}`);
+  check(
+    (one.json.images ?? []).every((u) => u.startsWith(SRC)),
+    '回的是上游地址，不是 /api/proxy 那种形态（客户端自己包）',
+    String(one.json.images?.[0]),
+  );
+  check(one.json.got === 3, '顺带回了几张已经进盘', `got=${one.json.got}`);
+  check((await GET('/api/warm/chapter?pluginId=fakesrc&slug=demo&chapterId=999')).status === 404, '没铺过的章 → 404（等于"这题我不知道"）');
+  check((await GET('/api/warm/chapter?pluginId=fakesrc&slug=demo')).status === 400, '不带 chapterId → 400');
+  const now = Date.now();
+  pokeLedgerTime(now - 4 * 24 * 60 * 60_000);
+  check(
+    (await GET('/api/warm/chapter?pluginId=fakesrc&slug=demo&chapterId=1')).status === 404,
+    '表老过三天 → 不给，宁可客户端回站点重取（站点的地址签名会换）',
+  );
+  pokeLedgerTime(now);
+  check((await GET('/api/warm/chapter?pluginId=fakesrc&slug=demo&chapterId=1')).status === 200, '时间推回去就又给了');
+
   console.log('\n=== 3. 重跑一轮不重下 ===');
   const imgHits = hits.img;
   await runRound('重跑');

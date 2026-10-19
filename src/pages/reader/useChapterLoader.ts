@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getChapter } from '@/site/engine';
 import type { Plugin } from '@/site/types';
 import { getCachedChapter, saveChapterTable } from '@/store/chapters';
+import { fetchWarmChapterImages } from '@/store/useWarmFollow';
 import { savePosition } from '@/store/shelf';
 
 /**
@@ -77,6 +78,21 @@ export function useChapterLoader(
         }
 
         setFromCache(false);
+        /*
+         * 服务端追漫时已经把这张表的地址解出来了，先问它抄一份 —— 省掉的是"为了拿
+         * 地址表而回站点重取章节页"那 0.4~1.8 秒（这段屏幕上什么都没有）。
+         * 问不到（没铺过、太老、服务端不通）就是 null，照下面的老路走。
+         */
+        const warm = await fetchWarmChapterImages(pluginId!, slug, chapterId);
+        if (cancelled) return;
+        if (warm) {
+          setImages(warm);
+          setLoading(false);
+          // 存一份，下次连问服务端都不用
+          void saveChapterTable(pluginId!, slug, chapterId, warm);
+          return;
+        }
+
         const result = await getChapter(plugin, slug, chapterId);
         if (cancelled) return;
 

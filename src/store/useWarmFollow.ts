@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getBookPrefs, saveBookPrefs } from '@/store/bookPrefs';
 import { onDataChange } from '@/store/dataEvents';
+import { proxied } from '@/site/fetch';
 import type { Plugin } from '@/site/types';
 import { serverCall } from '@/sync/serverCall';
 import { sync } from '@/sync/client';
@@ -41,6 +42,32 @@ export async function fetchWarmBook(pluginId: string, slug: string): Promise<War
     marks[id] = mark;
   }
   return { keep: r.keep ?? 0, marks };
+}
+
+/**
+ * 一章**已经在服务端铺完**的图片地址表，没有就 null。
+ *
+ * 进章本来要先为了这张表回站点把章节页重取一遍 —— 实测 baozimh 第一次 1.77 秒、
+ * 之后每次 0.42 秒，而这段时间屏幕上什么都没有。服务端铺图时已经把这张表解出来了
+ * （warm 表的 images 列），问一句就省掉这一整段。
+ *
+ * 回的是上游地址，这里过一道 `proxied()` 换成 /api/proxy 那种形态 —— 跟
+ * engine.getChapter 交出来的字符串一模一样，盘上那些字节的键才对得上。
+ *
+ * 任何失败都当"没铺过"：离线、服务端没这一行、超时，都让调用方照老路走。
+ * 超时给 3 秒而不是 serverCall 默认的 15 秒 —— 这条是捷径，捷径不该比正路还慢。
+ */
+export async function fetchWarmChapterImages(pluginId: string, slug: string, chapterId: string): Promise<string[] | null> {
+  try {
+    const r = await serverCall<{ images?: string[] }>(
+      `/api/warm/chapter?pluginId=${encodeURIComponent(pluginId)}&slug=${encodeURIComponent(slug)}&chapterId=${encodeURIComponent(chapterId)}`,
+      undefined,
+      3_000,
+    );
+    return r.images?.length ? r.images.map((u) => proxied(u)) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

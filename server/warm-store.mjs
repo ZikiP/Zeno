@@ -192,6 +192,38 @@ export function bookLedger(pluginId, slug) {
     }));
 }
 
+/**
+ * 一章**铺完了**的图片地址表。
+ *
+ * 给客户端进章时抄近道用：这一列就是上一行 reconcileLedger 解出来的那份上游地址，
+ * 而客户端本来要为了拿到它而回站点重取一次章节页（实测 baozimh 第一次 1.77 秒、
+ * 往后每次 0.42 秒，这段时间屏幕上什么都没有）。
+ *
+ * 只认 `state='done'`、没有 error、而且**不太老**的行。
+ * 老的判据是 3 天（ZENO_WARM_TABLE_TTL_MS 能改）：不少站的图片地址带着会换的签名，
+ * 过老的那张表宁可让客户端回站点重取一遍（实测 0.4 秒）也别赌它还没变。
+ * 追漫刚铺完的章都在这个窗口里，走慢路的只有那种铺完好些天又没读到的积压章。
+ *
+ * 铺了一半的行也不给：那张表要么缺尾，要么是换签名之前的老地址，
+ * 递给客户端等于递一堆 404。行没解出来（error 那行是 markUnresolved 写的空表）同样返回 null。
+ */
+const TABLE_TTL_MS = Math.max(0, Number(process.env.ZENO_WARM_TABLE_TTL_MS || 3 * 24 * 60 * 60 * 1000));
+
+export function warmChapterImages(pluginId, slug, chapterId) {
+  const r = openDb()
+    .prepare('SELECT images, state, got, error, updated_at FROM warm WHERE plugin_id = ? AND slug = ? AND chapter_id = ?')
+    .get(pluginId, slug, chapterId);
+  if (!r || r.state !== 'done' || r.error) return null;
+  if (Date.now() - Number(r.updated_at || 0) > TABLE_TTL_MS) return null;
+  let images;
+  try {
+    images = JSON.parse(r.images);
+  } catch {
+    return null;
+  }
+  return Array.isArray(images) && images.length ? { images, got: r.got } : null;
+}
+
 /** 上次崩在半路的行重新排队。返回重排了几行 */
 export function resumeRunning() {
   return openDb().prepare("UPDATE warm SET state = 'queued' WHERE state = 'running'").run().changes;

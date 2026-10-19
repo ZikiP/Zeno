@@ -30,6 +30,7 @@ import {
   setSelf,
   settleRow,
   warmBytes,
+  warmChapterImages,
 } from './warm-store.mjs';
 import { followedBooks, reconcileLedger } from './warm-ledger.mjs';
 import { alreadyCached, totals } from './cache-store.mjs';
@@ -220,6 +221,25 @@ export async function handleWarmApi(req, res, url, auth) {
         return true;
       }
       json(res, 200, { keep: keepChapters(), chapters: bookLedger(pluginId, slug) });
+      return true;
+    }
+    /*
+     * 一章铺完了的地址表。客户端进这一章时先问一句，答得上来就不用为了拿这张表
+     * 回站点重取一次章节页（实测省下 0.4~1.8 秒的黑屏）。
+     *
+     * 没铺过、铺了一半、解出错 → 404。这不是错误分支，是"这题我不知道"，
+     * 所以响应里没有 error 之外的说法，客户端拿到 404 直接走老路。
+     */
+    if (path === '/api/warm/chapter' && req.method === 'GET') {
+      const pluginId = url.searchParams.get('pluginId') ?? '';
+      const slug = url.searchParams.get('slug') ?? '';
+      const chapterId = url.searchParams.get('chapterId') ?? '';
+      if (!pluginId || !slug || !chapterId || pluginId.includes('/') || slug.includes('/')) {
+        json(res, 400, { error: '要 query 参数 pluginId、slug、chapterId（前两个不带 /）' });
+        return true;
+      }
+      const row = warmChapterImages(pluginId, slug, chapterId);
+      json(res, row ? 200 : 404, row ? { images: row.images, got: row.got } : { error: 'not cached' });
       return true;
     }
     /*
