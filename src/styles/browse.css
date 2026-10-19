@@ -514,4 +514,13 @@
   background: rgba(91, 156, 248, 0.15);
   color: var(--accent);
 }
+/*
+ * 追漫已缓存。绿色跟 .badge-done 同值，因为两者说的都是"这章已经就绪"；
+ * 蓝色的 .badge-cache 是「离线下载到这台设备上」，那是另一件事，
+ * 两种蓝并排就分不出谁是谁了。
+ */
+.badge-warm {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
 

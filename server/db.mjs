@@ -224,6 +224,20 @@ export function openDb() {
    */
   addColumn('last_chapter', 'chapter_index', 'INTEGER');
   addColumn('last_chapter', 'chapter_count', 'INTEGER');
+  /*
+   * 追漫要的章节表：id 数组，**按阅读顺序**存（不是页面 DOM 顺序）。
+   *
+   * 为什么单独一列而不改 anchors：anchors 是**条数**，书架徽章那个 "+N"
+   * 就是「服务端条数 − 客户端手里那份的条数」，两边必须是同一个单位。
+   * 换成数组的话徽章的减法当场就废了（而且每本书都挂个假数字，永远消不掉）。
+   */
+  addColumn('updates', 'chapter_ids', 'TEXT');
+  /*
+   * 这一行的字节什么时候该腾掉。NULL = 不留到期，按保留窗口判。
+   * 读过 3 天、掉出窗口 3 天、整本取消追漫或移出书架 1 天 —— 都写在这儿，
+   * 扫描只看一件事：now 到了没有。没到又被重新追回来就把这列清掉。
+   */
+  addColumn('warm', 'purge_at', 'INTEGER');
 
   return db;
 }

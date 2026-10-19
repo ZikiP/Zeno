@@ -1,122 +1,66 @@
 /**
- * 追漫：把「未读的最近几章」的图片地址表交给服务端
+ * 追漫：开关、标记，以及"现在就踢一轮"
  *
- * 分工是刻意的：**解地址**留在客户端（解析层跑在浏览器包里，服务端不养第二套解析），
- * **下字节**交给服务端（那台机器常开、盘大，而且这一步不该占用用户的手指时间）。
- * 所以这个文件做的事就是"趁详情页开着，把最近几章的地址表取出来递过去"。
- *
- * 为什么只解最近 K 章而不是整本：解一章的地址至少是一次上游往返，browser 模式的站
- * 还要占服务端三个渲染槽之一（实测 2–3s）。整本铺过去的话，点开一本书就会把
- * 渲染槽钉满，而用户多半只想翻下一话 —— 那正是"预热制造卡顿"。
- *
- * 为什么失败要留话不静默：这条链坏掉最典型的方式是上游改版解不出图，
- * 表现是"界面开着追漫、服务端一章都没铺"。静默的话没人会发现，
- * 所以状态回给界面，哪怕只是一行小字。
+ * 这一层**不再解地址、不再递交章节表** —— 那是上一版的做法，表现是"追漫进度
+ * 取决于我点开过哪本书"：新章发布了，但没人打开详情页，服务端就永远不知道有这几章。
+ * 现在台账由服务端自己补齐（warm-ledger.mjs）、地址自己解（warm-resolve.mjs）、
+ * 什么时候腾盘自己判（warm-gc.mjs），客户端只留下两件只有它知道的事：
+ *   1. 这本追不追（book_prefs.warm，参与同步，所以是"这本书的设置"而不是"这台设备的"）；
+ *   2. 哪几章已经缓存好了 —— 那个答案只在服务端盘上，得问它。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getChapter } from '@/site/engine';
-import type { Plugin } from '@/site/types';
+import { useCallback, useEffect, useState } from 'react';
 import { getBookPrefs, saveBookPrefs } from '@/store/bookPrefs';
-import { getCachedChapter, saveChapterTable } from '@/store/chapters';
-import { READ_AT } from '@/store/shelf';
+import { onDataChange } from '@/store/dataEvents';
+import type { Plugin } from '@/site/types';
 import { serverCall } from '@/sync/serverCall';
+import { sync } from '@/sync/client';
 
-/** 详情页传进来的章节（只要这两项就够定"未读的最近几章"） */
-export interface WarmTarget {
-  id: string;
-  index: number;
+/** 一章的缓存情况。partial 的行不挂标记：铺了一半的章不该被说成"已缓存" */
+export interface WarmMark {
+  cached: boolean;
+  state: string;
+  got: number;
+  partial: boolean;
+  /** 整本级到期时间（取消追漫 / 移出书架排下的）。null = 没排 */
+  purgeAt: number | null;
 }
 
-/**
- * 一次最多替服务端解多少章。
- *
- * 服务端那个 K 才是口径，这里只是上限保护：K 被调到很大时，
- * 也不该在详情页背后解上几百章的地址。
- */
-const MAX_OFFER = 20;
-/** 多解两章备着：服务端按未读判定，客户端这份进度可能比它旧一两章 */
-const SLACK = 2;
-/** 详情页自己的图先走完，再开始解地址 */
-const SETTLE_MS = 1000;
-/** 章与章之间歇一下。连续几十次上游往返跟限速是一回事 */
-const GAP_MS = 1200;
+export interface WarmBook {
+  /** 服务端的保留章数。界面上要把它说出来，不然"只缓存了 2 章"看着像坏了 */
+  keep: number;
+  marks: Record<string, WarmMark>;
+}
 
-/** 服务端那台机器的保留章数。一个会话里问一次就够 */
-let keepCache: number | null = null;
-
-async function serverKeep(): Promise<number> {
-  if (keepCache !== null) return keepCache;
-  try {
-    const r = await serverCall<{ keep?: number }>('/api/warm');
-    keepCache = typeof r.keep === 'number' && r.keep > 0 ? Math.round(r.keep) : 5;
-  } catch {
-    keepCache = 5; // 问不到就按默认递：多递几章无害，服务端自己会裁
+export async function fetchWarmBook(pluginId: string, slug: string): Promise<WarmBook> {
+  const r = await serverCall<{ keep?: number; chapters: (WarmMark & { id: string })[] }>(
+    `/api/warm/book?pluginId=${encodeURIComponent(pluginId)}&slug=${encodeURIComponent(slug)}`,
+  );
+  const marks: Record<string, WarmMark> = {};
+  for (const c of r.chapters ?? []) {
+    const { id, ...mark } = c;
+    marks[id] = mark;
   }
-  return keepCache;
-}
-
-/** 递交一版这本书该留的集合。空数组 = 这本不追了 */
-export function submitWarm(pluginId: string, slug: string, chapters: { id: string; index: number; images: string[] }[]) {
-  return serverCall<{ queued: number; kept: number }>('/api/warm', {
-    method: 'POST',
-    body: JSON.stringify({ pluginId, slug, chapters }),
-  });
+  return { keep: r.keep ?? 0, marks };
 }
 
 /**
- * 取这一章的图片地址表：本地缓存表里有就用，没有才去解。
+ * 详情页用的那颗追漫开关。
  *
- * 存回 saveChapterTable 是为了下一次打开详情页不必再解一遍。
+ * `warm` 是三值的：undefined = 这本书从没碰过这颗开关。这跟"碰过、而且是关着的"
+ * 必须分开 —— 后者是用户下的决定，服务端要据此把整本缓存排上一天后清掉；
+ * 前者什么都不该发生。
  */
-async function imagesOf(plugin: Plugin, slug: string, cid: string, signal: AbortSignal): Promise<string[] | null> {
-  const cached = await getCachedChapter(plugin.meta.id, slug, cid);
-  if (cached?.images?.length) return cached.images;
-  try {
-    const page = await getChapter(plugin, slug, cid, { signal });
-    // 阅读器要的只是地址表，不下字节 —— 字节那部分是服务端的事
-    await saveChapterTable(plugin.meta.id, slug, cid, page.images);
-    return page.images;
-  } catch {
-    return null;
-  }
-}
-
-/** 未读的、按章节序号从前往后排，取最近 need 章 */
-function nearestUnread(chapters: WarmTarget[], positions: Record<string, number> | undefined, need: number): WarmTarget[] {
-  const unread = [...chapters]
-    .sort((a, b) => a.index - b.index)
-    .filter((c) => (positions?.[c.id] ?? 0) < READ_AT);
-  return unread.slice(0, need);
-}
-
-/**
- * 详情页用的那颗开关背后做的事。
- *
- * 从关到开会立刻跑一趟；开着的时候每次打开详情页也跑一趟（新章可能就在这中间发布了）。
- *
- * `state` 是三值的：undefined = 这本书从没碰过这颗开关，什么也不做。
- * 只有 false 才去服务端递空表 —— 否则每一本没追的书打开详情页都会写一次台账，
- * 还会把"其实没记过"当成"用户明确不要"来处理。
- */
-export function useWarmFollow(args: {
-  plugin: Plugin | null;
-  slug: string;
-  chapters: WarmTarget[];
-  positions?: Record<string, number>;
-}) {
-  const { plugin, slug, chapters, positions } = args;
-  /** 这本书的开关。undefined = 从没记过 */
-  const [state, setState] = useState<boolean | undefined>(undefined);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-  const ctrl = useRef<AbortController | null>(null);
+export function useWarmFollow(args: { plugin: Plugin | null; slug: string; title?: string }) {
+  const { plugin, slug, title } = args;
   const pluginId = plugin?.meta.id;
+  const [warm, setWarm] = useState<boolean | undefined>(undefined);
+  const [book, setBook] = useState<WarmBook>({ keep: 0, marks: {} });
 
   useEffect(() => {
     if (!pluginId) return;
     let dropped = false;
     void getBookPrefs(`${pluginId}/${slug}`).then(
-      (p) => !dropped && setState(p?.warm),
+      (p) => !dropped && setWarm(p?.warm),
       () => {},
     );
     return () => {
@@ -124,89 +68,64 @@ export function useWarmFollow(args: {
     };
   }, [pluginId, slug]);
 
-  const setWarm = useCallback(
-    (v: boolean) => {
-      if (!pluginId) return;
-      setState(v);
-      void saveBookPrefs(`${pluginId}/${slug}`, { warm: v }).catch(() => {});
-    },
-    [pluginId, slug],
-  );
-
-  const run = useCallback(async () => {
-    if (!plugin?.meta.id || !chapters.length) return;
-    if (document.visibilityState !== 'visible') return;
-    ctrl.current?.abort();
-    const mine = new AbortController();
-    ctrl.current = mine;
-    const need = Math.min(MAX_OFFER, (await serverKeep()) + SLACK);
-    const targets = nearestUnread(chapters, positions, need);
-    if (!targets.length) {
-      setNote('没有未读的章了');
-      return;
-    }
-
-    setProgress({ done: 0, total: targets.length });
-    // 上一轮那句"已交给服务端 N 章"不该在这一轮跑着的时候还挂在下面
-    setNote(null);
-    const offered: { id: string; index: number; images: string[] }[] = [];
-    let failed = 0;
-    for (const t of targets) {
-      if (mine.signal.aborted) return;
-      const images = await imagesOf(plugin, slug, t.id, mine.signal);
-      if (mine.signal.aborted) return;
-      if (!images?.length) {
-        failed++;
-      } else {
-        offered.push({ id: t.id, index: t.index, images });
-        // 解出一章就递一章：服务端可以马上开始铺，不用等我把 K 章全解完
-        try {
-          await submitWarm(plugin.meta.id, slug, offered);
-        } catch {
-          /* 递不上去也别停：下一 chapter 解完再递一次，服务端那边是幂等的 */
-        }
-      }
-      setProgress({ done: offered.length + failed, total: targets.length });
-      await new Promise((r) => setTimeout(r, GAP_MS));
-    }
-    const tail = failed ? `，${failed} 章没解出图（多半是站点改版）` : '';
-    setNote(`已交给服务端 ${offered.length} 章${tail}`);
-    setProgress(null);
-  }, [plugin, slug, chapters, positions]);
+  const refresh = useCallback(() => {
+    if (!pluginId) return;
+    void fetchWarmBook(pluginId, slug).then(setBook, () => {});
+  }, [pluginId, slug]);
 
   /*
-   * 跑的时候永远用最新那份 run。
-   *
-   * 依赖里只放 chapters.length（同步每几秒就会换一次数组，不该打断正在解的那一串），
-   * 于是定时器抓到的是 effect 建立那一刻的 run —— 不接一根 ref 的话，
-   * 它带的是几秒前那份章节表，递上去会把服务端的台账对齐到旧的集合。
+   * 标记跟着数据变更一起刷：铺完一章是服务端的事，而"读完了"是客户端刚推上去的，
+   * 两边谁先谁后没有保证。订阅同一个信号，比在页面上猜时机稳。
    */
-  const runRef = useRef(run);
   useEffect(() => {
-    runRef.current = run;
-  });
+    refresh();
+    return onDataChange(refresh);
+  }, [refresh]);
 
-  useEffect(() => {
-    if (state !== true) {
-      ctrl.current?.abort();
-      setProgress(null);
-      if (state === false) setNote(null);
-      return;
-    }
-    if (!pluginId || !chapters.length) return;
-    const timer = setTimeout(() => void runRef.current(), SETTLE_MS);
-    return () => {
-      clearTimeout(timer);
-      ctrl.current?.abort();
-    };
-    // 关掉再打开、或者换了一本书才重跑；章节列表被同步刷一下不该打断它
-  }, [state, pluginId, slug, chapters.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setWarmFollow = useCallback(
+    (next: boolean) => {
+      if (!pluginId) return;
+      /*
+       * 取消要确认，而且要把话说明白：一天后清、期间追回来就不清。
+       * 不说这一句，用户会以为点下去立刻掉盘，于是明明想停手又不敢点。
+       */
+      if (!next) {
+        const name = title ? `《${title}》` : '这本';
+        if (!confirm(`取消追漫${name}？已缓存的章节会在一天后清除，一天内重新追漫就原样保留。`)) return;
+      }
+      setWarm(next);
+      /*
+       * 三步必须按顺序等：写库 → 推上去 → 踢一轮。
+       *
+       * 服务端算"该铺哪几章"要同时认在架记录和这本书的开关，而这两样都长在客户端的
+       * IndexedDB 里 —— 抢在同步之前踢一轮是空跑（实测台账一圈下来还是空的）。
+       * 而同步读的就是这张表，所以它还得等在写库之后：上一版把 saveBookPrefs 丢成
+       * 不 await 的 fire-and-forget，push 于是带着旧值出去，开关等于没同步。
+       *
+       * 开：踢一轮，用户当场就该看到第一批标记亮起来，而不是等 15 分钟。
+       * 关：扫一次，让"一天后清"的钟从这一刻开始走，而不是从下一轮扫开始。
+       */
+      void (async () => {
+        try {
+          await saveBookPrefs(`${pluginId}/${slug}`, { warm: next });
+        } catch {
+          /* 写不进去也照样往下走：本地那份是主数据，同步那一轮会自己补 */
+        }
+        try {
+          await sync.sync();
+        } catch {
+          /* 同上 */
+        }
+        try {
+          await serverCall(next ? '/api/warm/run' : '/api/warm/sweep', { method: 'POST' });
+        } catch {
+          /* 同上 */
+        }
+        refresh();
+      })();
+    },
+    [pluginId, slug, title, refresh],
+  );
 
-  /* 明确关掉：递一份空表，让服务端把这本书的台账标掉、过了宽限期腾盘 */
-  useEffect(() => {
-    if (state !== false || !pluginId) return;
-    void submitWarm(pluginId, slug, []).catch(() => {});
-  }, [state, pluginId, slug]);
-
-  return { warm: state, setWarm, progress, note, run };
+  return { warm, setWarmFollow, marks: book.marks, keep: book.keep, refresh };
 }

@@ -23,6 +23,7 @@ import {
   Columns2,
   Compass,
   Download,
+  Heart,
   LayoutGrid,
   Library,
   LibraryBig,
@@ -53,6 +54,10 @@ const SW = 1.8;
 export const IconSearch = (p: P) => <Search strokeWidth={SW} {...p} />;
 export const IconBack = (p: P) => <ArrowLeft strokeWidth={SW} {...p} />;
 export const IconShelf = ({ size = 22, ...p }: P) => <Library size={size} strokeWidth={SW} {...p} />;
+/** 追漫。用整颗心而不是 BookHeart：16px 下那颗书脊和书架那颗 Library 认不出来 */
+export const IconHeart = ({ size = 22, filled, ...p }: P & { filled?: boolean }) => (
+  <Heart size={size} strokeWidth={SW} fill={filled ? 'currentColor' : 'none'} {...p} />
+);
 export const IconExplore = ({ size = 22, ...p }: P) => <Compass size={size} strokeWidth={SW} {...p} />;
 export const IconCheck = ({ size = 18, ...p }: P) => <Check size={size} strokeWidth={SW} {...p} />;
 export const IconPlus = (p: P) => <Plus strokeWidth={SW} {...p} />;

@@ -1,10 +1,9 @@
 /**
- * 追漫预热：把客户端递来的地址表里的原图铺到服务端盘上
+ * 追漫：把该留的未读章节的原图铺到服务端盘上
  *
- * 分工是刻意的：**解地址**留在客户端（解析层跑在浏览器包里，服务端不养第二套解析），
- * **下字节**交给这里（一台常开的机器、一块大硬盘、一条不用用户等的下行链路）。
- * 台账本身（配置、地址归一化、warm 表的读写）在 warm-store.mjs，
- * 保留策略在 warm-gc.mjs，这个文件只管"什么时候取、取多快"。
+ * 分工：台账该有什么章由这一侧自己算（warm-ledger.mjs），地址表自己解
+ * （warm-resolve.mjs），留多久自己判（warm-gc.mjs）。**不再依赖客户端打开详情页
+ * 递交地址表** —— 那样"追"就变成了"我恰好点开过的那几章"，没人碰页面的那几天不推进。
  *
  * 为什么取字节走自己的 /api/proxy（回环自请求）而不是直接 fetch 上游：
  * 代理那三道闸（域名白名单、地址策略、逐跳重定向复检）加落盘必须**复用**而不是复制。
@@ -13,11 +12,11 @@
  *
  * 三道限流都照实测来：
  *   - 单张并发 3：跟离线下载同一个数，再高上游 CDN 开始掐（src/store/chapters.ts）
- *   - 代理闸位过半就等：预热不该把用户正在读的那几张挤到队列后面
+ *   - 代理闸位过半、或渲染槽被用户占着就等：追漫不该把正在读的那几张挤到队列后面
  *   - 盘到上限就收工：继续铺只会让 LRU 把在读的图裁掉，越铺越慢
  */
 import {
-  alignBook,
+  bookLedger,
   claimRow,
   failRow,
   keepChapters,
@@ -30,6 +29,7 @@ import {
   setSelf,
   settleRow,
 } from './warm-store.mjs';
+import { reconcileLedger } from './warm-ledger.mjs';
 import { alreadyCached, totals } from './cache-store.mjs';
 import { cacheMaxBytes, cacheOn } from './cache-config.mjs';
 import { proxyLoad } from './proxy.mjs';
@@ -50,8 +50,6 @@ const IMAGE_TIMEOUT_MS = Number(process.env.ZENO_WARM_IMAGE_MS || 30_000);
 const LOOP_MS = Number(process.env.ZENO_WARM_LOOP_MS || 15 * 60_000);
 /** 启动延迟：留给追更那一轮先跑完，别看两个后台任务同时抢闸 */
 const START_DELAY_MS = Number(process.env.ZENO_WARM_START_DELAY_MS || 90_000);
-/** 一次递交最多几章。多了客户端该分批，而不是把 1MB 的请求体撑破 */
-const MAX_CHAPTERS = 60;
 
 let timer = null;
 let pumping = false;
@@ -122,8 +120,14 @@ export async function runWarmRound() {
   if (pumping) return null;
   pumping = true;
   const startedAt = Date.now();
-  const summary = { rows: 0, images: 0, bytes: 0, paused: null };
+  const summary = { rows: 0, images: 0, bytes: 0, paused: null, resolved: 0 };
   try {
+    /*
+     * 先补齐台账再铺字节：追漫是服务端自己算"该有哪 K 章"的，
+     * 上一轮读完的章这一轮就该被新的未读章顶上，不补就永远停在第一次那份表上。
+     */
+    const led = await reconcileLedger().catch(() => null);
+    if (led) summary.resolved = led.resolved;
     for (;;) {
       const why = blockedReason();
       if (why === 'reader-busy') {
@@ -194,26 +198,26 @@ export async function handleWarmApi(req, res, url, auth) {
       json(res, 200, warmStatus());
       return true;
     }
-    if (path === '/api/warm' && req.method === 'POST') {
-      const body = await readBody(req, 1024 * 1024);
-      const pluginId = String(body?.pluginId ?? '');
-      const slug = String(body?.slug ?? '');
-      const chapters = Array.isArray(body?.chapters) ? body.chapters : null;
+    /*
+     * 手动踢一轮。设置页那句"现在就铺"用，测试也用它 ——
+     * 不然改完配置要干等 15 分钟才知道有没有生效。
+     */
+    if (path === '/api/warm/run' && req.method === 'POST') {
+      json(res, 200, { ok: true, round: await runWarmRound() });
+      return true;
+    }
+    /*
+     * 一本书的台账。详情页拿它给章节挂"已缓存"标记 —— 只有服务端知道
+     * 哪几章的字节真在盘上，客户端那份 IndexedDB 记的是别的事。
+     */
+    if (path === '/api/warm/book' && req.method === 'GET') {
+      const pluginId = url.searchParams.get('pluginId') ?? '';
+      const slug = url.searchParams.get('slug') ?? '';
       if (!pluginId || !slug || pluginId.includes('/') || slug.includes('/')) {
-        json(res, 400, { error: '要分开的 pluginId 和 slug（都不带 /）' });
+        json(res, 400, { error: '要 query 参数 pluginId 和 slug（都不带 /）' });
         return true;
       }
-      if (!chapters) {
-        json(res, 400, { error: 'chapters 要是数组：[{ id, index?, images: [地址] }]，空数组表示这本不追了' });
-        return true;
-      }
-      if (chapters.length > MAX_CHAPTERS) {
-        json(res, 400, { error: `一次最多 ${MAX_CHAPTERS} 章，多了请分批递` });
-        return true;
-      }
-      const r = alignBook(pluginId, slug, chapters);
-      void runWarmRound(); // 不等：递交那个请求本身该立刻回去
-      json(res, 200, { ok: true, ...r });
+      json(res, 200, { keep: keepChapters(), chapters: bookLedger(pluginId, slug) });
       return true;
     }
     if (path === '/api/warm/keep' && req.method === 'POST') {

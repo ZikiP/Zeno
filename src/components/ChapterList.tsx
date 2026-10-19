@@ -23,6 +23,7 @@ export default function ChapterList({
   pluginId,
   slug,
   cached,
+  warm,
   positions,
   onMarkThrough,
 }: {
@@ -30,6 +31,12 @@ export default function ChapterList({
   pluginId: string;
   slug: string;
   cached: Record<string, { bytes: number }>;
+  /**
+   * 服务端追漫铺好的章。跟 `cached` 是两件事：那个是"这台设备的浏览器里有"，
+   * 这个是"服务端那台机器上有"，换设备翻它也是快的。
+   * partial（只铺了一半内页）的行不在里面 —— 铺了一半的章不该被标成已缓存。
+   */
+  warm?: Record<string, { cached: boolean }>;
   /** 各章进度。读过的行压暗，也用来决定那颗批量按钮是"标已读"还是"取消已读" */
   positions?: Record<string, number>;
   /** 把某一章之前的章节整段标成已读 / 取消已读 */
@@ -99,6 +106,7 @@ export default function ChapterList({
       <div className="chapters">
         {visible.map((ch) => {
           const hit = cached[ch.id];
+          const warmed = warm?.[ch.id]?.cached;
           /*
            * 把前后章节 id 一起带进阅读器。
            * 路由 state 传不过刷新（刷新就没了），所以同时写进 URL 查询参数 ——
@@ -131,6 +139,11 @@ export default function ChapterList({
                 {hit && (
                   <span className="chapter-row__badge badge-cache">
                     离线 {formatBytes(hit.bytes)}
+                  </span>
+                )}
+                {warmed && (
+                  <span className="chapter-row__badge badge-warm" title="服务端已把这一章的原图铺好，翻过来不用等">
+                    已缓存
                   </span>
                 )}
               </Link>

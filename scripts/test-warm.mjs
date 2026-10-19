@@ -1,14 +1,13 @@
 /**
- * 追漫预热的行为：递交、落盘、不重下、按章保留、删的时候不碰正在读的
+ * 追漫的行为：服务端自己算该铺哪几章、自己解地址、按各自的到期时间腾盘
  *
- * 自己起服务端和假源站（要特殊 env：缓存目录、宽限期 0、放行 127.0.0.1），
- * 跟 test-cache.mjs 同一个套路。
+ * 自己起服务端和假源站（要特殊 env：缓存目录、放行 127.0.0.1、把两个宽限期调小
+ * 到能在测试里等的程度），跟 test-cache.mjs 同一个套路。
  *
- * 假源站带命中计数 —— 「重递一次有没有又下一遍」和「删掉的那张是不是真从盘上没了」
- * 都只能靠它证明，光看接口返回值是猜的。
+ * 假源站带命中计数 —— 「这一章是不是真去解过」「重跑一轮有没有再下一遍」
+ * 只能这么证明，光看接口返回值是猜的。
  *
- * ZENO_WARM_LOOP_MS=0 关掉后台循环：所有轮次都由测试自己 kick，
- * 免得跑到一半被定时那一轮插进来，胜负就说不清了。
+ * 全程不碰真站点：三章 × 每章两个内页，图是确定性字节。
  */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -23,6 +22,8 @@ const SRC_PORT = PORT + 1;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SRC = `http://127.0.0.1:${SRC_PORT}`;
 const BASE_DIR = mkdtempSync(join(tmpdir(), 'zeno-warm-'));
+const PLUGIN_ID = 'fakesrc';
+const SLUG = 'demo';
 
 let fails = 0;
 const check = (ok, msg, extra = '') => {
@@ -31,31 +32,57 @@ const check = (ok, msg, extra = '') => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* ── 假源站 ───────────────────────────────────────── */
+/* ── 假源站：详情页 + 章节页（每章两个内页）+ 图 ── */
 
 const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
-const hits = {};
-/** 每张图按 path 派生出确定的字节，好比对"删掉之后回源拿到的还是同一张" */
-function page(seed, size = 120 * 1024) {
+const hits = { detail: 0, chapter: 0, img: 0 };
+function page(seed, size = 60 * 1024) {
   const b = Buffer.alloc(size);
   for (let i = 0; i < size; i++) b[i] = (i * 31 + seed * 7) % 251;
   return Buffer.concat([JPG, b]);
 }
+/** 一章两个内页：第 1 页标题写着 (1/2)，第 2 页没有标记 */
+function chapterHtml(id) {
+  const [, p] = String(id).split('_');
+  const imgs = p ? [`${SRC}/img/${id}_a.jpg`] : [`${SRC}/img/${id}_a.jpg`, `${SRC}/img/${id}_b.jpg`];
+  return (
+    `<!doctype html><meta charset="utf-8"><title>第${id}话${p ? '' : '(1/2)'} - 假源</title>` +
+    imgs.map((u) => `<img data-src="${u}">`).join('')
+  );
+}
 const upstream = createServer((req, res) => {
-  const p = req.url ?? '';
-  const m = /^\/img\/(\d+)\.jpg$/.exec(p);
-  if (!m) {
-    res.writeHead(404).end('nope');
+  const u = new URL(req.url, SRC);
+  if (u.pathname === '/detail') {
+    hits.detail++;
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(
+      '<div class="book" title="合成漫画" data-slug="demo"></div>' +
+        [1, 2, 3].map((i) => `<a class="chap" href="/chapter?c=${i}">第${i}话</a>`).join(''),
+    );
     return;
   }
-  hits[p] = (hits[p] ?? 0) + 1;
-  const body = page(Number(m[1]));
-  res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': String(body.length) });
-  res.end(body);
+  const c = /^\/chapter$/.exec(u.pathname) && u.searchParams.get('c');
+  if (c) {
+    hits.chapter++;
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(chapterHtml(c));
+    return;
+  }
+  const m = /^\/img\/(.+)\.jpg$/.exec(u.pathname);
+  if (m) {
+    hits.img++;
+    let seed = 0;
+    for (const ch of m[1]) seed = (seed * 31 + ch.charCodeAt(0)) % 9973;
+    const body = page(seed);
+    res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': String(body.length) });
+    res.end(body);
+    return;
+  }
+  res.writeHead(404).end('nope');
 });
 await new Promise((r) => upstream.listen(SRC_PORT, '127.0.0.1', r));
 
-/* ── 服务端 ───────────────────────────────────────── */
+/* ── 服务端 ── */
 
 const srv = spawn(process.execPath, ['server/index.mjs'], {
   cwd: ROOT,
@@ -69,10 +96,10 @@ const srv = spawn(process.execPath, ['server/index.mjs'], {
     ALLOW_PRIVATE_HOSTS: '1',
     ZENO_CACHE_DIR: join(BASE_DIR, 'cache'),
     ZENO_CACHE_MAX_MB: '512',
-    ZENO_UPDATE_CHECK_MS: '0',
+    ZENO_UPDATE_CHECK_MS: '0', // 不自己起循环，全部由测试手动踢
     ZENO_WARM_LOOP_MS: '0',
-    // 宽限期 0：这一轮就该删干净。"最近被读"那道护栏保持默认 24 小时，正是要它生效
-    ZENO_WARM_READ_GRACE_MS: '0',
+    ZENO_WARM_READ_GRACE_MS: '0', // 读完/掉出窗口的，这一轮就该删
+    ZENO_WARM_UNFOLLOW_GRACE_MS: '2000', // 取消追漫留 2 秒反悔，测试等得起
   },
 });
 
@@ -90,129 +117,167 @@ async function waitUp() {
   throw new Error('服务端启动超时');
 }
 
-const POST = async (path, body) => {
-  const r = await fetch(`${BASE}${path}`, {
+const GET = async (p) => {
+  const r = await fetch(`${BASE}${p}`);
+  return { status: r.status, json: await r.json().catch(() => ({})) };
+};
+const POST = async (p, body = {}) => {
+  const r = await fetch(`${BASE}${p}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   return { status: r.status, json: await r.json().catch(() => ({})) };
 };
-const warmStatus = async () => (await fetch(`${BASE}/api/warm`)).json();
-const cacheStatus = async () => (await fetch(`${BASE}/api/cache`)).json();
+const warm = async () => (await GET('/api/warm')).json;
+const book = async () => (await GET(`/api/warm/book?pluginId=${PLUGIN_ID}&slug=${SLUG}`)).json;
+const cacheFiles = async () => (await GET('/api/cache')).json.files;
 
-/** 等到 queued 清空、running 收尾。超时就把当时的状态原样吐出来，别只报"超时" */
-async function waitRound(ms = 20_000) {
-  const t0 = Date.now();
-  for (;;) {
-    const s = await warmStatus();
-    if (!s.pumping && !(s.states?.queued ?? 0)) return s;
-    if (Date.now() - t0 > ms) throw new Error(`等预热收尾超时：${JSON.stringify(s)}`);
-    await sleep(150);
+/** 往服务端推一份客户端状态（书架、开关、进度都走同步那条路） */
+const push = (what) =>
+  POST('/api/sync/push', { deviceId: 'test', seq: 0, plugins: [], shelf: [], positions: [], bookPrefs: [], ...what });
+
+const plugin = {
+  format: 'zeno-plugin@1',
+  meta: { id: PLUGIN_ID, name: '本地合成源', description: '追漫测试用', author: 'local', version: '1.0.0', icon: '🧪' },
+  entry: SRC,
+  urls: { search: '/detail?slug={q}', classify: '/detail', detail: '/detail?slug={slug}', chapter: '/chapter?c={id}' },
+  parse: {
+    card: '<div class="book" title=',
+    slugFrom: 'data-slug="([a-z0-9]+)"',
+    title: { attr: 'title' },
+    cover: `${SRC}/img/cover.jpg`,
+    chapterItem: 'class="chap"',
+    chapterIdFrom: 'c=(\\d+)',
+    imageAttr: 'data-src',
+  },
+  imageHosts: ['127.0.0.1'],
+  fetch: { mode: { list: 'fetch', detail: 'fetch', chapter: 'fetch' }, timeoutMs: 15000 },
+  headers: {},
+};
+
+/** 踢一轮，等到不再 pumping */
+async function runRound(label) {
+  for (let i = 0; i < 60; i++) {
+    const r = await POST('/api/warm/run');
+    if (r.status !== 200) throw new Error(`${label}：踢轮失败 ${JSON.stringify(r.json)}`);
+    if (!r.json.round?.rows || !warm) break;
+    if (!(await warm()).pumping) break;
+    await sleep(300);
   }
+  return warm();
 }
-
-const img = (n) => `${SRC}/img/${n}.jpg`;
-/** 三章 × 两张。第一套故意用客户端真正会递交的那种代理形态相对地址 */
-const BOOK = { pluginId: 'fakesrc', slug: 'warm-me' };
-const chapters = (from) => [
-  { id: `c${from}`, index: from, images: [`/api/proxy?url=${encodeURIComponent(img(from * 10 + 1))}`, img(from * 10 + 2)] },
-  { id: `c${from + 1}`, index: from + 1, images: [img(from * 10 + 11), img(from * 10 + 12)] },
-  { id: `c${from + 2}`, index: from + 2, images: [img(from * 10 + 21), img(from * 10 + 22)] },
-];
 
 try {
   const boot = await waitUp();
-  console.log('\n=== 1. 递交之后原图落到盘上 ===');
-  check(boot.keep === 5, '没配过时用 env 的默认保留章数', `keep=${boot.keep}`);
+  console.log('\n=== 1. 没开追漫的书，一轮下来台账该是空的 ===');
+  check(boot.keep === 30, '默认保留章数 30', `keep=${boot.keep}`);
+  await push({
+    plugins: [{ id: PLUGIN_ID, origin: 'imported', data: JSON.stringify(plugin), updatedAt: 1 }],
+    shelf: [{ pluginId: PLUGIN_ID, slug: SLUG, title: '合成漫画', cover: '', addedAt: 1, updatedAt: 1 }],
+  });
+  await POST('/api/updates/check', { force: true });
+  let st = await runRound('未开追漫');
+  check(!st.states?.done && !st.states?.queued, '在架但没开追漫 → 一章都没铺', JSON.stringify(st.states));
+  check((await cacheFiles()) === 0, '盘上也没东西', `${await cacheFiles()} 张`);
 
-  const submit = await POST('/api/warm', { ...BOOK, chapters: chapters(1) });
-  check(submit.status === 200 && submit.json.queued === 3, '三章都排上了', JSON.stringify(submit.json));
-  const done = await waitRound();
-  check(done.states?.done === 3, '一轮跑完三章都是 done', JSON.stringify(done.states));
-  check((await cacheStatus()).files === 6, '六张图进了盘', `${(await cacheStatus()).files} 张`);
+  console.log('\n=== 2. 开了追漫：服务端自己算、自己解、自己铺 ===');
+  await push({ bookPrefs: [{ pluginId: PLUGIN_ID, slug: SLUG, data: JSON.stringify({ warm: true }), updatedAt: 2 }] });
+  st = await runRound('开追漫');
+  check(st.states?.done === 3, '三章都铺完', JSON.stringify(st.states));
+  /*
+   * 每章两个内页：第 1 页 2 张 + 第 2 页 1 张 = 3 张，三章 9 张。
+   * 这个数同时钉住了 (1/N) 那条内页探测 —— 只解第 1 页的话这里会是 6。
+   */
+  check((await cacheFiles()) === 9, '九张图进了盘（含每章的第 2 页）', `${await cacheFiles()} 张`);
+  check(hits.chapter >= 6, `章节页被解过（3 章 × 2 内页）`, `chapter hits=${hits.chapter}`);
+
+  const marks = await book();
+  check(marks.chapters.length === 3 && marks.chapters.every((c) => c.cached), '标记端点：三章都报"已缓存"', JSON.stringify(marks.chapters.map((c) => c.cached)));
+  check(marks.chapters[0].id === '1' && marks.chapters[2].id === '3', '标记按阅读顺序回', marks.chapters.map((c) => c.id).join(','));
+
+  console.log('\n=== 3. 重跑一轮不重下 ===');
+  const imgHits = hits.img;
+  await runRound('重跑');
+  check(hits.img === imgHits, '一张图都没重新回源', `${imgHits} → ${hits.img}`);
+
+  console.log('\n=== 4. 窗口收窄：keep=2 之后掉出去的那章腾盘 ===');
+  check((await POST('/api/warm/keep', { keep: 2 })).json.keep === 2, '保留章数改成 2');
+  await POST('/api/warm/sweep');
+  st = await warm();
+  check(st.states?.done === 2, '只剩最近两章', JSON.stringify(st.states));
+  check((await cacheFiles()) === 6, '掉出去那章的三张删掉了', `${await cacheFiles()} 张`);
+  const marks2 = await book();
+  check(marks2.chapters.filter((c) => c.cached).length === 2, '标记也跟着少一个', JSON.stringify(marks2.chapters.map((c) => [c.id, c.state])));
+
+  console.log('\n=== 5. 读完的章：过宽限期删，且按"读完那一刻"算 ===');
+  /* 进度写成 4 天前读完的：窗口是 2，未读只剩 ch3 —— ch2 虽在窗口内但已读，该走 */
+  await push({ positions: [{ pluginId: PLUGIN_ID, slug: SLUG, chapterId: '2', percent: 100, updatedAt: Date.now() - 4 * 24 * 3600_000 }] });
+  await POST('/api/warm/sweep');
+  await runRound('读完之后');
+  st = await warm();
+  check(st.states?.done === 2, 'ch2 腾掉、ch3 补进来，窗口仍是两章', JSON.stringify(st.states));
+  const marks3 = await book();
   check(
-    hits['/img/11.jpg'] === 1 && hits['/img/12.jpg'] === 1,
-    '代理形态的相对地址被认成了同一个上游地址（没多取一张）',
-    `11.jpg hits=${hits['/img/11.jpg']}`,
+    marks3.chapters.filter((c) => c.cached).map((c) => c.id).join(',') === '1,3',
+    '标记现在是第 1、3 章',
+    JSON.stringify(marks3.chapters.map((c) => [c.id, c.cached])),
   );
 
-  console.log('\n=== 2. 重递同一份不重下 ===');
-  const again = await POST('/api/warm', { ...BOOK, chapters: chapters(1) });
-  check(again.json.queued === 0, '地址没变的行不再重排', `queued=${again.json.queued}`);
-  await waitRound();
-  const before = Object.values(hits).reduce((a, b) => a + b, 0);
-  await POST('/api/warm', { ...BOOK, chapters: chapters(1) });
-  await waitRound();
-  const after = Object.values(hits).reduce((a, b) => a + b, 0);
-  check(after === before, '第二趟一个字节都没回源', `${before} → ${after}`);
+  console.log('\n=== 6. 正在读的章不动刀 ===');
+  // ch1 也在窗口边缘，但进度是刚刚报的 → 该被"正在读"护栏留下
+  await push({ positions: [{ pluginId: PLUGIN_ID, slug: SLUG, chapterId: '1', percent: 100, updatedAt: Date.now() }] });
+  await POST('/api/warm/sweep');
+  const afterGuard = await cacheFiles();
+  check(afterGuard >= 6, '刚报过进度那章的字节没被删', `${afterGuard} 张`);
 
-  console.log('\n=== 3. 保留 K=1：只留未读的第一章 ===');
-  const keep = await POST('/api/warm/keep', { keep: 1 });
-  check(keep.status === 200 && keep.json.keep === 1, '保留章数改成 1', JSON.stringify(keep.json));
-  const swept = await POST('/api/warm/sweep', {});
-  check(swept.json.dropped === 2, '另外两章标成不留', `dropped=${swept.json.dropped}`);
-  check(swept.json.files === 4, '宽限期 0，这一轮就删掉四张', `files=${swept.json.files}`);
-  check((await cacheStatus()).files === 2, '盘上只剩第一章那两张', `${(await cacheStatus()).files} 张`);
+  console.log('\n=== 7. 取消追漫：排一天后清，反悔期内重新追就撤销 ===');
+  await push({ bookPrefs: [{ pluginId: PLUGIN_ID, slug: SLUG, data: JSON.stringify({ warm: false }), updatedAt: 3 }] });
+  await POST('/api/warm/sweep');
+  const scheduled = await book();
+  check(
+    scheduled.chapters.length > 0 && scheduled.chapters.every((c) => c.purgeAt > Date.now() - 5000),
+    '整本排上了到期时间（没立刻删）',
+    JSON.stringify(scheduled.chapters.map((c) => c.purgeAt)),
+  );
+  check((await cacheFiles()) >= 6, '字节此刻还在', `${await cacheFiles()} 张`);
 
-  console.log('\n=== 4. 正在读的章：字节不动刀 ===');
-  // 重铺那两章（盘上已经被删空，所以这趟真回源，并给它们新的 warmed_at）
-  const re = await POST('/api/warm', { ...BOOK, chapters: chapters(1) });
-  check(re.json.queued === 2, '被删掉的两章重新排上，留着的那章没动', `queued=${re.json.queued}`);
-  await waitRound();
-  check((await cacheStatus()).files === 6, '六张又回到盘上', `${(await cacheStatus()).files} 张`);
+  await push({ bookPrefs: [{ pluginId: PLUGIN_ID, slug: SLUG, data: JSON.stringify({ warm: true }), updatedAt: 4 }] });
+  await POST('/api/warm/sweep');
+  const cancelled = await book();
+  check(cancelled.chapters.every((c) => !c.purgeAt), '重新追漫 → 到期时间撤销', JSON.stringify(cancelled.chapters.map((c) => c.purgeAt)));
+  check((await cacheFiles()) >= 6, '缓存原封不动', `${await cacheFiles()} 张`);
 
-  // c2 的进度是"刚刚报上来的"（人在这一章），c3 的进度是 25 小时前 —— 早出护栏窗口了
-  const now = Date.now();
-  const pushed = await POST('/api/sync/push', {
-    deviceId: 'phone',
-    positions: [
-      { pluginId: BOOK.pluginId, slug: BOOK.slug, chapterId: 'c2', percent: 42, updatedAt: now },
-      { pluginId: BOOK.pluginId, slug: BOOK.slug, chapterId: 'c3', percent: 42, updatedAt: now - 25 * 3600_000 },
-    ],
-  });
-  check(pushed.status === 200, '两条进度都写进去了', JSON.stringify(pushed.json));
-  const swept2 = await POST('/api/warm/sweep', {});
-  check(swept2.json.dropped === 2, 'K=1 之下两章都标成不留', `dropped=${swept2.json.dropped}`);
-  check(swept2.json.files === 2, '只删了不在读的那章，正在读的章一张没删', `files=${swept2.json.files}`);
-  check((await cacheStatus()).files === 4, '盘上留下的是第一章 + 正在读的那章', `${(await cacheStatus()).files} 张`);
+  console.log('\n=== 8. 反悔期过了才真删；移出书架同理 ===');
+  await push({ bookPrefs: [{ pluginId: PLUGIN_ID, slug: SLUG, data: JSON.stringify({ warm: false }), updatedAt: 5 }] });
+  await POST('/api/warm/sweep');
+  await sleep(2300); // 等过那 2 秒的宽限期
+  await POST('/api/warm/sweep');
+  st = await warm();
+  check(!st.states?.done && !st.states?.queued, '过完宽限期，台账清空', JSON.stringify(st.states));
+  check((await cacheFiles()) === 0, '这本书的字节全腾掉了', `${await cacheFiles()} 张`);
 
-  console.log('\n=== 5. 关掉追漫 = 递交一份空表 ===');
-  const off = await POST('/api/warm', { ...BOOK, chapters: [] });
-  check(off.status === 200 && off.json.queued === 0 && off.json.kept === 0, '空表不报错，也不排新活', JSON.stringify(off.json));
-  const swept3 = await POST('/api/warm/sweep', {});
-  check(swept3.json.files === 2, '没在读的那两张删掉', `files=${swept3.json.files}`);
-  check((await cacheStatus()).files === 2, '整本关掉了，只剩"正在读"那张护栏留下的', `${(await cacheStatus()).files} 张`);
+  /* 移出书架：开关还开着，但人不在架上了 —— 同样该排到期 */
+  await push({ bookPrefs: [{ pluginId: PLUGIN_ID, slug: SLUG, data: JSON.stringify({ warm: true }), updatedAt: 6 }] });
+  await POST('/api/warm/run');
+  await POST('/api/updates/check', { force: true });
+  await runRound('重新铺一轮');
+  const back = await book();
+  check(back.chapters.some((c) => c.cached), '重新追漫后又铺上了', JSON.stringify(back.chapters.map((c) => [c.id, c.cached])));
+  await push({ shelf: [], deletes: [{ kind: 'shelf', id: `${PLUGIN_ID}/${SLUG}`, updatedAt: 7 }] });
+  await POST('/api/warm/sweep');
+  const offShelf = await book();
+  check(
+    offShelf.chapters.length > 0 && offShelf.chapters.every((c) => c.purgeAt),
+    '移出书架 → 整本排上一天后清',
+    JSON.stringify(offShelf.chapters.map((c) => !!c.purgeAt)),
+  );
+  check((await cacheFiles()) > 0, '此刻字节还在（一天内加回来就不删）', `${await cacheFiles()} 张`);
 
-  console.log('\n=== 6. 递交的形态不对就该挡下来 ===');
-  const noSlug = await POST('/api/warm', { pluginId: 'fakesrc', chapters: [] });
-  check(noSlug.status === 400, '缺 slug');
-  const slashed = await POST('/api/warm', { pluginId: 'a/b', slug: 'x', chapters: [] });
-  check(slashed.status === 400, 'pluginId 里带 / 挡掉（那是拼接过的键）', slashed.json.error);
-  const notArray = await POST('/api/warm', { ...BOOK, chapters: { c1: [] } });
-  check(notArray.status === 400, 'chapters 不是数组挡掉');
-  const tooMany = await POST('/api/warm', {
-    ...BOOK,
-    chapters: Array.from({ length: 61 }, (_, i) => ({ id: `x${i}`, images: [img(900 + i)] })),
-  });
-  check(tooMany.status === 400, '一次 61 章挡掉，让客户端分批', tooMany.json.error);
-  const blank = await POST('/api/warm', { ...BOOK, chapters: [{ id: 'c9', images: [] }] });
-  check(blank.status === 200 && blank.json.queued === 0, '一张图都没有的章不进台账', JSON.stringify(blank.json));
-
-  console.log('\n=== 7. 上游取不到：停在 error，别的章照铺 ===');
-  const mix = await POST('/api/warm', {
-    ...BOOK,
-    chapters: [
-      { id: 'gone', index: 1, images: [`${SRC}/nope/1.jpg`, `${SRC}/nope/2.jpg`] },
-      { id: 'good', index: 2, images: [img(501), img(502)] },
-    ],
-  });
-  check(mix.status === 200 && mix.json.queued === 2, '两章都排上', JSON.stringify(mix.json));
-  await waitRound();
-  const st = await warmStatus();
-  check(st.states?.error === 1 && st.states?.done === 1, '取不到的停在 error，好的那章不受牵连', JSON.stringify(st.states));
-  const goneRow = st.lastRound;
-  check(goneRow?.paused === null, '这一轮不是因为限流停下来的', JSON.stringify(goneRow));
+  console.log('\n=== 9. 参数校验 ===');
+  check((await GET('/api/warm/book')).status === 400, '缺 pluginId/slug 挡下来');
+  check((await GET('/api/warm/book?pluginId=a/b&slug=x')).status === 400, 'pluginId 带 / 挡下来');
+  check((await POST('/api/warm/keep', { keep: 'abc' })).status === 400, '保留章数不是个数就挡下来');
 } finally {
   srv.kill();
   upstream.close();
@@ -229,4 +294,4 @@ if (fails) {
   console.log(`  ${fails} 项失败`);
   process.exit(1);
 }
-console.log('  全部通过 — 追漫预热行为正确');
+console.log('  全部通过 — 追漫行为正确');

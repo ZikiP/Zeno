@@ -15,10 +15,9 @@
  * 礼貌边界（都是可关的）：默认 12 小时一轮，同一本最少隔 6 小时才再看，
  * 一本一本串着取、每本之间停 500ms，渲染槽在忙就这一轮收工。
  */
-import { headersFor } from './allowlist.mjs';
 import { openDb } from './db.mjs';
 import { installedPlugins } from './plugins.mjs';
-import { renderHtml } from './render.mjs';
+import { escapeRe, fetchPage, fill } from './plugin-page.mjs';
 import { json, readBody } from './respond.mjs';
 
 const ROUND_MS = Number(process.env.ZENO_UPDATE_CHECK_MS ?? 12 * 3600_000);
@@ -26,13 +25,7 @@ const PER_BOOK_MS = Number(process.env.ZENO_UPDATE_BOOK_MS ?? 6 * 3600_000);
 const GAP_MS = Number(process.env.ZENO_UPDATE_GAP_MS ?? 500);
 /** 启动后多久跑第一轮。刚起来那会儿用户在用，别抢渲染槽 */
 const STARTUP_DELAY_MS = Number(process.env.ZENO_UPDATE_START_DELAY_MS ?? 60_000);
-const FETCH_TIMEOUT_MS = 25_000;
 
-const DESKTOP_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const fill = (tpl, vars) => tpl.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(vars[k] ?? ''));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -62,13 +55,33 @@ function decodeEntities(s) {
  *
  * 规则逐条对齐 parseChapters：`<a …章节项…>` 开标签、href 可能在标签上也可能在
  * 内层、`&amp;`/`&#x2F;` 要先还原、按 chapterIdFrom 取出的 id 去重。
- * 只数不解释 —— 标题、序号、排序都是客户端的事。
+ * 条数就是 listChapters 的长度 —— 徽章那边只用到条数，追漫才用到 id 和顺序，
+ * 两件事必须出自同一份解析，不然"数到 183"和"表里 183 条"能对上才见鬼。
  */
 export function countChapters(html, parse) {
+  return listChapters(html, parse).length;
+}
+
+/**
+ * 章节表：id + 阅读顺序，按 index 升序。
+ *
+ * 这是 parseChapters 的第二份实现，**故意的**，跟 decodeEntities 同一条路：
+ * 解析层跑在浏览器包里，服务端不为了一个函数去引前端构建物。两份的一致性由
+ * scripts/test-updates.ts 钉 —— 它拿同一份 HTML 让两边各跑一遍，逐条比 id 和 index，
+ * 谁改了另一边就红。
+ *
+ * index 的来路和客户端一条不差：id 正则捕到两组以上时，第二组就是序号
+ * （`section_slot=0&chapter_slot=562` → `0_562`，**页面顺序未必是章节顺序**）；
+ * 只捕到一组时这站没有分区/序号的概念（UUID 形态地址），只能按它们在页面里
+ * 出现的先后排。追漫靠这个顺序决定"最近 K 章"是哪 K 章，抄错方向就是把窗口
+ * 摆到几百章之前。
+ */
+export function listChapters(html, parse) {
   const body = decodeEntities(html);
   const itemRe = new RegExp(`<a[^>]*${escapeRe(parse.chapterItem)}[^>]*>([\\s\\S]{0,300}?)</a>`, 'gi');
   const idRe = new RegExp(parse.chapterIdFrom);
-  const ids = new Set();
+  const out = [];
+  const seen = new Set();
   let m;
   while ((m = itemRe.exec(body))) {
     const inner = m[1] ?? '';
@@ -81,55 +94,27 @@ export function countChapters(html, parse) {
     const numbered = idM.length >= 3;
     const raw = numbered ? idM[2] : idM[1];
     if (!raw) continue;
-    ids.add(numbered ? `${idM[1] ?? '0'}_${raw}` : raw);
+    const id = numbered ? `${idM[1] ?? '0'}_${raw}` : raw;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, index: numbered ? Number(raw) || 0 : out.length + 1 });
   }
-  return ids.size;
+  out.sort((a, b) => a.index - b.index);
+  return out;
 }
 
-/** 某一类页面该用哪种取源方式。跟客户端 modeFor/waitForFor 同一套读法 */
-function modeFor(plugin, kind) {
-  const m = plugin.fetch?.mode;
-  if (!m) return 'fetch';
-  return typeof m === 'string' ? m : (m[kind] ?? 'fetch');
-}
-
-function waitForFor(plugin, kind) {
-  const w = plugin.fetch?.waitFor;
-  if (!w) return undefined;
-  return typeof w === 'string' ? w : w[kind];
-}
-
-function minCountFor(plugin, kind) {
-  const m = plugin.fetch?.minCount;
-  if (m === undefined) return undefined;
-  return typeof m === 'number' ? m : m[kind];
-}
-
+/**
+ * 取详情页正文。
+ *
+ * waitFor 和 minCount 必须一起给，两样都得跟着客户端那份走 —— 少一样就等着看差别：
+ * 拷貝漫畫的目录里 SSR 先挂 1 条占位、JS 再灌进 20+ 条，只等"出现过"就拿回来 1 条，
+ * 数出来的条数和客户端解析出来的对不上，减法那边就永远是个负数（实测这么测出来的，
+ * 三个源里两个都是 1）。规则本身在 plugin-page.mjs，跟追漫共用一份。
+ */
 async function fetchDetailHtml(plugin, url) {
-  const host = new URL(url).hostname.toLowerCase();
-  if (modeFor(plugin, 'detail') === 'browser') {
-    /*
-     * waitFor 和 minCount 必须一起给。客户端那份是两样都带的，服务端少一样
-     * 就等着看差别：拷貝漫畫的目录里 SSR 先挂 1 条占位、JS 再灌进 20+ 条，
-     * 只等"出现过"就拿回来 1 条 —— 数出来的条数和客户端解析出来的对不上，
-     * 减法那边就永远是个负数（实测这么测出来的，三个源里两个都是 1）。
-     */
-    const r = await renderHtml(url, {
-      waitFor: waitForFor(plugin, 'detail'),
-      minCount: minCountFor(plugin, 'detail'),
-      timeoutMs: plugin.fetch?.timeoutMs,
-      userAgent: plugin.headers?.['User-Agent'] ?? DESKTOP_UA,
-    });
-    // 详情页没有 capture 这条路；真拿到了 JSON 就当"没数出来"，别拿空串去写 0
-    return r.format === 'json' ? '' : r.html;
-  }
-  const res = await fetch(url, {
-    headers: { 'user-agent': plugin.headers?.['User-Agent'] ?? DESKTOP_UA, ...headersFor(host) },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.text();
+  const { html } = await fetchPage(plugin, url, 'detail');
+  // 详情页没有 capture 这条路；真拿到了 JSON 就当"没数出来"，别拿空串去写 0
+  return html;
 }
 
 /**
@@ -164,29 +149,35 @@ export async function runUpdateCheck({ force = false } = {}) {
     }
 
     let anchors = null;
+    let ids = null;
     let error = null;
     try {
       const url = new URL(fill(plugin.urls.detail, { slug: b.slug }), plugin.entry).toString();
       const html = await fetchDetailHtml(plugin, url);
-      anchors = countChapters(html, plugin.parse);
+      const list = listChapters(html, plugin.parse);
+      anchors = list.length;
+      // 数组的顺序就是阅读顺序（listChapters 末尾按 index 升序排过），追漫靠它定窗口
+      ids = JSON.stringify(list.map((c) => ({ id: c.id, index: c.index })));
       // 一条都没数到多半是页面没拿到（质询、改版），不该写成"这书没章节了"
       if (anchors === 0) {
         error = '没数到任何章节';
         anchors = null;
+        ids = null;
       }
     } catch (e) {
       error = String(e?.message ?? e).slice(0, 160);
     }
 
     /*
-     * anchors 取不到时保持旧值（COALESCE），否则一次网络抖动会把基线抹成 null，
-     * 下一轮成功时就变成"从 0 涨到 183"，书架上凭空冒出一个假的新章徽章。
+     * anchors / chapter_ids 取不到时都保持旧值（COALESCE），否则一次网络抖动会把基线
+     * 抹成 null，下一轮成功时就变成"从 0 涨到 183"，书架上凭空冒出一个假的新章徽章。
      */
     d.prepare(
-      `INSERT INTO updates (key, plugin_id, slug, anchors, checked_at, changed_at, error)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)
+      `INSERT INTO updates (key, plugin_id, slug, anchors, chapter_ids, checked_at, changed_at, error)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
        ON CONFLICT(key) DO UPDATE SET
          anchors = COALESCE(excluded.anchors, updates.anchors),
+         chapter_ids = COALESCE(excluded.chapter_ids, updates.chapter_ids),
          checked_at = excluded.checked_at,
          changed_at = CASE
            WHEN updates.anchors IS NOT NULL AND excluded.anchors IS NOT NULL
@@ -194,7 +185,7 @@ export async function runUpdateCheck({ force = false } = {}) {
            ELSE updates.changed_at
          END,
          error = excluded.error`,
-    ).run(key, b.pluginId, b.slug, anchors, Date.now(), error);
+    ).run(key, b.pluginId, b.slug, anchors, ids, Date.now(), error);
 
     summary.checked++;
     if (error) summary.failed++;

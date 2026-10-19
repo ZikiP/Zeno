@@ -79,7 +79,17 @@ export function useOfflineCache(plugin: Plugin | null, slug: string, chapters: C
   const dropEverything = useCallback(
     async (comicTitle: string) => {
       if (!plugin) return false;
-      if (!confirm(`移除《${comicTitle}》并清除其离线缓存？`)) return false;
+      /*
+       * 两件事的时机不一样，必须分开说：这台设备的离线缓存是立刻清，
+       * 服务端那台机器替这本书铺的缓存是**一天后**才腾 —— 一天内把书加回书架，
+       * 那份原样留着。不写这一句，用户会以为移除就等于全部丢掉。
+       */
+      if (
+        !confirm(
+          `移除《${comicTitle}》？\n\n这台设备的离线缓存会立刻清除；服务端为它铺好的章节缓存在一天后清除，一天内重新加入书架就原样保留。`,
+        )
+      )
+        return false;
       await deleteCachedByPluginAndSlug(plugin.meta.id, slug);
       await removeFromShelf(plugin.meta.id, slug);
       return true;

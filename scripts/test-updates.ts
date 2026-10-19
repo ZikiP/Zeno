@@ -12,7 +12,7 @@
 import { parseChapters } from '../src/site/parse';
 import { decodeEntities } from '../src/site/text';
 import { shelfUpdate, type UpdateRow } from '../src/store/updateBadge';
-import { countChapters } from '../server/updates.mjs';
+import { countChapters, listChapters } from '../server/updates.mjs';
 
 let fails = 0;
 const check = (ok: boolean, msg: string) => {
@@ -43,16 +43,30 @@ const CASES: [string, string, number, never][] = [
   ['CSS 里也有同名 class，不能算进去', '<style>.comics-chapters__item{height:36px}</style>' + link('a?section_slot=0&chapter_slot=9'), 1, numbered],
   ['对不上 chapterIdFrom 的不算', link('a?page=1'), 0, numbered],
   ['一条都没有', '<div>什么都没有</div>', 0, numbered],
+  /*
+   * 下面两条钉的是**顺序**，不是条数：追漫靠 listChapters 的数组顺序决定
+   * "最近 K 章"是哪 K 章。页面把新章挂在前面是常态，所以 DOM 顺序不等于阅读顺序 ——
+   * 两边必须都按 index 升序，谁哪天漏了那次 sort，条数照样对得上、窗口却会摆到几百章之前。
+   */
+  ['DOM 倒着挂（3、1、2），两边都得按 index 升序', [link('a?section_slot=0&chapter_slot=3'), link('a?section_slot=0&chapter_slot=1'), link('a?section_slot=0&chapter_slot=2')].join(''), 3, numbered],
+  ['跨分区：0 区 12 章要排在 1 区 3 章前面', [link('a?section_slot=1&chapter_slot=3'), link('a?section_slot=0&chapter_slot=12'), link('a?section_slot=0&chapter_slot=11')].join(''), 3, numbered],
+  ['UUID 形态没有序号，只能按页面出现顺序', [one('/comic/x/chapter/aaa1.html'), one('/comic/x/chapter/bbb2.html'), one('/comic/x/chapter/ccc3.html')].join(''), 3, single],
 ];
 
 /** 客户端的真实管线：先整份解码，再解析 */
 const clientCount = (html: string, rules: never) => parseChapters(decodeEntities(html), rules).length;
+/** 只留 id 与 index：标题两边取法不同（服务端不解正文），那是客户端的事 */
+const clientList = (html: string, rules: never) =>
+  parseChapters(decodeEntities(html), rules).map((c) => ({ id: c.id, index: c.index }));
 
 console.log('\n=== 服务端 countChapters 对 客户端（解码 → parseChapters） ===');
 for (const [name, html, expect, rules] of CASES) {
   const mine = countChapters(html, rules);
   const theirs = clientCount(html, rules);
   check(mine === expect && theirs === expect, `${name}：服务端 ${mine} / 客户端 ${theirs} / 应为 ${expect}`);
+  const a = JSON.stringify(listChapters(html, rules));
+  const b = JSON.stringify(clientList(html, rules));
+  check(a === b, `  ↳ 同一份输入，id 与顺序逐条相同 ${a === b ? '' : `服务端 ${a} / 客户端 ${b}`}`);
 }
 
 console.log('\n=== 真实形态：混合两种写法的长目录 ===');

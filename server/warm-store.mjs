@@ -8,7 +8,16 @@ import { openDb } from './db.mjs';
 import { localConfig } from './cache-config.mjs';
 
 const KEEP_KEY = 'warm_keep_chapters';
-const DEFAULT_KEEP = Number(process.env.ZENO_WARM_KEEP || 5);
+const DEFAULT_KEEP = Number(process.env.ZENO_WARM_KEEP || 30);
+
+/**
+ * 读到 95% 以上算读完。跟 src/store/shelf.ts 的 READ_AT 对齐。
+ *
+ * 这是**故意的第二份**，跟 updates.mjs 抄 decodeEntities、warm-resolve 抄 getChapter
+ * 同一条路：服务端不该为了一个常数去引浏览器包。两边对不上的后果是刚读完的章
+ * 被当成未读一直占盘，不会读坏任何东西。
+ */
+export const READ_AT = 95;
 
 /**
  * 本机对外怎么说自己（回环自请求要用）与令牌。
@@ -46,105 +55,77 @@ export function saveKeepChapters(input) {
   return keepChapters();
 }
 
-/**
- * 把 /api/proxy?url=… 这种形态解回上游地址。
- *
- * 客户端手里的图片地址本来就是代理形态（engine.ts 的 proxied() 包过一层），
- * 而盘上的键是**上游地址**的 sha256（见 cache-store 的 keyOf）。存代理形态的话，
- * 淘汰时算出来的键跟账本对不上，那张就永远删不掉。
- */
-function upstreamOf(img) {
-  let raw = String(img ?? '').trim();
-  if (!raw) return null;
-  if (!/^https?:\/\//i.test(raw)) {
-    // 相对形态（/api/proxy?url=…）在服务端没有"同源"可解析，按自己对外说的那个 origin 补
-    try {
-      raw = new URL(raw, `${self.origin}/`).toString();
-    } catch {
-      return null;
-    }
-  }
-  try {
-    const u = new URL(raw);
-    const inner = u.searchParams.get('url');
-    if (inner && /^https?:\/\//i.test(inner)) return new URL(inner).toString();
-    return u.toString();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 把一本书的台账对齐到「客户端递交的这一份」。
- *
- * 幂等，方向只有一个：这份表就是这本书该留的集合。没在表里的行标成 dropped，
- * 由 warm-gc 过了宽限期删字节 —— 所以"关掉追漫"就是递交一份空表，不用另一个端点。
- *
- * 地址没变、又已经在铺或铺好的行不重排：只续一下 updated_at。
- * 否则每打开一次书就把整本重下一遍。
- */
-export function alignBook(pluginId, slug, chapters) {
-  const d = openDb();
-  const now = Date.now();
-  const kept = [];
-  let queued = 0;
-
-  d.exec('BEGIN');
-  try {
-    for (const c of chapters) {
-      const cid = String(c?.id ?? '');
-      if (!cid) continue;
-      const images = [...new Set((Array.isArray(c.images) ? c.images : []).map(upstreamOf).filter(Boolean))];
-      if (!images.length) continue;
-      kept.push(cid);
-      const asJson = JSON.stringify(images);
-      const prev = d
-        .prepare('SELECT state, images FROM warm WHERE plugin_id = ? AND slug = ? AND chapter_id = ?')
-        .get(pluginId, slug, cid);
-      if (prev && prev.images === asJson && (prev.state === 'queued' || prev.state === 'running' || prev.state === 'done')) {
-        d.prepare('UPDATE warm SET updated_at = ? WHERE plugin_id = ? AND slug = ? AND chapter_id = ?').run(
-          now,
-          pluginId,
-          slug,
-          cid,
-        );
-        continue;
-      }
-      d.prepare(
-        `INSERT INTO warm (plugin_id, slug, chapter_id, idx, images, got, bytes, state, error, warmed_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 0, 0, 'queued', NULL, NULL, ?)
-         ON CONFLICT(plugin_id, slug, chapter_id) DO UPDATE SET
-           idx = excluded.idx, images = excluded.images, got = 0, bytes = 0,
-           state = 'queued', error = NULL, warmed_at = NULL, updated_at = excluded.updated_at`,
-      ).run(pluginId, slug, cid, Number.isFinite(c.index) ? Math.round(c.index) : null, asJson, now);
-      queued++;
-    }
-    if (kept.length) {
-      const marks = kept.map(() => '?').join(',');
-      d.prepare(
-        `UPDATE warm SET state = 'dropped', updated_at = ?
-         WHERE plugin_id = ? AND slug = ? AND state <> 'dropped' AND chapter_id NOT IN (${marks})`,
-      ).run(now, pluginId, slug, ...kept);
-    } else {
-      // 空表 = 这本书不追了。整本标掉，宽限期一过就腾盘
-      d.prepare('UPDATE warm SET state = ?, updated_at = ? WHERE plugin_id = ? AND slug = ?').run(
-        'dropped',
-        now,
-        pluginId,
-        slug,
-      );
-    }
-    d.exec('COMMIT');
-  } catch (e) {
-    d.exec('ROLLBACK');
-    throw e;
-  }
-  return { queued, kept: kept.length };
-}
-
-/** 下一个该铺的：按递交顺序（客户端就是按"离脚下最近"排的） */
+/** 下一个该铺的：按进台账的先后排（补齐台账时就是"离脚下最近"的先排） */
 export function nextQueued() {
   return openDb().prepare("SELECT * FROM warm WHERE state = 'queued' ORDER BY updated_at ASC LIMIT 1").get();
+}
+
+/** 这本书的台账里，处于这几个状态之一的章有哪些 */
+export function warmIds(pluginId, slug, states = ['queued', 'running', 'done']) {
+  const marks = states.map(() => '?').join(',');
+  return new Set(
+    openDb()
+      .prepare(`SELECT chapter_id FROM warm WHERE plugin_id = ? AND slug = ? AND state IN (${marks})`)
+      .all(pluginId, slug, ...states)
+      .map((r) => r.chapter_id),
+  );
+}
+
+/**
+ * 补一章进台账（服务端自己追漫时走这条，不是客户端递交）。
+ *
+ * 地址表变了就重新排队，没变就只续时间 —— 跟 alignBook 同一条规矩，
+ * 否则每 15 分钟一轮就把整本重下一遍。
+ */
+export function upsertQueued(pluginId, slug, chapterId, index, images) {
+  const d = openDb();
+  const now = Date.now();
+  const asJson = JSON.stringify(images);
+  const prev = d
+    .prepare('SELECT state, images FROM warm WHERE plugin_id = ? AND slug = ? AND chapter_id = ?')
+    .get(pluginId, slug, chapterId);
+  if (prev && prev.images === asJson && prev.state !== 'error' && prev.state !== 'dropped') {
+    d.prepare('UPDATE warm SET updated_at = ? WHERE plugin_id = ? AND slug = ? AND chapter_id = ?').run(
+      now,
+      pluginId,
+      slug,
+      chapterId,
+    );
+    return 'kept';
+  }
+  d.prepare(
+    `INSERT INTO warm (plugin_id, slug, chapter_id, idx, images, got, bytes, state, error, warmed_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 0, 0, 'queued', NULL, NULL, ?)
+     ON CONFLICT(plugin_id, slug, chapter_id) DO UPDATE SET
+       idx = excluded.idx, images = excluded.images, got = 0, bytes = 0,
+       state = 'queued', error = NULL, warmed_at = NULL, updated_at = excluded.updated_at`,
+  ).run(pluginId, slug, chapterId, Number.isFinite(index) ? Math.round(index) : null, asJson, now);
+  return 'queued';
+}
+
+/** 解不出地址表的那些章也要留一行，否则每一轮都重新去解同一章，白敲站点 */
+export function markUnresolved(pluginId, slug, chapterId, index, message) {
+  openDb()
+    .prepare(
+      `INSERT INTO warm (plugin_id, slug, chapter_id, idx, images, got, bytes, state, error, updated_at)
+       VALUES (?, ?, ?, ?, '[]', 0, 0, 'error', ?, ?)
+       ON CONFLICT(plugin_id, slug, chapter_id) DO UPDATE SET
+         state = 'error', error = excluded.error, updated_at = excluded.updated_at`,
+    )
+    .run(pluginId, slug, chapterId, Number.isFinite(index) ? Math.round(index) : null, String(message ?? '').slice(0, 160), Date.now());
+}
+
+/**
+ * 只留一句备注，不动状态也不动地址表。
+ *
+ * 用在"铺是铺了、但不全"那种章身上（比如站点没写页码标记，服务端只认第 1 页）。
+ * 这种章不能走 markUnresolved —— 那会把刚排好的行连同地址表一起擦成 error，
+ * 于是已经下下来的图白下、界面还多一个假报错。
+ */
+export function noteRow(pluginId, slug, chapterId, message) {
+  openDb()
+    .prepare('UPDATE warm SET error = ? WHERE plugin_id = ? AND slug = ? AND chapter_id = ?')
+    .run(String(message ?? '').slice(0, 160), pluginId, slug, chapterId);
 }
 
 /** 领走一行。领了就得铺完，不然它停在 running 等下次重启来捡 */
@@ -186,6 +167,29 @@ export function ledger() {
       .all()
       .map((r) => [r.state, r.n]),
   );
+}
+
+/**
+ * 一本书的台账，给详情页给章节挂"已缓存"标记用。
+ *
+ * `partial` 是从 error 那句"只解出部分内页"来的：这种章铺了但不全，
+ * 界面上不该挂"已缓存"—— 标错一次，用户就会在真没缓存的那一章上信错它。
+ */
+export function bookLedger(pluginId, slug) {
+  return openDb()
+    .prepare(
+      'SELECT chapter_id, state, got, idx, purge_at, error FROM warm WHERE plugin_id = ? AND slug = ? ORDER BY idx',
+    )
+    .all(pluginId, slug)
+    .map((r) => ({
+      id: r.chapter_id,
+      state: r.state,
+      got: r.got,
+      purgeAt: r.purge_at,
+      partial: !!r.error,
+      /** 能不能挂"已缓存"：铺完了、且不是只铺了一半 */
+      cached: r.state === 'done' && !r.error,
+    }));
 }
 
 /** 上次崩在半路的行重新排队。返回重排了几行 */

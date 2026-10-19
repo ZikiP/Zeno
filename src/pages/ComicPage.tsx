@@ -18,9 +18,9 @@ import ShelfStateIcon from '@/components/ShelfStateIcon';
 import {
   IconBack,
   IconDownload,
+  IconHeart,
   IconPlay,
   IconSettings,
-  IconSync,
 } from '@/components/Icons';
 import { ErrorBox, Loading } from '@/components/UI';
 
@@ -54,8 +54,9 @@ export default function ComicPage() {
     chapters,
   );
 
-  /* 追漫：开关本身、递交进度都在 useWarmFollow 里，这一层只负责把它摆到界面上 */
-  const follow = useWarmFollow({ plugin, slug, chapters, positions: entry?.positions });
+  /* 追漫：开关与"哪几章已经缓存好"的标记。铺字节是服务端的事，这一层只切开关 */
+  const follow = useWarmFollow({ plugin, slug, title: comic?.title });
+  const warmCached = Object.values(follow.marks).filter((m) => m.cached).length;
 
   /*
    * 抓的是"哪个源的哪本书"，不是插件对象的那个身份。
@@ -276,17 +277,14 @@ export default function ComicPage() {
                     {caching ? `下载中 ${Math.floor(caching.done)}/${caching.total}` : '离线下载'}
                   </button>
                   {/*
-                   * 追漫跟在架才给：它的口径是"未读的最近几章"，而进度只长在书架记录上。
-                   * 不在架时 positions 是空的，点一下会把整本当未读铺过去 —— 那不是追漫，是误触发。
+                   * 追漫跟在架才给：服务端算"该铺哪几章"要同时认两样 ——
+                   * 在不在架上、这本开没开追漫。不在架时开关写了也没人去读，
+                   * 摆一颗点了没反应的按钮更糟。
                    */}
                   {entry && (
-                    <button className="btn btn--ghost" onClick={() => follow.setWarm(!follow.warm)}>
-                      <IconSync size={16} />
-                      {follow.progress
-                        ? `追漫中 ${follow.progress.done}/${follow.progress.total}`
-                        : follow.warm
-                          ? '已追漫'
-                          : '追漫'}
+                    <button className="btn btn--ghost" onClick={() => follow.setWarmFollow(!follow.warm)}>
+                      <IconHeart size={16} filled={!!follow.warm} />
+                      {follow.warm ? '已追漫' : '追漫'}
                     </button>
                   )}
                 </div>
@@ -297,11 +295,13 @@ export default function ComicPage() {
                   </div>
                 )}
                 {/*
-                 * 只报结果，不报进度：跑着的时候按钮上已经是「追漫中 2/3」了，
-                 * 同一个数在底下再写一遍就是噪音。
+                 * 说出"最近 K 章"这个口径：不然用户看到"已缓存 2 章"而书架上有
+                 * 几百章未读，第一反应是这功能坏了（实际是窗口就这么定的）。
                  */}
-                {follow.warm && follow.note && (
-                  <div className="detail__cached">追漫 · {follow.note}</div>
+                {follow.warm && warmCached > 0 && (
+                  <div className="detail__cached">
+                    追漫 · 已缓存 {warmCached} 章（未读的最近 {follow.keep} 章）
+                  </div>
                 )}
               </div>
             </div>
@@ -320,6 +320,7 @@ export default function ComicPage() {
               pluginId={plugin.meta.id}
               slug={slug}
               cached={cached}
+              warm={follow.marks}
               positions={entry?.positions}
               /* 不在书架上没有进度可记，那颗批量按钮也就没意义 */
               onMarkThrough={entry ? markThroughHere : undefined}
