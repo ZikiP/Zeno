@@ -57,6 +57,11 @@ export default function ScrollView({
 }) {
   const ownRef = useRef<HTMLDivElement>(null);
   const box = containerRef ?? ownRef;
+  /**
+   * 触屏用双指捏合放大，双击放大只留给鼠标；
+   * 这里按最近一次 pointerdown 的输入类型判断，不能按设备猜。
+   */
+  const lastPointer = useRef<string>('mouse');
 
   /*
    * 双指放大落在图片自己的宽度上：量一次不放大时多宽，乘上倍率写成 px。
@@ -158,6 +163,9 @@ export default function ScrollView({
        * 双指交给我们自己。pan-x pan-y 只放开拖动滚动，不留 pinch-zoom。
        */
       style={{ filter, touchAction: 'pan-x pan-y' }}
+      onPointerDownCapture={(e) => {
+        lastPointer.current = e.pointerType || 'mouse';
+      }}
       onScroll={(e) => onScroll(e.currentTarget)}
     >
       {images.map((src, i) => (
@@ -170,7 +178,9 @@ export default function ScrollView({
             fetchPriority={i < 3 ? 'high' : 'auto'}
             enhance={enhance}
             onClick={onTap}
-            onDoubleClick={() => onZoom(src, i)}
+            onDoubleClick={() => {
+              if (lastPointer.current === 'mouse') onZoom(src, i);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               onZoom(src, i);

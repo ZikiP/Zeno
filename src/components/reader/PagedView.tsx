@@ -9,11 +9,11 @@ import type { TurnAnim } from '@/reader/prefs';
 const WARM_MS = 90;
 
 /**
- * 单击要等这么久才执行，用来分辨双击。
+ * 鼠标单击要等这么久才执行，用来分辨双击放大。
  *
  * 为什么不能不做：点击区盖在图片上面，双击放大挂在图片上永远收不到事件。
- * 唯一可靠的做法是把单击压后一个双击窗口；代价是点击翻页慢 220ms
- * （键盘和滑动不受影响）。220ms 是常见双击阈值，再长翻页会明显发黏。
+ * 唯一可靠的做法是把单击压后一个双击窗口；代价是鼠标点击翻页慢 220ms
+ * （键盘、滑动、触摸都不受影响）。触摸设备靠双指捏合放大，单击直接翻页。
  */
 const TAP_DELAY_MS = 220;
 /** 两次点击落点差这么多以内才算双击 */
@@ -152,6 +152,13 @@ export default function PagedView({
   const tapRef = useRef(tap);
   tapRef.current = tap;
 
+  /**
+   * 最近一次点击来自鼠标还是触摸/手写笔。
+   *
+   * 触屏本来就靠双指捏合放大；再叠一个双击放大只会让每次单击都等 220ms
+   * 去分辨双击。只有鼠标输入才走双击窗口，触摸单击立即翻页。
+   */
+  const lastPointer = useRef<string>('mouse');
   /** 最近一次单击（还没执行的那一下），用来判断下一击是不是双击 */
   const lastTap = useRef<{ x: number; y: number; at: number } | null>(null);
   /** 最近一次单击的定时器；更早的那些也都要在卸载时清掉 */
@@ -253,7 +260,7 @@ export default function PagedView({
   );
 
   /**
-   * 点区的单击：先压一个双击窗口，再按原样交给手势层。
+   * 点区的单击：鼠标先压一个双击窗口，触摸/手写笔立即交给手势层。
    *
    * 滑动带出来的补点击要先被 takeSwipe 认领掉 —— 否则它会成为双击的第一下，
    * 下一下正常点击就被误判成放大。
@@ -263,6 +270,12 @@ export default function PagedView({
     e: React.MouseEvent,
   ) => {
     if (takeSwipe()) return;
+
+    /* 触摸/手写笔：单击就是单击，不压双击窗口，也不做双击放大 */
+    if (lastPointer.current !== 'mouse') {
+      tapRef.current(side);
+      return;
+    }
 
     const now = performance.now();
     const prev = lastTap.current;
@@ -299,6 +312,10 @@ export default function PagedView({
   const handleZoneMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     zoomAtPoint(e.clientX, e.clientY);
+  };
+
+  const notePointer = (e: React.PointerEvent) => {
+    lastPointer.current = e.pointerType || 'mouse';
   };
 
   const leftLabel = rtl ? '下一页' : '上一页';
@@ -501,15 +518,16 @@ export default function PagedView({
           这是实测里最影响阅读体验的问题。
         */}
         {/*
-         * 单击统一走 handleZoneClick（压一个双击窗口）；双击/右击/长按都在
-         * 这里放开大层。role/aria 是给读屏用的：它们没有 tabIndex，
-         * 键盘仍是既有的方向键，不会多出三个 Tab 停靠点。
+         * 单击统一走 handleZoneClick（鼠标压一个双击窗口，触摸立即执行）；
+         * 双击/右击/长按都在这里放开大层。role/aria 是给读屏用的：
+         * 它们没有 tabIndex，键盘仍是既有的方向键，不会多出三个 Tab 停靠点。
          */}
         <div
           className="paged-tap paged-tap--l"
           role="button"
           tabIndex={-1}
           aria-label={leftLabel}
+          onPointerDown={notePointer}
           onClick={(e) => handleZoneClick('left', e)}
           onContextMenu={handleZoneMenu}
         />
@@ -518,6 +536,7 @@ export default function PagedView({
           role="button"
           tabIndex={-1}
           aria-label={rightLabel}
+          onPointerDown={notePointer}
           onClick={(e) => handleZoneClick('right', e)}
           onContextMenu={handleZoneMenu}
         />
@@ -526,6 +545,7 @@ export default function PagedView({
           role="button"
           tabIndex={-1}
           aria-label="显示或隐藏工具栏"
+          onPointerDown={notePointer}
           onClick={(e) => handleZoneClick('center', e)}
           onContextMenu={handleZoneMenu}
         />
