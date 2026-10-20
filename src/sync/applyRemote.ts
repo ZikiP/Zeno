@@ -285,18 +285,31 @@ async function applyDeletes(t: Tx, rows: NonNullable<RemoteSnapshot['deletes']>)
   return pluginIds;
 }
 
+/** 超过「现在 + 10 分钟」的时间戳一律当成坏时钟，不参与 LWW */
+const FUTURE_SKEW_MS = 10 * 60_000;
+
 function applySettings(rows: RemoteRow[]) {
+  const now = serverNow();
+  const horizon = now + FUTURE_SKEW_MS;
+  /*
+   * 一台时钟快出几天的设备能把设置键顶到未来，之后所有设备的正常修改
+   * 都会输给这条"未来"记录，而且它自己也会一直赢。这里把离谱的未来时间
+   * 归零：本地坏时间戳会让位给一条正常的远端记录（顺带把本地 `__at` 掰回来），
+   * 远端坏时间戳也不会压掉本地正常的选择。
+   */
+  const sane = (t: number) => (t > horizon ? 0 : t);
+
   for (const row of rows) {
     const key = String(row.key ?? '');
     const value = row.value;
     if (!key || value == null) continue;
 
     // 本地更新时间比远端新就不覆盖
-    const localAt = Number(localStorage.getItem(`${key}__at`) ?? 0);
-    const remoteAt = Number(row.updated_at ?? 0);
+    const localAt = sane(Number(localStorage.getItem(`${key}__at`) ?? 0));
+    const remoteAt = sane(Number(row.updated_at ?? 0));
     if (localAt > remoteAt) continue;
 
     localStorage.setItem(key, String(value));
-    localStorage.setItem(`${key}__at`, String(remoteAt || serverNow()));
+    localStorage.setItem(`${key}__at`, String(remoteAt || now));
   }
 }

@@ -57,6 +57,7 @@ export async function handleSyncApi(req, res, url, auth) {
     if (!auth(req)) { json(res, 401, { error: 'unauthorized' }); return true; }
     const body = await readBody(req);
     const deviceId = body.deviceId ?? req.headers['x-device-id'] ?? 'unknown';
+    dropFutureRows(body);
     const result = pushAll(body, deviceId);
     saveClientState(deviceId, body.seq ?? 0, ua(req), clientLabel(req), clientRole(req));
 
@@ -91,6 +92,49 @@ export async function handleSyncApi(req, res, url, auth) {
   }
 
   return false;
+}
+
+/** 客户端时钟比服务端快出这么多，就认为它坏了 */
+const FUTURE_SKEW_MS = 10 * 60_000;
+/** 同步推送里所有带 updatedAt / deletedAt 的数组 */
+const SYNC_ROWS = [
+  'plugins',
+  'shelf',
+  'positions',
+  'lastChapter',
+  'bookmarks',
+  'bookPrefs',
+  'settings',
+  'deletes',
+];
+
+/**
+ * 丢掉时间戳来自"未来"的同步行。
+ *
+ * LWW 比的是 updatedAt。一台时钟快出几天的设备（或写了 Date.now()+1e9 的脚本）
+ * 会让它之后每一条修改都永远压住别的设备，而且自己还一直赢 —— 一条坏记录
+ * 就能把某个键钉死到那个未来时刻。超过 10 分钟的未来一律视为坏时钟，不落库；
+ * 客户端下一次拉取会拿到正常时间戳，本地那个未来值也会被掰回来
+ * （见 src/sync/applyRemote.ts 的同一条判据）。
+ */
+function dropFutureRows(body) {
+  const horizon = Date.now() + FUTURE_SKEW_MS;
+  const dropped = [];
+  for (const key of SYNC_ROWS) {
+    const rows = body[key];
+    if (!Array.isArray(rows)) continue;
+    body[key] = rows.filter((row) => {
+      const ts = Number(row?.updatedAt ?? row?.deletedAt ?? 0);
+      if (!Number.isFinite(ts) || ts <= horizon) return true;
+      dropped.push(`${key}:${row?.key ?? row?.id ?? row?.chapterId ?? '?'}`);
+      return false;
+    });
+  }
+  if (dropped.length) {
+    console.warn(
+      `[zeno] 丢弃 ${dropped.length} 条未来时间戳的同步行：${dropped.slice(0, 5).join(', ')}`,
+    );
+  }
 }
 
 /** 设备表里记的 UA 只是排查用，截断即可，别把整条存进库 */
