@@ -6,6 +6,7 @@ import { BG_VALUES, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
 import { usePrefetchNextChapter } from './usePrefetch';
 import { prefetchChapterEnhancement } from '@/reader/enhanceQueue';
+import { onEnhanceActive, resetEnhanceActive } from '@/reader/enhanceCache';
 import { useChapterLoader } from './useChapterLoader';
 import { useChapterNeighbors } from './useChapterNeighbors';
 import { useBookmarks } from './useBookmarks';
@@ -73,6 +74,8 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const [zoomed, setZoomed] = useState(false);
   const [zoomTick, setZoomTick] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
+  /** 这一章有没有真出过增强图（顶栏那颗「画面+」的依据） */
+  const [enhanceLive, setEnhanceLive] = useState(false);
 
   const isRTL = prefs.value.direction === 'rtl';
 
@@ -195,6 +198,18 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     if (prefs.value.enhanceScreen) prefetchChapterEnhancement(images, paging.startIndex);
   }, [images, prefs.value.enhanceScreen, paging.startIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /*
+   * 顶栏那颗「画面+」：开关开着不等于在增强 —— 源图本来就有屏幕那么宽时，
+   * Worker 那一关直接判"不用放大"跳过，一张都不造。所以记的是"这一章真出过增强版"，
+   * 由 enhanceCache 在每张结果进内存那一刻报上来（见 markActive）。换章清零。
+   */
+  useEffect(() => {
+    resetEnhanceActive();
+    setEnhanceLive(false);
+    if (!prefs.value.enhanceScreen || !images) return;
+    return onEnhanceActive(() => setEnhanceLive(true));
+  }, [images, prefs.value.enhanceScreen]);
+
   /* ── 快捷键 ── */
   useReaderHotkeys(
     {
@@ -243,6 +258,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         rtl={isRTL}
         mode={mode}
         marked={bookmarks.markedPages.has(paging.currentImageIndex)}
+        enhanced={enhanceLive}
         canFullscreen={fs.supported}
         fullscreen={fs.active}
         onBack={back}

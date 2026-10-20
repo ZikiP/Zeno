@@ -49,6 +49,41 @@ export function unpinEnhanced(url: string) {
 }
 
 /**
+ * 「这一档真在出活」的信号。
+ *
+ * 开关开着不等于在增强：源图本来就有屏幕那么宽时，Worker 那一关直接判"不用放大"跳过，
+ * 一张都不会造。界面要报的是后者还是前者，只有这里知道 —— 每张真造出来的增强版
+ * 都要经过 remember，所以在这一句上挂号最准。
+ *
+ * 换章时由阅读器调 resetEnhanceActive 清零（见 ReaderPage）。中途把窗口拖窄到不需要
+ * 放大，这一章的记号不会自己退掉，要到下一章才更正 —— 记号是"这一章出过增强图"，
+ * 不是"此刻还在出"。
+ */
+let active = false;
+const listeners = new Set<() => void>();
+
+export function enhanceActive() {
+  return active;
+}
+
+export function onEnhanceActive(cb: () => void) {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+export function resetEnhanceActive() {
+  active = false;
+}
+
+function markActive() {
+  if (active) return;
+  active = true;
+  for (const l of listeners) l();
+}
+
+/**
  * LRU：命中就重新插到末尾。
  *
  * 规矩，缺一条就会把还在显示的地址撤销掉（都踩过）：
@@ -63,6 +98,7 @@ export function unpinEnhanced(url: string) {
 export function remember(key: string, url: string) {
   cache.delete(key);
   cache.set(key, url);
+  markActive();
   if (cache.size <= CACHE_MAX) return;
   for (const [k, u] of cache) {
     if (k === key || (pins.get(u) ?? 0) > 0) continue;

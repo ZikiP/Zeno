@@ -54,6 +54,34 @@
   padding: 0 var(--s-1);
 }
 
+/*
+ * 顶栏右侧那组最前面那颗「画面+」。配色跟条子自己走（--r-dim 的字、--r-edge 的那圈边），
+ * 不借 App 主题里那几种徽章色 —— 阅读器自成一套，条子底下是漫画页不是页面底色。
+ * 几何沿用章节行那颗徽章（10px / 1px 6px / 半径 4）。它不是按钮，所以不套
+ * .icon-btn 那套 hover 底色，免得看着像能点。
+ */
+.reader__flag {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1.6;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  color: var(--r-dim);
+  box-shadow: inset 0 0 0 1px var(--r-edge);
+}
+/*
+ * 窄屏上这条已经挤满了：六颗图标加页码刚好，再塞一颗就把「12 / 25」压成「12 /…」。
+ * 页码是主信息，所以是徽章让位，不是页码让位。
+ * 断点按量出来的宽度写：图标 40×6 + 间距 8×7 + 左右内边距 16 + 徽章 44 ≈ 420，
+ * 剩下给页码的不到 60 就必然截断 —— 640 以下不收它。
+ */
+@media (max-width: 640px) {
+  .reader__flag {
+    display: none;
+  }
+}
+
 .reader__scroll {
   flex: 1;
   overflow-y: auto;

@@ -20,6 +20,13 @@ export interface ReaderBarProps {
   mode: 'scroll' | 'paged';
   /** 当前页是否已收藏 */
   marked: boolean;
+  /**
+   * 这一章真出过增强图（顶栏右上角那颗「画面+」）。
+   *
+   * 只在真出活时亮：开关开着但源图本来就有屏幕那么宽（窄屏高倍屏以外常见）时，
+   * Worker 直接跳过，一张都不造，这时候报"在增强"是假话。
+   */
+  enhanced?: boolean;
   /** 这台设备有没有元素级 Fullscreen API。没有就不画这颗按钮，别摆一个点了没反应的 */
   canFullscreen: boolean;
   fullscreen: boolean;
@@ -49,6 +56,15 @@ export default function ReaderBar(p: ReaderBarProps) {
         {p.rtl && ' ←右起'}
       </div>
 
+      {/* 右侧那组的最前面：它是这一组的一个状态说明，不是角落里多出来的一块 */}
+      {p.enhanced && (
+        <span
+          className="reader__flag"
+          title="画面增强在跑：这一章的图比屏幕窄，正按本机显示尺寸重新采样并补一档高频"
+        >
+          画面+
+        </span>
+      )}
       <button className="icon-btn" onClick={p.onSettings} aria-label="阅读设置">
         <IconSettings />
       </button>
