@@ -8,6 +8,17 @@ import type { TurnAnim } from '@/reader/prefs';
 /** 演翻页前最多等解码等多久。超了也照演，手势反馈不能拖 */
 const WARM_MS = 90;
 
+/**
+ * 单击要等这么久才执行，用来分辨双击。
+ *
+ * 为什么不能不做：点击区盖在图片上面，双击放大挂在图片上永远收不到事件。
+ * 唯一可靠的做法是把单击压后一个双击窗口；代价是点击翻页慢 220ms
+ * （键盘和滑动不受影响）。220ms 是常见双击阈值，再长翻页会明显发黏。
+ */
+const TAP_DELAY_MS = 220;
+/** 两次点击落点差这么多以内才算双击 */
+const DOUBLE_TAP_SLOP = 28;
+
 /** 一个槽位里放的内容 */
 interface Screen {
   images: string[];
@@ -111,7 +122,7 @@ export default function PagedView({
     onZoomedChange,
   });
 
-  const { onTouchStart, onTouchEnd, tap } = usePagedGesture({
+  const { onTouchStart, onTouchEnd, tap, takeSwipe } = usePagedGesture({
     rtl,
     /* 放大后横向拖动是平移着看，不是翻页 */
     enabled: !zoomed,
@@ -126,6 +137,126 @@ export default function PagedView({
         }
       : onTapZone,
   });
+
+  /* ── 双击 / 长按放大 ── */
+
+  /*
+   * 延迟执行的单击要拿「到点时最新」的那份手势。
+   * 直接捕获 render 时的 tap 的话，这 220ms 里若切了放大态/换了一屏，
+   * 触发时用的还是旧闭包（比如放大后仍然把侧边点击当成翻页）。
+   */
+  const tapRef = useRef(tap);
+  tapRef.current = tap;
+
+  /** 最近一次单击（还没执行的那一下），用来判断下一击是不是双击 */
+  const lastTap = useRef<{ x: number; y: number; at: number } | null>(null);
+  /** 最近一次单击的定时器；更早的那些也都要在卸载时清掉 */
+  const tapTimer = useRef<number | null>(null);
+  const tapTimers = useRef<Set<number>>(new Set());
+
+  useEffect(
+    () => () => {
+      for (const t of tapTimers.current) window.clearTimeout(t);
+      tapTimers.current.clear();
+      tapTimer.current = null;
+      lastTap.current = null;
+    },
+    [],
+  );
+
+  /**
+   * 在 (x,y) 底下那一页上打开放大层。
+   *
+   * 点击区盖在图片上，所以不能靠 event.target 找图：自己拿当前台面那层的
+   * 图片矩形去命中。双页时两张图都在 DOM 里，顺序就是 images 的顺序
+   * （右起只是 row-reverse，没有重排数组）。
+   */
+  const zoomAtPoint = useCallback(
+    (x: number, y: number) => {
+      if (zoomed) return;
+      const slot = slots[active];
+      const el = slotRefs.current[active];
+      if (!slot || !el) return;
+
+      const imgs = Array.from(el.querySelectorAll('img'));
+      let idx = -1;
+      for (let i = 0; i < imgs.length; i++) {
+        const r = imgs[i].getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+          idx = i;
+          break;
+        }
+      }
+      /* 点在图片外的留白上：取水平方向最近的那张，别让双击落空 */
+      if (idx < 0) {
+        let best = Infinity;
+        for (let i = 0; i < imgs.length; i++) {
+          const r = imgs[i].getBoundingClientRect();
+          const d = Math.abs((r.left + r.right) / 2 - x);
+          if (d < best) {
+            best = d;
+            idx = i;
+          }
+        }
+      }
+
+      const src = slot.images[idx];
+      if (src) onZoom(src, slot.startIndex + idx);
+    },
+    [active, onZoom, slots, zoomed],
+  );
+
+  /**
+   * 点区的单击：先压一个双击窗口，再按原样交给手势层。
+   *
+   * 滑动带出来的补点击要先被 takeSwipe 认领掉 —— 否则它会成为双击的第一下，
+   * 下一下正常点击就被误判成放大。
+   */
+  const handleZoneClick = (
+    side: 'left' | 'right' | 'center',
+    e: React.MouseEvent,
+  ) => {
+    if (takeSwipe()) return;
+
+    const now = performance.now();
+    const prev = lastTap.current;
+    if (
+      prev &&
+      now - prev.at <= TAP_DELAY_MS &&
+      Math.hypot(e.clientX - prev.x, e.clientY - prev.y) <= DOUBLE_TAP_SLOP
+    ) {
+      if (tapTimer.current !== null) {
+        window.clearTimeout(tapTimer.current);
+        tapTimers.current.delete(tapTimer.current);
+        tapTimer.current = null;
+      }
+      lastTap.current = null;
+      zoomAtPoint(e.clientX, e.clientY);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      tapTimers.current.delete(timer);
+      if (tapTimer.current === timer) {
+        tapTimer.current = null;
+        lastTap.current = null;
+      }
+      tapRef.current(side);
+    }, TAP_DELAY_MS);
+
+    tapTimers.current.add(timer);
+    tapTimer.current = timer;
+    lastTap.current = { x: e.clientX, y: e.clientY, at: now };
+  };
+
+  /** 右击 / 安卓长按：和滚动模式一样直接开放大层，不走双击窗口 */
+  const handleZoneMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    zoomAtPoint(e.clientX, e.clientY);
+  };
+
+  const leftLabel = rtl ? '下一页' : '上一页';
+  const rightLabel = rtl ? '上一页' : '下一页';
 
   useEffect(() => {
     const prev = shown.current;
@@ -322,9 +453,35 @@ export default function PagedView({
           中间留这么宽是为了避免「想看工具栏却翻页了」这种误触 ——
           这是实测里最影响阅读体验的问题。
         */}
-        <div className="paged-tap paged-tap--l" onClick={() => tap('left')} />
-        <div className="paged-tap paged-tap--r" onClick={() => tap('right')} />
-        <div className="paged-tap paged-tap--c" onClick={() => tap('center')} />
+        {/*
+         * 单击统一走 handleZoneClick（压一个双击窗口）；双击/右击/长按都在
+         * 这里放开大层。role/aria 是给读屏用的：它们没有 tabIndex，
+         * 键盘仍是既有的方向键，不会多出三个 Tab 停靠点。
+         */}
+        <div
+          className="paged-tap paged-tap--l"
+          role="button"
+          tabIndex={-1}
+          aria-label={leftLabel}
+          onClick={(e) => handleZoneClick('left', e)}
+          onContextMenu={handleZoneMenu}
+        />
+        <div
+          className="paged-tap paged-tap--r"
+          role="button"
+          tabIndex={-1}
+          aria-label={rightLabel}
+          onClick={(e) => handleZoneClick('right', e)}
+          onContextMenu={handleZoneMenu}
+        />
+        <div
+          className="paged-tap paged-tap--c"
+          role="button"
+          tabIndex={-1}
+          aria-label="显示或隐藏工具栏"
+          onClick={(e) => handleZoneClick('center', e)}
+          onContextMenu={handleZoneMenu}
+        />
       </div>
 
       {edgeHint}

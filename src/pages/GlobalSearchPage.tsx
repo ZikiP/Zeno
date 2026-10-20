@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
 import { listPlugins } from '@/store/plugins';
@@ -25,6 +25,8 @@ export default function GlobalSearchPage() {
   const [searching, setSearching] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { recent, record: recordHit, clear: clearRecent } = useSearchHistory();
+  /** 第几次搜索。换词/换范围后，上一次慢吞吞回来的结果不许再写进界面 */
+  const runId = useRef(0);
 
   /*
    * 搜索范围只列已启用的源，默认也全勾上它们。
@@ -45,43 +47,48 @@ export default function GlobalSearchPage() {
     if (!term || !plugins) return;
 
     const targets = plugins.filter((p) => scopeIds.includes(p.plugin.meta.id));
+    const mine = ++runId.current;
+    setErr(null);
+    setHits([]);
+
     if (targets.length === 0) {
-      setHits([]);
+      setSearching(false);
       return;
     }
 
     setSearching(true);
-    setErr(null);
 
     const found: Hit[] = [];
     const errors: string[] = [];
 
-    // 并发搜所有勾选的插件。某个失败不影响其他 ——
-    // 插件经常因为站点改版或网络问题失效，不该让整次搜索失败。
-    const results = await Promise.allSettled(
-      targets.map(async (p) => ({
-        plugin: p,
-        list: await listComics(p.plugin, { query: term }),
-      })),
+    /*
+     * 每个源一回来就追加，不再等最慢的那个。
+     * 一次跨源搜索背后是每个源各一次服务端浏览器渲染，超时是 30–45 秒；
+     * 以前 Promise.allSettled 要等全部结束才 setHits，一个源抽风就等于全卡住。
+     * 某个源失败也不影响其他 —— 插件经常因为站点改版或网络问题失效。
+     */
+    await Promise.all(
+      targets.map(async (p) => {
+        try {
+          const list = await listComics(p.plugin, { query: term });
+          if (mine !== runId.current) return;
+          if (!list.exact) return; // 无结果的插件不贡献条目
+          for (const c of list.comics) found.push({ comic: c, plugin: p });
+          setHits([...found]);
+        } catch (e) {
+          if (mine !== runId.current) return;
+          errors.push((e as Error)?.message ?? String(e));
+          setErr(
+            errors.length >= targets.length
+              ? errors[0]
+              : `${errors.length} 个源搜索失败，其余正常`,
+          );
+        }
+      }),
     );
 
-    for (const r of results) {
-      if (r.status === 'rejected') {
-        errors.push(r.reason?.message ?? String(r.reason));
-        continue;
-      }
-      if (!r.value.list.exact) continue; // 无结果的插件不贡献条目
-      for (const c of r.value.list.comics) {
-        found.push({ comic: c, plugin: r.value.plugin });
-      }
-    }
-
-    setHits(found);
-    if (errors.length && !found.length) setErr(errors[0]);
-    else if (errors.length) setErr(`${errors.length} 个源搜索失败，其余正常`);
-
+    if (mine !== runId.current) return;
     setSearching(false);
-
     if (found.length) recordHit(term);
   }, [submitted, plugins, scopeIds, recordHit]);
 
@@ -182,10 +189,10 @@ export default function GlobalSearchPage() {
               </div>
             </div>
           )
+        ) : searching && hits.length === 0 ? (
+          <Loading text={`搜索 ${scopeIds.length} 个源`} />
         ) : err && hits.length === 0 ? (
           <ErrorBox message={err} onRetry={search} />
-        ) : searching ? (
-          <Loading text={`搜索 ${scopeIds.length} 个源`} />
         ) : hits.length === 0 ? (
           <div className="empty">
             <div>没有找到「{submitted}」</div>
@@ -201,6 +208,7 @@ export default function GlobalSearchPage() {
             <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-faint)' }}>
               {submitted} · 跨 {new Set(hits.map((h) => h.plugin.plugin.meta.id)).size} 个源
               找到 {hits.length} 条
+              {searching && <span> · 其余源还在搜…</span>}
             </div>
             <div className="grid">
               {hits.map((h, i) => {

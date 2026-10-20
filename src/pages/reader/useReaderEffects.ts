@@ -166,7 +166,14 @@ export function useImagePreload(
   enabled: boolean,
   radius = 2,
 ) {
-  const done = useRef(new Set<string>());
+  /**
+   * 预热过的图片要留着引用，并且主动 decode 一次。
+   *
+   * 只把 src 记在 Set 里的话，Image 对象随时会被回收，浏览器手里只剩
+   * 一份没解码的字节；翻页槽位那一刻挂上 <img> 仍要现场解码，
+   * 实测每隔一屏就会撞上 WARM_MS=90 的上限（翻页慢约 100ms）。
+   */
+  const cache = useRef(new Map<string, HTMLImageElement>());
 
   useEffect(() => {
     if (!enabled || !images) return;
@@ -176,17 +183,35 @@ export function useImagePreload(
 
     for (let i = from; i < to; i++) {
       const src = images[i];
-      if (!src || done.current.has(src)) continue;
-      done.current.add(src);
+      if (!src || cache.current.has(src)) continue;
       const img = new Image();
-      img.onload = () => markImageReady(src);
+      img.decoding = 'async';
+      img.onload = () => {
+        /* load 不等于 decode 完；标记 ready 也放到解码之后，第一帧才有东西可画 */
+        void img
+          .decode()
+          .catch(() => {})
+          .finally(() => markImageReady(src));
+      };
       img.src = src;
+      cache.current.set(src, img);
+    }
+
+    /*
+     * 只保留"当前屏 + 往后一个预热半径"的解码结果。
+     * 一张全屏漫画解码后是十几 MB，一路攒下来会把手机内存吃穿；
+     * 正向阅读占绝对多数，回翻时重新解码一次可以接受（而且字节本来就在缓存里）。
+     */
+    const keepTo = Math.min(images.length, startIndex + count + radius);
+    for (const key of cache.current.keys()) {
+      const at = images.indexOf(key);
+      if (at < 0 || at < startIndex || at >= keepTo) cache.current.delete(key);
     }
   }, [images, startIndex, count, enabled, radius]);
 
   /** 换章时清空记录，否则同一章的图片不会重新预热 */
   useEffect(() => {
-    done.current.clear();
+    cache.current.clear();
   }, [images]);
 }
 

@@ -35,7 +35,8 @@ export function useUpdateCheck() {
       let quiet = 0;
       while (Date.now() - t0 < MAX_WAIT_MS) {
         await new Promise((r) => setTimeout(r, POLL_MS));
-        const info = await getUpdates();
+        /* 轮询要每一拍的真实结果，不能被 getUpdates 的 5 秒缓存挡住 */
+        const info = await getUpdates(true);
         const newest = Math.max(t0, ...info.items.map((r) => r.checkedAt));
         if (newest !== lastMove) {
           lastMove = newest;

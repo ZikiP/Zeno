@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useBackToHome } from '@/hooks/useBackToHome';
+import { useOnline } from '@/hooks/useOnline';
 import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
@@ -47,6 +48,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const back = useBackToHome();
   const { plugin } = usePlugin();
   const [searchParams] = useSearchParams();
+  const online = useOnline();
 
   /* 前后章按缓存的章节表现算；URL 上的 p/n 只在没缓存时兜底 */
   const { prevId, nextId } = useChapterNeighbors(plugin?.meta.id, slug, chapterId, {
@@ -250,7 +252,12 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     <div className="reader" data-fit={prefs.value.fit} style={{ background: bg }}>
       <ReaderBar
         visible={bar.visible}
-        title={`${fromCache ? '离线 · ' : ''}${
+        /*
+         * fromCache 只说明这一章来自 IndexedDB，不代表现在没网 ——
+         * 以前在线也显示「离线」，和同步泡的「已同步」同屏打架。
+         * 只有浏览器真的离线时才加这个前缀。
+         */
+        title={`${fromCache && !online ? '离线 · ' : ''}${
           mode === 'paged'
             ? `${paging.page + 1}/${paging.totalPages}`
             : `${paging.page + 1}/${imageCount || '?'}`

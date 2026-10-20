@@ -20,7 +20,35 @@ export interface UpdateInfo {
   perBookMs: number;
 }
 
-export const getUpdates = () => serverCall<UpdateInfo>('/api/updates');
+/**
+ * 追更结果。
+ *
+ * 一次书架加载会触发好几轮数据变更（同步推、同步拉、本地进度回填），
+ * 每轮都去问一次服务端，实测同一屏发了 4 次 /api/updates。请求本身不贵，
+ * 但没必要；顺手把并发的和短时间内的重复请求合成一次。
+ *
+ * force 留给"手动检查"那条轮询：它必须看到每一拍的新结果。
+ */
+const UPDATES_TTL_MS = 5_000;
+let updatesCache: { at: number; info: UpdateInfo } | null = null;
+let updatesInflight: Promise<UpdateInfo> | null = null;
+
+export function getUpdates(force = false): Promise<UpdateInfo> {
+  if (!force && updatesCache && Date.now() - updatesCache.at < UPDATES_TTL_MS) {
+    return Promise.resolve(updatesCache.info);
+  }
+  if (updatesInflight) return updatesInflight;
+
+  updatesInflight = serverCall<UpdateInfo>('/api/updates')
+    .then((info) => {
+      updatesCache = { at: Date.now(), info };
+      return info;
+    })
+    .finally(() => {
+      updatesInflight = null;
+    });
+  return updatesInflight;
+}
 
 /** 翻开了一本书 → 服务端把基线对齐到这份，徽章自己就消失 */
 export const reportSeen = (key: string, anchors: number) =>
