@@ -278,47 +278,54 @@ export default function PagedView({
       onTouchEnd={onTouchEnd}
     >
       {/*
-        双页时 rtl 用 row-reverse 而不是重排数组：DOM 顺序保持原样，
-        startIndex + i 算出的绝对页号才不会错，书签标记和 alt 也就不会错位。
+        内层画布跟着内容长高，点击区才有内容可盖。
+        点击区如果直接挂在滚动容器上，top:0/bottom:0 量的是**可视框**而不是滚动内容：
+        往下滚一屏，三段点击区就整块滚出视口，人只能滚回顶部才点得到（实测复现过）。
       */}
-      {slots.map((s, i) => {
-        const isOver = i === overIdx;
-        const isUnder = i === underIdx;
-        const cls = spreadClass(
-          `${isOver ? ' is-over' : isUnder ? ' is-under' : i === active ? '' : ' is-hidden'}${animClass(i)}`,
-        );
-        return (
-          <div
-            key={i}
-            ref={(el) => {
-              slotRefs.current[i] = el;
-            }}
-            className={cls}
-            style={isOver || isUnder ? turnStyle : undefined}
-            onAnimationEnd={isOver ? endTurn : undefined}
-          >
-            <PagedCells
-              list={s.images}
-              base={s.startIndex}
-              markedPages={markedPages}
-              enhance={enhance}
-              onZoom={onZoom}
-            />
-            {/* 纸的暗面和投影只属于折页；平移是两张平面在走，套上去就成了脏影 */}
-            {isOver && anim === 'flip' && <div className="reader__turn-shade" aria-hidden="true" />}
-            {isUnder && anim === 'flip' && <div className="reader__turn-cast" aria-hidden="true" />}
-          </div>
-        );
-      })}
+      <div className="reader__paged-canvas">
+        {/*
+          双页时 rtl 用 row-reverse 而不是重排数组：DOM 顺序保持原样，
+          startIndex + i 算出的绝对页号才不会错，书签标记和 alt 也就不会错位。
+        */}
+        {slots.map((s, i) => {
+          const isOver = i === overIdx;
+          const isUnder = i === underIdx;
+          const cls = spreadClass(
+            `${isOver ? ' is-over' : isUnder ? ' is-under' : i === active ? '' : ' is-hidden'}${animClass(i)}`,
+          );
+          return (
+            <div
+              key={i}
+              ref={(el) => {
+                slotRefs.current[i] = el;
+              }}
+              className={cls}
+              style={isOver || isUnder ? turnStyle : undefined}
+              onAnimationEnd={isOver ? endTurn : undefined}
+            >
+              <PagedCells
+                list={s.images}
+                base={s.startIndex}
+                markedPages={markedPages}
+                enhance={enhance}
+                onZoom={onZoom}
+              />
+              {/* 纸的暗面和投影只属于折页；平移是两张平面在走，套上去就成了脏影 */}
+              {isOver && anim === 'flip' && <div className="reader__turn-shade" aria-hidden="true" />}
+              {isUnder && anim === 'flip' && <div className="reader__turn-cast" aria-hidden="true" />}
+            </div>
+          );
+        })}
 
-      {/*
-        点击区三段划分：左右各 32% 翻页，中间 36% 只切工具栏。
-        中间留这么宽是为了避免「想看工具栏却翻页了」这种误触 ——
-        这是实测里最影响阅读体验的问题。
-      */}
-      <div className="paged-tap paged-tap--l" onClick={() => tap('left')} />
-      <div className="paged-tap paged-tap--r" onClick={() => tap('right')} />
-      <div className="paged-tap paged-tap--c" onClick={() => tap('center')} />
+        {/*
+          点击区三段划分：左右各 32% 翻页，中间 36% 只切工具栏。
+          中间留这么宽是为了避免「想看工具栏却翻页了」这种误触 ——
+          这是实测里最影响阅读体验的问题。
+        */}
+        <div className="paged-tap paged-tap--l" onClick={() => tap('left')} />
+        <div className="paged-tap paged-tap--r" onClick={() => tap('right')} />
+        <div className="paged-tap paged-tap--c" onClick={() => tap('center')} />
+      </div>
 
       {edgeHint}
     </div>

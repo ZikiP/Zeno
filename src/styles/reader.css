@@ -144,11 +144,22 @@
 /* 分页模式 */
 .reader__paged {
   flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/*
+ * 滚动容器里再套一层画布，因为点击区必须跟着**内容**长高。
+ * 挂在 .reader__paged 上的话 top:0/bottom:0 量到的是可视框：
+ * 适应宽度那一档往下滚，三段点击区会整块滚出视口，单击就没反应了（实测过）。
+ */
+.reader__paged-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
-  position: relative;
   /* 折页的透视给在这里，不是给每一页 —— 一屏只有一张 spread 在动 */
   perspective: 1600px;
 }
@@ -565,12 +576,21 @@
 .reader[data-fit='width'] .reader__paged {
   overflow-y: auto;
 }
+/* 画布跟着图长高，滚动区与点击区才是同一块高度；顶部对齐，别把超出的上半截居中到滚不到的地方 */
+.reader[data-fit='width'] .reader__paged-canvas {
+  height: auto;
+  min-height: 100%;
+  align-items: flex-start;
+}
 .reader[data-fit='width'] .reader__spread {
+  height: auto;
   align-items: flex-start;
 }
 .reader[data-fit='width'] .reader__spread .reader__cell {
   flex: 1 1 0;
   min-width: 0;
+  height: auto;
+  align-items: flex-start;
 }
 .reader[data-fit='width'] .reader__spread img {
   width: 100%;
