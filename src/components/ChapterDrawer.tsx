@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getChapterList } from '@/store/chapters';
 import { isRead } from '@/store/shelf';
 
@@ -81,6 +81,19 @@ export default function ChapterDrawer({
     setLimit(BATCH);
   }, [pluginId, slug]);
 
+  /*
+   * 默认批次必须把当前章包进来。
+   *
+   * 列表是「最新 → 最旧」，只挂前 80 行时，正在读第 111 章的人打开目录只能
+   * 看到最新 80 章，当前章根本不在 DOM 里：既看不到「当前」标记，也没法从附近
+   * 往下跳。这里至少挂到当前章，再多给一批旧章；后续仍按 sentinel 继续补。
+   */
+  useEffect(() => {
+    if (!chapters) return;
+    const target = currentPos < 0 ? BATCH : Math.min(ordered.length, currentPos + BATCH);
+    setLimit((n) => Math.max(n, target));
+  }, [chapters, ordered.length, currentPos]);
+
   const listRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const rest = ordered.length - limit;
@@ -99,6 +112,27 @@ export default function ChapterDrawer({
   }, [rest]);
 
   const visible = useMemo(() => ordered.slice(0, limit), [ordered, limit]);
+
+  /*
+   * 打开目录时把当前章滚到中间。
+   *
+   * 只在「这本书/这一章」第一次定位时做一次；后续 sentinel 追加旧章会让
+   * visible 变化，如果每次都重新居中，用户刚往下滑就被拽回当前章。
+   */
+  const positionedFor = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!loaded || !chapters || currentPos < 0) return;
+    const key = `${pluginId}/${slug}/${currentId}`;
+    if (positionedFor.current === key) return;
+    const list = listRef.current;
+    const row = list?.querySelector<HTMLElement>('.drawer__item.on');
+    if (!list || !row) return;
+    const listRect = list.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const delta = rowRect.top - listRect.top - (list.clientHeight - rowRect.height) / 2;
+    list.scrollTop = Math.max(0, list.scrollTop + delta);
+    positionedFor.current = key;
+  }, [loaded, chapters, currentPos, pluginId, slug, currentId, limit]);
 
   return (
     <div className="drawer-mask" onClick={onClose}>
