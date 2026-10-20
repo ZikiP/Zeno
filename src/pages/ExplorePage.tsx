@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
+import { displayComicTitle } from '@/site/title';
 import type { Plugin, PluginFilter } from '@/site/types';
 import { usePlugin } from '@/store/PluginContext';
 import { IconChevronRight, IconEmpty, IconSearch } from '@/components/Icons';
@@ -69,6 +70,8 @@ export default function ExplorePage() {
   const [picked, setPicked] = useState<Record<string, string>>({});
   /** 正摊开挑选项的那个维度（选项太多，一排放不下） */
   const [openFilter, setOpenFilter] = useState<PluginFilter | null>(null);
+  /** 手机上四排筛选占掉首屏近四分之一，收进一个「筛选」开关里 */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [comics, setComics] = useState<Comic[] | null>(null);
   const [exact, setExact] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -78,6 +81,7 @@ export default function ExplorePage() {
   const activeOf = useCallback((f: PluginFilter) => picked[f.key] ?? f.default ?? '', [picked]);
   const labelOf = (f: PluginFilter, value: string) =>
     f.options.find((o) => o.value === value)?.label ?? value;
+  const activeFilters = groups.filter((g) => activeOf(g) !== (g.default ?? '')).length;
   const vars = useMemo(
     () => Object.fromEntries(groups.map((f) => [f.key, activeOf(f)])),
     [groups, activeOf],
@@ -126,6 +130,7 @@ export default function ExplorePage() {
     setSubmitted('');
     setPicked({});
     setOpenFilter(null);
+    setFiltersOpen(false);
   }, []);
 
   if (!plugin?.meta.id) return null;
@@ -158,10 +163,22 @@ export default function ExplorePage() {
 
       <SourceSwitcher onPick={resetForSource} />
 
+      {!submitted && (
+        <button
+          type="button"
+          className={`chip filter-toggle${filtersOpen ? ' on' : ''}`}
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen((v) => !v)}
+        >
+          筛选{activeFilters > 0 ? ` · ${activeFilters}` : ''}
+        </button>
+      )}
+
       {/*
        * 一个维度一行。选项多的收成一颗摘要按钮点开挑 ——
        * 69 项的题材塞进横滚，手机上滚到第七个就没了，还看不出能滚。
        */}
+      <div className={`explore-filters${filtersOpen ? ' is-open' : ''}`}>
       {!submitted &&
         groups.map((g) =>
           g.options.length > INLINE_MAX ? (
@@ -200,6 +217,7 @@ export default function ExplorePage() {
             </div>
           ),
         )}
+      </div>
 
       {openFilter && (
         <Sheet title={openFilter.label ?? '筛选'} onClose={() => setOpenFilter(null)}>
@@ -274,13 +292,13 @@ export default function ExplorePage() {
                   {c.cover && (
                     <img
                       src={coverUrl(plugin, c.cover, 300, 400)}
-                      alt={c.title}
+                      alt={displayComicTitle(c.title, plugin.meta.name)}
                       loading="lazy"
                       decoding="async"
                     />
                   )}
                 </div>
-                <div className="card__name">{c.title}</div>
+                <div className="card__name">{displayComicTitle(c.title, plugin.meta.name)}</div>
                 {c.latestChapter && <div className="card__sub">{c.latestChapter}</div>}
               </Link>
             ))}

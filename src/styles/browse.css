@@ -272,15 +272,95 @@
 
 .detail {
   display: grid;
+  /*
+   * 显式的 minmax(0, 1fr)：隐式轨道会按最长章节标题的 min-content 撑宽，
+   * 390px 下整页横向溢出 7~24px，简介和「倒序」都被裁在屏幕外。
+   */
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   padding: 16px;
+  width: 100%;
+  /* 桌面端别让 13px 的简介一行排九十多个汉字 */
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.detail__head,
+.detail__head > *,
+.section-head,
+.chapters,
+.chapter-row {
+  min-width: 0;
+}
+
+/*
+ * 手机：封面贴左、书名/标签贴右，简介/进度/按钮整行铺开。
+ * 桌面：封面固定 200px 占左列，其余内容全部落在右列。
+ */
+@media (max-width: 699px) {
+  .detail__head {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 12px 14px;
+    align-items: start;
+  }
+  .detail .detail__cover {
+    width: 112px;
+  }
+  .detail .detail__title {
+    font-size: 17px;
+    margin-bottom: 6px;
+  }
+  .detail .detail__meta {
+    margin-bottom: 0;
+  }
+  .detail .detail__desc,
+  .detail .detail__reading,
+  .detail .detail__actions,
+  .detail .detail__cached {
+    grid-column: 1 / -1;
+  }
+  .detail .detail__desc {
+    margin-top: 2px;
+  }
+  /* 一行放不下「本章 6% · 全书 61%」时宁可换行，别把全书进度裁掉 */
+  .detail .detail__reading {
+    align-items: flex-start;
+  }
+  .detail .detail__reading-text {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.45;
+  }
+  /* 四个动作在 390px 下一行塞三个、第四个孤零零换行，改成 2×2 */
+  .detail .detail__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .detail .detail__actions .btn {
+    justify-content: center;
+  }
 }
 @media (min-width: 700px) {
   .detail__head {
     display: grid;
-    grid-template-columns: 200px 1fr;
-    gap: 24px;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 0 24px;
     align-items: start;
+  }
+  .detail__cover {
+    grid-column: 1;
+    grid-row: 1 / span 5;
+  }
+  .detail__intro,
+  .detail__desc,
+  .detail__reading,
+  .detail__actions,
+  .detail__cached {
+    grid-column: 2;
   }
 }
 
@@ -292,6 +372,18 @@
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--bg-elev);
+}
+
+.detail__intro {
+  min-width: 0;
+}
+
+/* 章节头的说明文字可以被按钮挤窄，但别把按钮推出屏幕 */
+.section-head > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail__title {
@@ -533,3 +625,131 @@
   color: var(--text-faint);
 }
 
+
+/* ── 书架卡片：两行标题、封面占位 ─────────────────── */
+
+/*
+ * 书名给两行：114px 的格子里一行只放得下六七个字，长标题等于没写。
+ * 固定两行高度，让不同长度的标题底边仍然对齐。
+ */
+.card--plate .card__name {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: clip;
+  min-height: 2.7em;
+  line-height: 1.35;
+}
+
+/*
+ * 封面未解码时原来是一块纯白，发现页一次铺 50 格时整屏像坏了。
+ * 用静态的浅灰渐变占位，图片画上来就盖住；不做循环动画，
+ * 50 张卡片同时跑背景动画不值当。
+ */
+.card__cover {
+  background: linear-gradient(135deg, var(--bg-elev-2), var(--bg-elev));
+}
+@keyframes cover-sheen {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* ── 详情页骨架 ─────────────────────────────────── */
+
+.skeleton {
+  background: linear-gradient(
+    100deg,
+    var(--bg-elev-2) 28%,
+    var(--bg-elev) 50%,
+    var(--bg-elev-2) 72%
+  );
+  background-size: 200% 100%;
+  animation: cover-sheen 1.4s linear infinite;
+  border-radius: var(--radius);
+}
+.detail--skeleton .detail__cover {
+  min-height: 0;
+}
+.sk-line {
+  height: 13px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+}
+.sk-line--title {
+  width: 46%;
+  height: 22px;
+  margin-bottom: 12px;
+}
+.sk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sk-tag {
+  width: 48px;
+  height: 19px;
+  border-radius: 4px;
+}
+.sk-desc {
+  height: 72px;
+  margin: 4px 0 14px;
+}
+.sk-actions {
+  height: 38px;
+  width: 62%;
+}
+.sk-list {
+  height: 190px;
+}
+@media (min-width: 700px) {
+  .sk-desc,
+  .sk-actions {
+    grid-column: 2;
+  }
+}
+@media (max-width: 699px) {
+  .sk-desc,
+  .sk-actions {
+    grid-column: 1 / -1;
+  }
+  .sk-actions {
+    width: 100%;
+  }
+}
+
+/* ── 搜索结果按源分组 ───────────────────────────── */
+
+.gs-group {
+  padding-bottom: 2px;
+}
+.gs-group + .gs-group {
+  border-top: 1px solid var(--border);
+}
+.gs-group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.gs-group__name {
+  font-weight: 600;
+  color: var(--text);
+}
+.gs-group__count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.gs-group .grid {
+  padding-top: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

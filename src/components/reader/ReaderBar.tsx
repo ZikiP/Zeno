@@ -47,7 +47,12 @@ export default function ReaderBar(p: ReaderBarProps) {
       <button className="icon-btn" onClick={p.onBack} aria-label="返回">
         <IconBack />
       </button>
-      <button className="icon-btn" onClick={p.onShelf} aria-label="回书架" title="回书架">
+      <button
+        className="icon-btn reader__bar__desktop"
+        onClick={p.onShelf}
+        aria-label="回书架"
+        title="回书架"
+      >
         <IconShelf />
       </button>
 
@@ -97,7 +102,7 @@ export default function ReaderBar(p: ReaderBarProps) {
       </button>
       {p.canFullscreen && (
         <button
-          className={`icon-btn${p.fullscreen ? ' is-on' : ''}`}
+          className={`icon-btn reader__bar__desktop${p.fullscreen ? ' is-on' : ''}`}
           onClick={p.onToggleFullscreen}
           aria-label={p.fullscreen ? '退出全屏' : '全屏阅读'}
           title={p.fullscreen ? '退出全屏' : '全屏阅读'}

@@ -126,6 +126,18 @@
  * 描边加粗、图标放大。原来那颗胶囊底去掉了 —— 形状已经能说清「是哪一颗」，
  * 底再叠上去反而和图标的形变抢注意力。
  */
+/* 桌面宽度下四项摊到 1440px 的四个角，像被拉开的手机 tab bar；
+   条目收到中间，底栏背景仍然铺满 */
+@media (min-width: 900px) {
+  .bottom-nav {
+    justify-content: center;
+    gap: 8px;
+  }
+  .bottom-nav a {
+    flex: 0 0 148px;
+  }
+}
+
 .bottom-nav a.active {
   color: var(--accent);
   font-weight: 600;

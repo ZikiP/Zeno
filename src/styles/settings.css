@@ -67,8 +67,27 @@
   transform: scaleX(1);
 }
 
+/*
+ * 390px 下七个 tab 按原字号排会超出约 40px，最后一个「关于」被裁掉。
+ * 窄屏把字号和内边距各收一档，一行放得下，不用横滚去猜还有没有。
+ */
+@media (max-width: 480px) {
+  .tabs__item {
+    padding: 10px 10px 11px;
+    font-size: 13px;
+  }
+  .tabs__item::after {
+    left: 10px;
+    right: 10px;
+  }
+}
+
 .tab-panel {
   padding: var(--s-4) calc(var(--s-3) + var(--safe-r)) var(--s-6) calc(var(--s-3) + var(--safe-l));
+  /* 1440px 下设置行会拉到 1400px，控件在屏幕另一端；限制阅读宽度 */
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
 }
 .tab-panel:focus-visible {
   outline: 2px solid var(--accent);
@@ -204,8 +223,8 @@
 }
 /* 压在玻璃板上，所以底是"更亮一档的白"而不是实色：整块板还是一个材质 */
 .stepper__btn {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border: none;

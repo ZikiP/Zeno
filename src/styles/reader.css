@@ -55,6 +55,31 @@
 }
 
 /*
+ * 390px 顶栏塞 8 颗 38px 按钮后，页码只剩 38px，被截成「11/…」。
+ * 手机上收掉「回书架」和「全屏」（返回键仍能退出；全屏有沉浸式开关），
+ * 剩下的按钮放大到 44px，页码终于有地方。
+ */
+@media (max-width: 640px) {
+  .reader__bar {
+    height: calc(52px + var(--safe-t));
+    gap: 2px;
+    padding-inline: var(--s-1);
+  }
+  .reader__bar .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .reader__bar__desktop,
+  .reader__flag {
+    display: none;
+  }
+  .reader__title {
+    padding: 0;
+    font-size: 12.5px;
+  }
+}
+
+/*
  * 顶栏右侧那组最前面那颗「画面+」。配色跟条子自己走（--r-dim 的字、--r-edge 的那圈边），
  * 不借 App 主题里那几种徽章色 —— 阅读器自成一套，条子底下是漫画页不是页面底色。
  * 几何沿用章节行那颗徽章（10px / 1px 6px / 半径 4）。它不是按钮，所以不套
@@ -635,4 +660,42 @@
   /* 原尺寸可能比屏宽，居中会把左边够不着 —— 改成从左上开始，靠滚动看 */
   justify-content: flex-start;
   align-items: flex-start;
+}
+
+/*
+ * 适应宽度时一页比屏幕高，页码看不出下面还有内容。
+ * 固定在顶栏下方（不能用 absolute：那会跟着滚动容器一起滚走）。
+ */
+.reader__scroll-hint {
+  position: fixed;
+  top: calc(60px + var(--safe-t));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.62);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  animation: reader-hint-in 0.2s var(--e-out);
+}
+@keyframes reader-hint-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader__scroll-hint {
+    animation: none;
+  }
 }

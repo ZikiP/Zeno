@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useBackToHome } from '@/hooks/useBackToHome';
 import { getComic, chapterUrl, coverUrl, type Chapter, type Comic } from '@/site/engine';
+import { displayComicTitle } from '@/site/title';
 import { cacheChapterList, getChapterList } from '@/store/chapters';
 import { reportSeen } from '@/store/updates';
 import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf } from '@/store/shelf';
@@ -22,7 +23,7 @@ import {
   IconPlay,
   IconSettings,
 } from '@/components/Icons';
-import { ErrorBox, Loading } from '@/components/UI';
+import { ErrorBox } from '@/components/UI';
 
 export default function ComicPage() {
   const { slug = '' } = useParams();
@@ -171,7 +172,11 @@ export default function ComicPage() {
       await removeFromShelf(plugin.meta.id, slug);
       setEntry(undefined);
     } else {
-      await addToShelf(plugin.meta.id, { slug, title: comic.title, cover: comic.cover });
+      await addToShelf(plugin.meta.id, {
+        slug,
+        title: displayComicTitle(comic.title, plugin.meta.name),
+        cover: comic.cover,
+      });
       setEntry(await getShelfEntry(plugin.meta.id, slug));
     }
   };
@@ -210,7 +215,9 @@ export default function ComicPage() {
         <button className="icon-btn" onClick={back} aria-label="返回">
           <IconBack />
         </button>
-        <div className="topbar__title">{comic?.title ?? '加载中'}</div>
+        <div className="topbar__title">
+          {comic ? displayComicTitle(comic.title, plugin.meta.name) : '加载中'}
+        </div>
         <div className="topbar__spacer" />
         <button className="icon-btn" onClick={() => setShowSettings(true)} aria-label="设置">
           <IconSettings />
@@ -221,13 +228,22 @@ export default function ComicPage() {
         {err && (
           <ErrorBox message={comic ? '刷新没成功，下面这份是上次抓到的' : err} onRetry={load} />
         )}
-        {!comic && !err && <Loading text="抓取漫画信息" />}
+        {!comic && !err && <DetailSkeleton />}
         {comic && (
           <div className="detail">
             <div className="detail__head">
-              <img className="detail__cover" src={coverUrl(plugin, comic.cover, 400, 530)} alt={comic.title} />
-              <div>
-                <h1 className="detail__title">{comic.title}</h1>
+              <img
+                className="detail__cover"
+                src={coverUrl(plugin, comic.cover, 400, 530)}
+                alt={displayComicTitle(comic.title, plugin.meta.name)}
+              />
+              {/*
+               * 书名/标签单独一层：手机上它要贴在封面右边，
+               * 简介、进度和按钮则整行铺开 —— 全塞在同一个 div 里的话，
+               * grid 没法只把其中几项拉通整行。
+               */}
+              <div className="detail__intro">
+                <h1 className="detail__title">{displayComicTitle(comic.title, plugin.meta.name)}</h1>
                 <div className="detail__meta">
                   {comic.finished !== undefined && (
                     <span className="tag">{comic.finished ? '已完结' : '连载中'}</span>
@@ -239,71 +255,72 @@ export default function ComicPage() {
                   ))}
                   <span className="tag">{chapters.length} 章</span>
                 </div>
-                {comic.description && <p className="detail__desc">{comic.description}</p>}
+              </div>
 
-                {lastChapter && (
-                  <div className="detail__reading">
-                    {/* 环上是全书完成度，跟书架那张卡同一个口径；
-                        文字里另说本章读到几成，两个数不是一回事。
-                        lastChapter 就是从 chapters 里找到的，所以这里算得出 */}
-                    <ProgressRing percent={bookPct ?? 0} size={22} label={`全书 ${bookPct ?? 0}%`} />
-                    <span className="detail__reading-text">
-                      上次读到 {lastChapter.title}
-                      {lastPct > 0 ? ` · 本章 ${lastPct}%` : ''}
-                      {bookPct !== null ? ` · 全书 ${bookPct}%` : ''}
-                    </span>
-                  </div>
-                )}
+              {comic.description && <p className="detail__desc">{comic.description}</p>}
 
-                <div className="detail__actions">
-                  {entry?.lastChapterId && (
-                    <button
-                      className="btn"
-                      onClick={() => nav(`/read/${plugin.meta.id}/${slug}/${entry.lastChapterId}`)}
-                    >
-                      <IconPlay size={16} />
-                      继续阅读
-                    </button>
-                  )}
-                  <button
-                    className={entry?.lastChapterId ? 'btn btn--ghost' : 'btn'}
-                    onClick={toggleShelf}
-                  >
-                    <ShelfStateIcon on={onShelf} size={16} />
-                    {onShelf ? '已在书架' : '加入书架'}
-                  </button>
-                  <button className="btn btn--ghost" onClick={cacheAll} disabled={!!caching}>
-                    <IconDownload size={16} />
-                    {caching ? `下载中 ${Math.floor(caching.done)}/${caching.total}` : '离线下载'}
-                  </button>
-                  {/*
-                   * 追漫跟在架才给：服务端算"该铺哪几章"要同时认两样 ——
-                   * 在不在架上、这本开没开追漫。不在架时开关写了也没人去读，
-                   * 摆一颗点了没反应的按钮更糟。
-                   */}
-                  {entry && (
-                    <button className="btn btn--ghost" onClick={() => follow.setWarmFollow(!follow.warm)}>
-                      <IconHeart size={16} filled={!!follow.warm} />
-                      {follow.warm ? '已追漫' : '追漫'}
-                    </button>
-                  )}
+              {lastChapter && (
+                <div className="detail__reading">
+                  {/* 环上是全书完成度，跟书架那张卡同一个口径；
+                      文字里另说本章读到几成，两个数不是一回事。
+                      lastChapter 就是从 chapters 里找到的，所以这里算得出 */}
+                  <ProgressRing percent={bookPct ?? 0} size={22} label={`全书 ${bookPct ?? 0}%`} />
+                  <span className="detail__reading-text">
+                    上次读到 {lastChapter.title}
+                    {lastPct > 0 ? ` · 本章 ${lastPct}%` : ''}
+                    {bookPct !== null ? ` · 全书 ${bookPct}%` : ''}
+                  </span>
                 </div>
+              )}
 
-                {cachedBytes > 0 && (
-                  <div className="detail__cached">
-                    已离线 {Object.keys(cached).length} 章 · {formatBytes(cachedBytes)}
-                  </div>
+              <div className="detail__actions">
+                {entry?.lastChapterId && (
+                  <button
+                    className="btn"
+                    onClick={() => nav(`/read/${plugin.meta.id}/${slug}/${entry.lastChapterId}`)}
+                  >
+                    <IconPlay size={16} />
+                    继续阅读
+                  </button>
                 )}
+                <button
+                  className={entry?.lastChapterId ? 'btn btn--ghost' : 'btn'}
+                  onClick={toggleShelf}
+                >
+                  <ShelfStateIcon on={onShelf} size={16} />
+                  {onShelf ? '已在书架' : '加入书架'}
+                </button>
+                <button className="btn btn--ghost" onClick={cacheAll} disabled={!!caching}>
+                  <IconDownload size={16} />
+                  {caching ? `下载中 ${Math.floor(caching.done)}/${caching.total}` : '离线下载'}
+                </button>
                 {/*
-                 * 说出"最近 K 章"这个口径：不然用户看到"已缓存 2 章"而书架上有
-                 * 几百章未读，第一反应是这功能坏了（实际是窗口就这么定的）。
+                 * 追漫跟在架才给：服务端算"该铺哪几章"要同时认两样 ——
+                 * 在不在架上、这本开没开追漫。不在架时开关写了也没人去读，
+                 * 摆一颗点了没反应的按钮更糟。
                  */}
-                {follow.warm && warmCached > 0 && (
-                  <div className="detail__cached">
-                    追漫 · 已缓存 {warmCached} 章（未读的最近 {follow.keep} 章）
-                  </div>
+                {entry && (
+                  <button className="btn btn--ghost" onClick={() => follow.setWarmFollow(!follow.warm)}>
+                    <IconHeart size={16} filled={!!follow.warm} />
+                    {follow.warm ? '已追漫' : '追漫'}
+                  </button>
                 )}
               </div>
+
+              {cachedBytes > 0 && (
+                <div className="detail__cached">
+                  已离线 {Object.keys(cached).length} 章 · {formatBytes(cachedBytes)}
+                </div>
+              )}
+              {/*
+               * 说出"最近 K 章"这个口径：不然用户看到"已缓存 2 章"而书架上有
+               * 几百章未读，第一反应是这功能坏了（实际是窗口就这么定的）。
+               */}
+              {follow.warm && warmCached > 0 && (
+                <div className="detail__cached">
+                  追漫 · 已缓存 {warmCached} 章（未读的最近 {follow.keep} 章）
+                </div>
+              )}
             </div>
 
             {caching && (
@@ -341,5 +358,36 @@ export default function ComicPage() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * 抓详情时的占位。
+ *
+ * 服务端要真跑一次浏览器渲染（会话冷时 2–6 秒），只放一句「抓取漫画信息」
+ * 会让整页空着；骨架先把封面和文字的位置占住，内容回来时就不会跳。
+ */
+function DetailSkeleton() {
+  return (
+    <div
+      className="detail detail--skeleton"
+      aria-busy="true"
+      aria-label="正在抓取漫画信息"
+    >
+      <div className="detail__head">
+        <div className="detail__cover skeleton" />
+        <div className="detail__intro">
+          <div className="skeleton sk-line sk-line--title" />
+          <div className="sk-tags">
+            <span className="skeleton sk-tag" />
+            <span className="skeleton sk-tag" />
+            <span className="skeleton sk-tag" />
+          </div>
+        </div>
+        <div className="skeleton sk-desc" />
+        <div className="skeleton sk-actions" />
+      </div>
+      <div className="skeleton sk-list" />
+    </div>
   );
 }

@@ -17,6 +17,7 @@ import { usePlugin } from '@/store/PluginContext';
 import { useReloadOnChange } from '@/store/useDataVersion';
 import { emitDataChange } from '@/store/dataEvents';
 import { coverUrl } from '@/site/engine';
+import { displayComicTitle } from '@/site/title';
 import UseAnimations from 'react-useanimations';
 import { themeToggle } from '@/components/icons/uaTheme';
 import { useTheme } from '@/hooks/useTheme';
@@ -157,6 +158,7 @@ export default function ShelfPage() {
     const pct = bookProgress(lists[it.key], it);
     const update = shelfUpdate(updates[it.key], lists[it.key]?.length);
     const source = byId[it.pluginId];
+    const title = displayComicTitle(it.title, source?.meta.name);
     return (
       <Link
         key={it.key}
@@ -169,7 +171,7 @@ export default function ShelfPage() {
           {it.cover && source && (
             <img
               src={coverUrl(source, it.cover, 300, 400)}
-              alt={it.title}
+              alt={title}
               loading="lazy"
               decoding="async"
               draggable={false}
@@ -186,7 +188,7 @@ export default function ShelfPage() {
             </span>
           )}
         </div>
-        <div className="card__name">{it.title}</div>
+        <div className="card__name">{title}</div>
         {/* 描边绕的是整块板，不是封面那格，所以挂在卡片上而不是 .card__cover 里 */}
         {pct !== null && pct > 0 && <ProgressEdge percent={pct} label={`全书 ${pct}%`} />}
       </Link>

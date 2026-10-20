@@ -200,3 +200,28 @@
     opacity: 0;
   }
 }
+
+/*
+ * 手机上四排筛选（题材/地区/状态/排序）会占掉首屏近四分之一，
+ * 收进一颗「筛选」开关里；桌面宽度够，照旧全部摊开。
+ */
+.filter-toggle {
+  display: none;
+  /* 父级是 column flex，不写 align-self 会被拉成整行 */
+  align-self: flex-start;
+  margin: 8px 12px;
+}
+.explore-filters {
+  display: block;
+}
+@media (max-width: 699px) {
+  .filter-toggle {
+    display: inline-flex;
+  }
+  .explore-filters {
+    display: none;
+  }
+  .explore-filters.is-open {
+    display: block;
+  }
+}

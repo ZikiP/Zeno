@@ -97,6 +97,10 @@ export default function PagedView({
   const [turn, setTurn] = useState<Turn | null>(null);
   /** 内容已经写进槽位、正在等解码的那一次翻页 */
   const [armed, setArmed] = useState<{ slot: number; forward: boolean } | null>(null);
+  /** 适应宽度时一页比屏幕高：先提示一次「上下滚动」，别让人以为下半截丢了 */
+  const [scrollHint, setScrollHint] = useState(false);
+  /** 每章只提示一次；每翻一页都弹一次会变成噪音 */
+  const hintedScrolling = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
   const shown = useRef({ images, startIndex, turnKey });
@@ -163,6 +167,38 @@ export default function PagedView({
     },
     [],
   );
+
+  /*
+   * 适应宽度时一页通常比视口高。页码只说「第几页」，看不出上下还有内容；
+   * 进新一屏时给一句短提示，滚动或 3 秒后自己消失。
+   */
+  useEffect(() => {
+    hintedScrolling.current = false;
+  }, [turnKey]);
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    let timer = 0;
+    const check = () => {
+      const tall = el.scrollHeight > el.clientHeight + 4;
+      if (!tall || hintedScrolling.current) return;
+      hintedScrolling.current = true;
+      setScrollHint(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setScrollHint(false), 3000);
+    };
+    const raf = requestAnimationFrame(check);
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    const canvas = el.querySelector('.reader__paged-canvas');
+    if (canvas) ro.observe(canvas);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, [startIndex, turnKey, perPage]);
 
   /**
    * 在 (x,y) 底下那一页上打开放大层。
@@ -407,6 +443,7 @@ export default function PagedView({
       style={{ filter, touchAction: zoomed ? 'none' : 'pan-y' }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
+      onScroll={() => scrollHint && setScrollHint(false)}
     >
       {/*
         内层画布跟着内容长高，点击区才有内容可盖。
@@ -484,6 +521,11 @@ export default function PagedView({
         />
       </div>
 
+      {scrollHint && (
+        <div className="reader__scroll-hint" role="status">
+          上下滚动看完整页
+        </div>
+      )}
       {edgeHint}
     </div>
   );

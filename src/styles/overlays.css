@@ -286,6 +286,23 @@
   opacity: 1;
 }
 
+/*
+ * 桌面顶栏有空间，别让「已同步 · 刚刚」藏在 hover 里；
+ * 手机没有 hover，状态不是 ok 时必须把字放出来（同步中 / 离线），
+ * 一颗绿点对触屏用户说明不了什么。
+ */
+@media (min-width: 760px) {
+  .sync-pill__label {
+    max-width: 150px;
+    opacity: 1;
+  }
+}
+.sync-pill--busy .sync-pill__label,
+.sync-pill--error .sync-pill__label {
+  max-width: 150px;
+  opacity: 1;
+}
+
 /* 26px 高的东西在手机上按不准，外扩热区到 44px，外观不动 */
 @media (pointer: coarse) {
   .sync-pill {

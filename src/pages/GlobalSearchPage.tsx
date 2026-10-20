@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listComics, coverUrl, type Comic } from '@/site/engine';
+import { displayComicTitle } from '@/site/title';
 import { listPlugins } from '@/store/plugins';
 import type { InstalledPlugin } from '@/store/db';
 import { usePlugin } from '@/store/PluginContext';
@@ -41,6 +42,27 @@ export default function GlobalSearchPage() {
 
   /** 没手动勾选过 = 全部已启用的源。把默认值算在这里，不在 effect 里补 setState */
   const scopeIds = useMemo(() => scope ?? enabled.map((p) => p.meta.id), [scope, enabled]);
+
+  /*
+   * 结果按源分组、按 chip 的固定顺序渲染。
+   *
+   * 增量搜索是按「谁先回来谁先 setHits」，直接用 hits 的顺序会让同一个词
+   * 在两次搜索里出现不同的源顺序；分组后顺序由 sources 决定，跟完成先后无关。
+   * 组头也顺便替掉了每张封面上重复的那颗来源徽章。
+   */
+  const groups = useMemo(() => {
+    const sources = (plugins ?? []).filter((p) => scopeIds.includes(p.plugin.meta.id));
+    return sources
+      .map((p) => {
+        const id = p.plugin.meta.id;
+        return {
+          plugin: p,
+          id,
+          hits: hits.filter((h) => h.plugin.plugin.meta.id === id),
+        };
+      })
+      .filter((g) => g.hits.length > 0);
+  }, [plugins, scopeIds, hits]);
 
   const search = useCallback(async () => {
     const term = submitted.trim();
@@ -206,45 +228,54 @@ export default function GlobalSearchPage() {
               </div>
             )}
             <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-faint)' }}>
-              {submitted} · 跨 {new Set(hits.map((h) => h.plugin.plugin.meta.id)).size} 个源
-              找到 {hits.length} 条
+              {submitted} · 跨 {groups.length} 个源 找到 {hits.length} 条
               {searching && <span> · 其余源还在搜…</span>}
             </div>
-            <div className="grid">
-              {hits.map((h, i) => {
-                const pid = h.plugin.plugin.meta.id;
-                return (
-                  /*
-                   * 结果可能来自发现页没在看的源。详情页与阅读器都按地址里的
-                   * pluginId 解析，所以直接跳就行 —— 以前这里要先切一次激活源再跳
-                   * （副作用是用户回不来原来那个源），现在不需要了。
-                   */
-                  <button
-                    key={`${pid}-${h.comic.slug}-${i}`}
-                    className="card"
-                    onClick={() => nav(`/comic/${pid}/${h.comic.slug}`)}
-                  >
-                    <div className="card__cover">
-                      {h.comic.cover && (
-                        <img
-                          src={coverUrl(h.plugin.plugin, h.comic.cover, 300, 400)}
-                          alt={h.comic.title}
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      )}
-                      <span className="card__badge">
-                        {h.plugin.plugin.meta.icon ?? ''} {h.plugin.plugin.meta.name}
-                      </span>
-                    </div>
-                    <div className="card__name">{h.comic.title}</div>
-                    {h.comic.latestChapter && (
-                      <div className="card__sub">{h.comic.latestChapter}</div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            {groups.map((g) => (
+              <section className="gs-group" key={g.id}>
+                <div className="gs-group__head">
+                  <span>{g.plugin.plugin.meta.icon ?? '📄'}</span>
+                  <span className="gs-group__name">{g.plugin.plugin.meta.name}</span>
+                  <span className="gs-group__count">{g.hits.length} 条</span>
+                </div>
+                <div className="grid">
+                  {g.hits.map((h, i) => {
+                    const pid = g.id;
+                    const title = displayComicTitle(
+                      h.comic.title,
+                      h.plugin.plugin.meta.name,
+                    );
+                    return (
+                      /*
+                       * 结果可能来自发现页没在看的源。详情页与阅读器都按地址里的
+                       * pluginId 解析，所以直接跳就行 —— 以前这里要先切一次激活源再跳
+                       * （副作用是用户回不来原来那个源），现在不需要了。
+                       */
+                      <button
+                        key={`${pid}-${h.comic.slug}-${i}`}
+                        className="card"
+                        onClick={() => nav(`/comic/${pid}/${h.comic.slug}`)}
+                      >
+                        <div className="card__cover">
+                          {h.comic.cover && (
+                            <img
+                              src={coverUrl(h.plugin.plugin, h.comic.cover, 300, 400)}
+                              alt={title}
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          )}
+                        </div>
+                        <div className="card__name">{title}</div>
+                        {h.comic.latestChapter && (
+                          <div className="card__sub">{h.comic.latestChapter}</div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </>
         )}
       </main>
