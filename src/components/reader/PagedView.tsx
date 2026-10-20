@@ -179,14 +179,11 @@ export default function PagedView({
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
-    let timer = 0;
     const check = () => {
       const tall = el.scrollHeight > el.clientHeight + 4;
       if (!tall || hintedScrolling.current) return;
       hintedScrolling.current = true;
       setScrollHint(true);
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => setScrollHint(false), 3000);
     };
     const raf = requestAnimationFrame(check);
     const ro = new ResizeObserver(check);
@@ -196,9 +193,22 @@ export default function PagedView({
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      window.clearTimeout(timer);
     };
   }, [startIndex, turnKey, perPage]);
+
+  /*
+   * 自动隐藏必须单独一条 effect。
+   *
+   * 以前计时器挂在上面那条 effect 里：切模式/换屏让它重跑时 cleanup 会清掉计时器，
+   * 而 hintedScrolling 已经是 true，新的一轮不会再设计时器 —— 提示就永远挂在那里
+   * （滚动模式切到翻页模式后最明显）。现在计时器只跟 scrollHint 本身绑定，
+   * 上面那条 effect 怎么重跑都不影响它。
+   */
+  useEffect(() => {
+    if (!scrollHint) return;
+    const timer = window.setTimeout(() => setScrollHint(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [scrollHint]);
 
   /**
    * 在 (x,y) 底下那一页上打开放大层。
