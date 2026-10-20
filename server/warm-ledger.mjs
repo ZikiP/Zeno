@@ -13,6 +13,7 @@
 import { openDb } from './db.mjs';
 import { installedPlugins } from './plugins.mjs';
 import { renderLoad } from './render.mjs';
+import { proxyLoad } from './proxy.mjs';
 import { READ_AT, keepChapters, markUnresolved, noteRow, upsertQueued, warmIds } from './warm-store.mjs';
 import { resolveChapter } from './warm-resolve.mjs';
 
@@ -150,6 +151,12 @@ export async function reconcileLedger() {
       if (renderBusy()) {
         summary.skipped++;
         continue; // 渲染槽被用户占着，这一章下一轮再说
+      }
+      // 解地址虽然不走 /api/proxy，但同样会占上行；阅读器过半就停手
+      const load = proxyLoad();
+      if (load.active >= Math.ceil(load.max / 2)) {
+        summary.skipped++;
+        continue;
       }
       try {
         const { images, partial } = await resolveChapter(plugin, book.slug, c.id);

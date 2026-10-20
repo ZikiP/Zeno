@@ -11,7 +11,8 @@ export function json(res, status, body) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(s),
-    'Access-Control-Allow-Origin': '*',
+    // PWA 与 API 同源，不需要 CORS。以前这里回 *，等于让任何页面都能读
+    // 同步数据；配合渲染浏览器跑在本机，就是一整条读本机 API 的路。
     'Cache-Control': 'no-store',
   });
   res.end(s);
@@ -26,6 +27,18 @@ export function json(res, status, body) {
  * 所以继续把剩下的排空、但不再缓存，读完才报错。
  */
 export async function readBody(req, limitBytes = 8 * 1024 * 1024) {
+  /*
+   * 只收 JSON。
+   *
+   * 浏览器表单只能发 urlencoded / multipart / text/plain，挡掉它们之后，
+   * 一个被渲染的页面就没法用「简单请求」往本机同步端点写数据了。
+   * 跨源的 application/json 会触发预检，而 JSON 响应已经不再回 CORS 头。
+   */
+  const ct = String(req.headers['content-type'] ?? '');
+  if (ct && !/^application\/json\b/i.test(ct)) {
+    throw Object.assign(new Error('只接受 application/json'), { status: 415 });
+  }
+
   const chunks = [];
   let size = 0;
   let tooLarge = false;
@@ -42,6 +55,7 @@ export async function readBody(req, limitBytes = 8 * 1024 * 1024) {
     throw Object.assign(new Error('payload too large'), { status: 413 });
   }
   if (size === 0) return {};
+  if (!ct) throw Object.assign(new Error('只接受 application/json'), { status: 415 });
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
@@ -53,10 +67,17 @@ export async function readBody(req, limitBytes = 8 * 1024 * 1024) {
  * 但正确写法并不更贵。
  */
 export function makeAuth(token) {
-  if (!token) return () => true;
+  if (!token) {
+    const open = () => true;
+    /** health 用它区分"没配令牌"和"配了且验证通过" */
+    open.configured = false;
+    return open;
+  }
   const expected = Buffer.from(`Bearer ${token}`);
-  return (req) => {
+  const auth = (req) => {
     const got = Buffer.from(req.headers.authorization ?? '');
     return got.length === expected.length && timingSafeEqual(got, expected);
   };
+  auth.configured = true;
+  return auth;
 }

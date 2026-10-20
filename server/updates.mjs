@@ -15,10 +15,16 @@
  * 礼貌边界（都是可关的）：默认 12 小时一轮，同一本最少隔 6 小时才再看，
  * 一本一本串着取、每本之间停 500ms，渲染槽在忙就这一轮收工。
  */
+import { Worker } from 'node:worker_threads';
 import { openDb } from './db.mjs';
 import { installedPlugins } from './plugins.mjs';
-import { escapeRe, fetchPage, fill } from './plugin-page.mjs';
+import { fetchPage, fill, modeFor } from './plugin-page.mjs';
+import { renderLoad } from './render.mjs';
 import { json, readBody } from './respond.mjs';
+import { countChapters, listChapters } from './chapter-parse.mjs';
+
+/* 测试直接调用它们；实现搬到 chapter-parse，worker 也引同一份 */
+export { countChapters, listChapters };
 
 const ROUND_MS = Number(process.env.ZENO_UPDATE_CHECK_MS ?? 12 * 3600_000);
 const PER_BOOK_MS = Number(process.env.ZENO_UPDATE_BOOK_MS ?? 6 * 3600_000);
@@ -28,79 +34,41 @@ const STARTUP_DELAY_MS = Number(process.env.ZENO_UPDATE_START_DELAY_MS ?? 60_000
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * 和 src/site/text.ts 的 decodeEntities 一条不差。
- *
- * 为什么服务端要自己再来一遍：客户端 fetchText 拿到 HTML 先做这个解码、再交给
- * parseChapters，而服务端在这里是直接在原始 HTML 上数的 —— 少这一步，
- * 一个 `&#47;` 写法的地址在两边就是两种结果，差值变成一个永远消不掉的假徽章。
- * 这份复制是故意的，而且是**被测试钉住的**：scripts/test-updates.ts 拿
- * 完整的客户端管线（解码 → 解析）跟这里的 countChapters 比条数，谁改了另一边就红。
- */
-function decodeEntities(s) {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&#x2F;/gi, '/')
-    .replace(/&#47;/g, '/')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)));
-}
+/** 单本书的章节解析上限；正常 500 章只要几毫秒 */
+const PARSE_TIMEOUT_MS = Math.max(200, Number(process.env.PARSE_TIMEOUT_MS || 3_000));
 
 /**
- * 数出详情页里的章节条数。
+ * 章节解析放进 worker。
  *
- * 规则逐条对齐 parseChapters：`<a …章节项…>` 开标签、href 可能在标签上也可能在
- * 内层、`&amp;`/`&#x2F;` 要先还原、按 chapterIdFrom 取出的 id 去重。
- * 条数就是 listChapters 的长度 —— 徽章那边只用到条数，追漫才用到 id 和顺序，
- * 两件事必须出自同一份解析，不然"数到 183"和"表里 183 条"能对上才见鬼。
+ * 插件里的 chapterIdFrom 是原样正则，嵌套量词写坏就能在 Node 主线程里卡死
+ * 整个服务。worker 里跑、超时直接 terminate，至少只损失这一次解析。
  */
-export function countChapters(html, parse) {
-  return listChapters(html, parse).length;
-}
-
-/**
- * 章节表：id + 阅读顺序，按 index 升序。
- *
- * 这是 parseChapters 的第二份实现，**故意的**，跟 decodeEntities 同一条路：
- * 解析层跑在浏览器包里，服务端不为了一个函数去引前端构建物。两份的一致性由
- * scripts/test-updates.ts 钉 —— 它拿同一份 HTML 让两边各跑一遍，逐条比 id 和 index，
- * 谁改了另一边就红。
- *
- * index 的来路和客户端一条不差：id 正则捕到两组以上时，第二组就是序号
- * （`section_slot=0&chapter_slot=562` → `0_562`，**页面顺序未必是章节顺序**）；
- * 只捕到一组时这站没有分区/序号的概念（UUID 形态地址），只能按它们在页面里
- * 出现的先后排。追漫靠这个顺序决定"最近 K 章"是哪 K 章，抄错方向就是把窗口
- * 摆到几百章之前。
- */
-export function listChapters(html, parse) {
-  const body = decodeEntities(html);
-  const itemRe = new RegExp(`<a[^>]*${escapeRe(parse.chapterItem)}[^>]*>([\\s\\S]{0,300}?)</a>`, 'gi');
-  const idRe = new RegExp(parse.chapterIdFrom);
-  const out = [];
-  const seen = new Set();
-  let m;
-  while ((m = itemRe.exec(body))) {
-    const inner = m[1] ?? '';
-    const attrs = m[0].slice(0, m[0].indexOf('>'));
-    const hrefM = attrs.match(/href="([^"]+)"/) ?? inner.match(/href="([^"]+)"/);
-    if (!hrefM) continue;
-    const href = hrefM[1].replace(/&amp;/g, '&').replace(/&#x2F;/g, '/');
-    const idM = href.match(idRe);
-    if (!idM) continue;
-    const numbered = idM.length >= 3;
-    const raw = numbered ? idM[2] : idM[1];
-    if (!raw) continue;
-    const id = numbered ? `${idM[1] ?? '0'}_${raw}` : raw;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push({ id, index: numbered ? Number(raw) || 0 : out.length + 1 });
-  }
-  out.sort((a, b) => a.index - b.index);
-  return out;
+function parseChaptersSafe(html, parse) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const worker = new Worker(new URL('./parse-worker.mjs', import.meta.url), {
+      workerData: { html, parse },
+    });
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void worker.terminate().catch(() => {});
+      fn(value);
+    };
+    const timer = setTimeout(
+      () => finish(reject, new Error('章节解析超时（插件正则可能有灾难性回溯）')),
+      PARSE_TIMEOUT_MS,
+    );
+    worker.once('message', (m) => {
+      if (m?.ok) finish(resolve, m.list);
+      else finish(reject, new Error(m?.error || '章节解析失败'));
+    });
+    worker.once('error', (e) => finish(reject, e));
+    worker.once('exit', (code) => {
+      if (code !== 0) finish(reject, new Error(`章节解析 worker 退出（${code}）`));
+    });
+  });
 }
 
 /**
@@ -112,7 +80,7 @@ export function listChapters(html, parse) {
  * 三个源里两个都是 1）。规则本身在 plugin-page.mjs，跟追漫共用一份。
  */
 async function fetchDetailHtml(plugin, url) {
-  const { html } = await fetchPage(plugin, url, 'detail');
+  const { html } = await fetchPage(plugin, url, 'detail', { background: true });
   // 详情页没有 capture 这条路；真拿到了 JSON 就当"没数出来"，别拿空串去写 0
   return html;
 }
@@ -123,7 +91,27 @@ async function fetchDetailHtml(plugin, url) {
  * force 是给"现在就要看一眼"那个按钮的：跳过每本 6 小时那一道闸。
  * 一轮里任何一本失败都不中断别的 —— 一个站挂了不该让整轮作废。
  */
-export async function runUpdateCheck({ force = false } = {}) {
+let running = null;
+
+/**
+ * 定时轮单飞；手动 force 每次都起一条新的。
+ *
+ * 手动按钮的语义是「现在、以我手上的书架为准再看一遍」。如果复用一条在它之前
+ * 就已经开始的轮次，刚加进书架的书永远不在那一轮的书单里 —— 测试和真实使用
+ * 都会看到「按了检查，新书没动」。代价是手动与定时可能短暂重叠，用户主动按的
+ * 那一下优先。
+ */
+export function runUpdateCheck(opts = {}) {
+  if (opts.force) return runUpdatesOnce({ ...opts, force: true });
+  if (running) return running;
+  const p = runUpdatesOnce({ ...opts, force: false }).finally(() => {
+    if (running === p) running = null;
+  });
+  running = p;
+  return p;
+}
+
+async function runUpdatesOnce({ force = false } = {}) {
   const d = openDb();
   const books = d
     .prepare(
@@ -144,7 +132,14 @@ export async function runUpdateCheck({ force = false } = {}) {
      * 那道 6 小时闸门过期才补上表 —— 追漫于是整整半天在空转，而健康检查全绿、
      * 界面上一切正常。判据得看"有没有"，不能只看"上次查过没有"。
      */
-    if (!force && prev && prev.chapter_ids != null && Date.now() - prev.checked_at < PER_BOOK_MS) {
+    /* 失败过的书不享受 6 小时闸门：下一轮/下一次手动检查要能重试 */
+    if (
+      !force &&
+      prev &&
+      prev.chapter_ids != null &&
+      !prev.error &&
+      Date.now() - prev.checked_at < PER_BOOK_MS
+    ) {
       summary.skipped++;
       continue;
     }
@@ -153,6 +148,14 @@ export async function runUpdateCheck({ force = false } = {}) {
       summary.skipped++;
       continue;
     }
+    /*
+     * 后台追更让位给正在渲染的用户请求。browser 模式才有这一步；
+     * fetch 模式不占渲染槽，照常数。
+     */
+    if (modeFor(plugin, 'detail') === 'browser' && renderLoad().openPages > 0) {
+      summary.paused = 'render-busy';
+      break;
+    }
 
     let anchors = null;
     let ids = null;
@@ -160,7 +163,7 @@ export async function runUpdateCheck({ force = false } = {}) {
     try {
       const url = new URL(fill(plugin.urls.detail, { slug: b.slug }), plugin.entry).toString();
       const html = await fetchDetailHtml(plugin, url);
-      const list = listChapters(html, plugin.parse);
+      const list = await parseChaptersSafe(html, plugin.parse);
       anchors = list.length;
       // 数组的顺序就是阅读顺序（listChapters 末尾按 index 升序排过），追漫靠它定窗口
       ids = JSON.stringify(list.map((c) => ({ id: c.id, index: c.index })));

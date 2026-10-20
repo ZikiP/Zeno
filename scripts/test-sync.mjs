@@ -273,6 +273,29 @@ check(
   '未设令牌时 allowedHosts 仍可见（auth() 放行，行为不变）',
 );
 
+console.log('\n=== 6d. 跨源与写入边界 ===');
+const plainPost = await fetch(BASE + '/api/warm/keep', {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: '{"keep":50}',
+});
+check(plainPost.status === 415, `非 JSON 写入被拒（HTTP ${plainPost.status}）`);
+const crossGet = await fetch(BASE + '/api/health', {
+  headers: { Origin: 'https://evil.example' },
+});
+check(
+  crossGet.headers.get('access-control-allow-origin') === null,
+  `未配置 CORS 时不回 Access-Control-Allow-Origin（${crossGet.headers.get('access-control-allow-origin')}）`,
+);
+const crossPre = await fetch(BASE + '/api/health', {
+  method: 'OPTIONS',
+  headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'POST' },
+});
+check(
+  crossPre.status === 204 && crossPre.headers.get('access-control-allow-origin') === null,
+  `跨源预检不授权（HTTP ${crossPre.status}）`,
+);
+
 console.log('\n=== 7. 代理白名单 ===');
 const bad = await fetch(BASE + '/api/proxy?url=' + encodeURIComponent('https://evil.example.com/'));
 check(bad.status === 403, `非白名单被拒（HTTP ${bad.status}）`);

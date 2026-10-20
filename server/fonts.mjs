@@ -256,14 +256,33 @@ function readFace(id) {
   }
 }
 
-/** 字体端点的 gzip 缓存。字体是 immutable 的，按 id 存一份就够 */
+/**
+ * 字体端点的 gzip 缓存。字体是 immutable 的，按 id 存一份。
+ *
+ * 按“总压缩字节”封顶而不是条目数：一个中文字体就能有 7MB，8 个就是 60MB
+ * 常驻，MiniPC 上不值得。默认 24MB，放不下就逐出最早的那份；单份超过上限
+ * 的直接不缓存，免得一份把整个预算吃光。
+ */
 const gzipFaces = new Map();
+const GZIP_FACE_MAX_BYTES = Math.max(
+  0,
+  Number(process.env.ZENO_FONT_GZIP_MAX_MB || 24) * 1024 * 1024,
+);
 
 function gzipFont(id, bytes) {
   const hit = gzipFaces.get(id);
   if (hit && hit.size === bytes.length) return hit.bytes;
+
   const out = gzipSync(bytes, { level: 6 });
-  if (gzipFaces.size >= 8) gzipFaces.delete(gzipFaces.keys().next().value);
+  if (!GZIP_FACE_MAX_BYTES || out.length > GZIP_FACE_MAX_BYTES) return out;
+
+  let total = 0;
+  for (const v of gzipFaces.values()) total += v.bytes.length;
+  while (total + out.length > GZIP_FACE_MAX_BYTES && gzipFaces.size) {
+    const [oldKey, old] = gzipFaces.entries().next().value;
+    gzipFaces.delete(oldKey);
+    total -= old.bytes.length;
+  }
   gzipFaces.set(id, { size: bytes.length, bytes: out });
   return out;
 }
@@ -322,7 +341,6 @@ export async function handleFontsApi(req, res, url, auth) {
       const headers = {
         'Content-Type': FONT_FILE_EXT[ext] || 'application/octet-stream',
         'Content-Length': body.length,
-        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'public, max-age=31536000, immutable',
       };
       if (compressible) headers.Vary = 'Accept-Encoding';

@@ -81,13 +81,15 @@ export async function resolveChapter(plugin, slug, chapterId) {
   };
 
   if (captureFor(plugin, 'chapter') && modeFor(plugin, 'chapter') === 'browser') {
-    const { html, images: captured } = await fetchPage(plugin, urlFor(chapterId), 'chapter');
+    const { html, images: captured } = await fetchPage(plugin, urlFor(chapterId), 'chapter', {
+      background: true,
+    });
     add(captured.length ? captured : imageUrlsFromHtml(html, plugin));
     if (!images.length) throw new Error('这一章没有解析出任何图片地址');
     return { images, partial: false };
   }
 
-  const first = await fetchPage(plugin, urlFor(chapterId), 'chapter');
+  const first = await fetchPage(plugin, urlFor(chapterId), 'chapter', { background: true });
   add(imageUrlsFromHtml(first.html, plugin));
 
   const declared = declaredPages(first.html);
@@ -99,7 +101,9 @@ export async function resolveChapter(plugin, slug, chapterId) {
     for (let p = 2; p <= Math.min(total, cap); p++) {
       await sleep(PAGE_GAP_MS);
       try {
-        const r = await fetchPage(plugin, urlFor(`${chapterId}_${p}`), 'chapter');
+        const r = await fetchPage(plugin, urlFor(`${chapterId}_${p}`), 'chapter', {
+          background: true,
+        });
         add(imageUrlsFromHtml(r.html, plugin));
       } catch (e) {
         // 404/410 = 这一页真的不存在，章节到此为止；别的失败是"没取全"，得记下来

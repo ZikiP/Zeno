@@ -188,7 +188,9 @@ export async function handleProxy(req, res, url) {
         status,
         e.code === 'CHALLENGE'
           ? { ...CORS, 'Content-Type': 'application/json', 'Retry-After': '30' }
-          : { ...CORS, 'Content-Type': 'application/json' },
+          : e.code === 'BUSY'
+            ? { ...CORS, 'Content-Type': 'application/json', 'Retry-After': '2' }
+            : { ...CORS, 'Content-Type': 'application/json' },
       );
     }
     res.end(body);

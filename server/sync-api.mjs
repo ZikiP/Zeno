@@ -24,6 +24,11 @@ export async function handleSyncApi(req, res, url, auth) {
      * 计数保留公开，部署脚本的健康检查要用，而且本身不敏感。
      */
     const body = { ok: true, version: 1, ...stats(), render: renderLoad(), allowedHostsCount: allowedHosts().size };
+    /*
+     * 保持原有语义：设了令牌且没带对时，站点列表和 dbPath 都不下发；
+     * 没设令牌时 auth() 恒真，这台机器本来只靠 tailnet 保护，health 里的
+     * dbPath / allowedHosts 仍然可见（部署脚本靠它检查工作目录和白名单）。
+     */
     if (auth(req)) {
       body.allowedHosts = [...allowedHosts()];
     } else {

@@ -26,7 +26,7 @@
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 
-import { openDb } from './db.mjs';
+import { openDb, pruneHistory } from './db.mjs';
 import { allowedHosts, refreshAllowed } from './allowlist.mjs';
 import { handleSyncApi } from './sync-api.mjs';
 import { handleProxy } from './proxy.mjs';
@@ -43,20 +43,42 @@ import { json, makeAuth } from './respond.mjs';
 const PORT = Number(process.env.PORT || 8788);
 const DIST_DIR = resolve(process.env.DIST_DIR || './dist');
 const auth = makeAuth(process.env.SYNC_TOKEN || '');
+/*
+ * 默认同源：不配就是空集合。前后端分开部署时把前端 origin 写进来，
+ * 例如 CORS_ORIGINS=https://app.example,http://localhost:5178。
+ * 不再回 `*` —— 那等于让任何页面都能读同步数据。
+ */
+const CORS_ORIGINS = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((s) => s.trim().replace(/\/$/, ''))
+  .filter(Boolean);
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   const path = url.pathname;
 
   try {
-    /* ── CORS 预检 ── */
+    /*
+     * 只反射显式允许的来源。默认同源（没有 Origin 头或同源请求都不需要
+     * Access-Control-Allow-Origin）；以前无条件回 `*`，任何网页都能跨源读本机
+     * 同步数据。前后端分居两地时用 CORS_ORIGINS 显式列出前端 origin。
+     */
+    const origin = String(req.headers.origin ?? '').replace(/\/$/, '');
+    const corsOrigin = origin && CORS_ORIGINS.includes(origin) ? origin : '';
+    if (corsOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+      res.setHeader('Vary', 'Origin');
+    }
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-        'Access-Control-Allow-Headers': '*',
-        'Access-Control-Max-Age': '86400',
-      });
+      if (corsOrigin) {
+        res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+        res.setHeader(
+          'Access-Control-Allow-Headers',
+          'Authorization, Content-Type, X-Device-Id, X-Device-Label, X-Client-Host',
+        );
+        res.setHeader('Access-Control-Max-Age', '86400');
+      }
+      res.writeHead(204);
       res.end();
       return;
     }
@@ -152,6 +174,7 @@ server.on('error', (err) => {
 });
 
 openDb();
+pruneHistory();
 refreshAllowed();
 /*
  * 账本和盘对一遍（用户可能自己清了目录、换了盘、上次写一半断电）。

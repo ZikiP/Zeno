@@ -354,6 +354,7 @@ node --import tsx scripts/pull-plugins.mjs
 | `DIST_DIR` | `dist` | 静态目录。作为系统服务运行时 cwd 不是项目目录，**要给绝对路径** |
 | `DB_PATH` | `data/zeno.db` | SQLite 路径。同上，建议绝对路径 |
 | `SYNC_TOKEN` | 空 | 设了之后同步 API 与代理都要 Bearer token |
+| `CORS_ORIGINS` | 空 | 前后端分开部署时填前端 origin，逗号分隔。同源部署留空；默认不再回 `Access-Control-Allow-Origin: *` |
 | `ALLOWED_HOSTS` | 空 | 额外允许的上游域名，逗号分隔。装了插件后会自动并入插件的域名 |
 | `MAX_CONCURRENT` | 8 | 上游并发上限，过高会被 CDN 限流导致图片裂开（实测 8 就撞到本机上行天花板） |
 | `UPSTREAM_TIMEOUT_MS` | 20000 | 单次上游请求上限 |
@@ -362,6 +363,11 @@ node --import tsx scripts/pull-plugins.mjs
 | `BROWSER_IDLE_MS` | 180000 | 渲染浏览器空闲多久后关闭。关一次就要重新解站点自己的浏览器质询（实测 9~14 秒），所以别调小 |
 | `BROWSER_MAX_PAGES` | 3 | 同时打开的渲染页面上限 |
 | `BROWSER_CHALLENGE_MS` | 10000 | 等站点自己的"正在验证浏览器"跑完的预算，超了就明确报 503 |
+| `RENDER_WAIT_MS` | 8000 | 渲染槽满时交互请求最多等多久；后台任务不排队 |
+| `RENDER_QUEUE_MAX` | 20 | 渲染排队上限，超过直接 429 |
+| `PARSE_TIMEOUT_MS` | 3000 | 章节解析 worker 上限；插件正则写坏时只丢这一次，不卡主线程 |
+| `PAGE_MAX_BYTES` | 8388608 | 后台抓取/渲染返回的 HTML 上限 |
+| `ZENO_FONT_GZIP_MAX_MB` | 24 | 字体 gzip 缓存的总字节上限 |
 | `RENDER_TTL_MS` | 90000 | 渲染结果缓存时长。设 0 等于关掉缓存 |
 | `ZENO_CACHE_DIR` | 数据库同级 `cache/` | 图片磁盘缓存目录。绝对路径；也可以装完后在「设置 → 图片缓存」里改 |
 | `ZENO_CACHE_MAX_MB` | 512 | 图片缓存上限（MB），超了按「最久没看过」裁。0 = 关掉 |

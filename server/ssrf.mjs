@@ -28,9 +28,6 @@ const V4_BLOCKED = [
   ['240.0.0.0', 4], // 保留
 ];
 
-// IPv6：ULA / 链路本地 / 组播 / 回环 / 未指定
-const V6_BLOCKED_PREFIXES = ['fc', 'fd', 'fe8', 'fe9', 'fea', 'feb', 'ff'];
-
 /** 点分四段 → 32 位整数；不是合法 IPv4 字面量则返回 null */
 function v4ToInt(ip) {
   const parts = ip.split('.');
@@ -57,14 +54,74 @@ export function isBlockedV4(ip) {
   return V4_BLOCKED.some((c) => inV4Cidr(ip, c));
 }
 
-export function isBlockedV6(ip) {
-  const s = ip.toLowerCase().replace(/\.[0-9a-f:]+$/, ''); // 去掉 v4-mapped 尾缀
-  if (s === '::1' || s === '::') return true;
-  if (V6_BLOCKED_PREFIXES.some((p) => s.startsWith(p))) return true;
-  // v4-mapped（::ffff:a.b.c.d）按里面的 v4 判
-  const mapped = /::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return isBlockedV4(mapped[1]);
+/** IPv6 → 8 个 16 位段；非法返回 null。支持 `::` 压缩和末尾点分四段 */
+function parseV6(input) {
+  let s = String(input).toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+  const tail = /^(.*:)(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  if (tail) {
+    const n = v4ToInt(tail[2]);
+    if (n === null) return null;
+    s = `${tail[1]}${((n >>> 16) & 0xffff).toString(16)}:${(n & 0xffff).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - left.length - right.length;
+  if (missing < 0) return null;
+  const groups = [...left, ...Array(missing).fill('0'), ...right];
+  if (groups.length !== 8) return null;
+  const out = [];
+  for (const g of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    out.push(parseInt(g, 16));
+  }
+  return out;
+}
+
+/** 从 IPv6 里还原被嵌进去的 IPv4（mapped / NAT64 / 6to4 / Teredo） */
+function embeddedV4(g) {
+  const quad = (a, b) => `${(a >> 8) & 255}.${a & 255}.${(b >> 8) & 255}.${b & 255}`;
+  if (!g) return null;
+  // ::ffff:a.b.c.d（IPv4-mapped）
+  if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0xffff) {
+    return quad(g[6], g[7]);
+  }
+  // ::a.b.c.d（已废弃的 IPv4-compatible，但仍有系统按 v4 连）
+  if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    if (g[6] === 0 && g[7] <= 1) return null; // :: 和 ::1 单独处理
+    return quad(g[6], g[7]);
+  }
+  // 64:ff9b::/96（NAT64）
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    return quad(g[6], g[7]);
+  }
+  // 2002::/16（6to4）：紧跟在 2002 后面的 32 位就是 IPv4
+  if (g[0] === 0x2002) return quad(g[1], g[2]);
+  // 2001:0::/32（Teredo）：最后 32 位取反
+  if (g[0] === 0x2001 && g[1] === 0) {
+    return quad((~g[6]) & 0xffff, (~g[7]) & 0xffff);
+  }
+  return null;
+}
+
+function blockedV6(g, hardOnly) {
+  if (!g) return false;
+  if (g.every((x) => x === 0)) return true; // ::
+  if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0 && g[6] === 0 && g[7] === 1) {
+    return true; // ::1
+  }
+  if (g[0] >= 0xfc00 && g[0] <= 0xfdff) return true; // ULA
+  if (g[0] >= 0xfe80 && g[0] <= 0xfebf) return true; // 链路本地
+  if (g[0] >= 0xfec0 && g[0] <= 0xfeff) return true; // 旧 site-local
+  if (g[0] >= 0xff00) return true; // 组播
+  const v4 = embeddedV4(g);
+  if (v4) return hardOnly ? isHardBlockedIp(v4) : isBlockedV4(v4);
   return false;
+}
+
+export function isBlockedV6(ip) {
+  return blockedV6(parseV6(ip), false);
 }
 
 export function isBlockedIp(ip) {
@@ -138,10 +195,7 @@ export async function assertPublicTarget(parsed, { allowPrivate = false } = {}) 
 
 /** 回环 / 链路本地+云元数据 / CGNAT+Tailscale / 0/8 / 组播 / 保留 —— 不含 RFC1918 */
 export function isHardBlockedIp(ip) {
-  if (ip.includes(':')) {
-    const s = ip.toLowerCase();
-    return s === '::1' || s === '::' || /^f[ec]/.test(s) || s.startsWith('ff');
-  }
+  if (ip.includes(':')) return blockedV6(parseV6(ip), true);
   const o = ip.split('.').map(Number);
   if (o.length !== 4 || o.some((x) => !Number.isFinite(x))) return false;
   if (o[0] === 0 || o[0] === 127 || o[0] === 169) return true;

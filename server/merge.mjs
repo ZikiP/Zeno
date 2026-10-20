@@ -306,20 +306,37 @@ export function upsertBookPrefs(rows, deviceId) {
  * 返回实际接受的条数，供 UI 显示「同步了 N 项」。
  */
 export function pushAll(payload, deviceId) {
-  const n = {
-    plugins: upsertPlugins(payload.plugins, deviceId),
-    shelf: upsertShelf(payload.shelf, deviceId),
-    positions: upsertPositions(payload.positions, deviceId),
-    lastChapter: upsertLastChapter(payload.lastChapter, deviceId),
-    bookmarks: upsertBookmarks(payload.bookmarks, deviceId),
-    bookPrefs: upsertBookPrefs(payload.bookPrefs, deviceId),
-    settings: upsertSettings(payload.settings, deviceId),
-    // 删除必须最后应用，否则"先删了、又被同一批里的旧数据加回来"。
-    // 反过来的顺序也有坑，由 applyDeletes 里跟现存数据比时间戳兜住。
-    deletes: applyDeletes(payload.deletes, deviceId),
-  };
-  return {
-    ...n,
-    total: Object.values(n).reduce((a, b) => a + b, 0),
-  };
+  const d = openDb();
+  /*
+   * 一次推送要么全落、要么全不落。以前八张表各写各的，进程在中间挂掉会留下
+   * 半新半旧的一份；虽然下一次同步通常能收敛，但同步中的另一台设备会看到
+   * 一个不存在的中间态。
+   */
+  d.exec('BEGIN IMMEDIATE');
+  try {
+    const n = {
+      plugins: upsertPlugins(payload.plugins, deviceId),
+      shelf: upsertShelf(payload.shelf, deviceId),
+      positions: upsertPositions(payload.positions, deviceId),
+      lastChapter: upsertLastChapter(payload.lastChapter, deviceId),
+      bookmarks: upsertBookmarks(payload.bookmarks, deviceId),
+      bookPrefs: upsertBookPrefs(payload.bookPrefs, deviceId),
+      settings: upsertSettings(payload.settings, deviceId),
+      // 删除必须最后应用，否则"先删了、又被同一批里的旧数据加回来"。
+      // 反过来的顺序也有坑，由 applyDeletes 里跟现存数据比时间戳兜住。
+      deletes: applyDeletes(payload.deletes, deviceId),
+    };
+    d.exec('COMMIT');
+    return {
+      ...n,
+      total: Object.values(n).reduce((a, b) => a + b, 0),
+    };
+  } catch (e) {
+    try {
+      d.exec('ROLLBACK');
+    } catch {
+      /* 事务可能已经因错误自动回滚 */
+    }
+    throw e;
+  }
 }

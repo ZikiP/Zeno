@@ -114,7 +114,8 @@ export function openDb() {
       device_id  TEXT
     );
 
-    -- 单调递增的变更序号。客户端用它做「拉增量」而不是全量对账
+    -- 单调递增的变更序号。当前 pull 仍是全量快照；这张表只用来生成 seq/诊断，
+    -- 所以启动时会裁剪旧行（见 pruneHistory），别把它当成真正的增量日志。
     CREATE TABLE IF NOT EXISTS change_log (
       seq        INTEGER PRIMARY KEY AUTOINCREMENT,
       entity     TEXT NOT NULL,        -- shelf / position / bookmark / plugin / setting
@@ -265,9 +266,11 @@ export function currentSeq() {
 }
 
 /**
- * 拉取变更
+ * 拉取同步快照
  *
- * sinceSeq 之后的所有变更。没有增量索引时退化为全量。
+ * 当前是**全量**：各表整份返回。`sinceSeq` 只为兼容旧客户端保留，不参与查询 ——
+ * change_log 只记了实体类型，没有行键，靠它无法重建真正的增量。数据量小的时候
+ * 全量更不容易出错；数据大了再改协议，别让注释假装它已经支持增量。
  */
 export function pull(sinceSeq = 0) {
   const d = openDb();
@@ -313,6 +316,20 @@ export function saveClientState(deviceId, seq, ua, label, role) {
 
 export function listClients() {
   return openDb().prepare('SELECT * FROM client_state ORDER BY last_push_at DESC').all();
+}
+
+/**
+ * 启动时清一次历史垃圾。
+ *
+ * change_log 目前不当增量游标用，留最近两万条足够诊断；client_state 里
+ * 一年没出现过的设备（换机、临时浏览器、测试配置）也从设备列表里去掉。
+ */
+export function pruneHistory() {
+  const d = openDb();
+  d.prepare(
+    'DELETE FROM change_log WHERE seq <= (SELECT COALESCE(MAX(seq), 0) - 20000 FROM change_log)',
+  ).run();
+  d.prepare('DELETE FROM client_state WHERE last_push_at < ?').run(Date.now() - 365 * 86400_000);
 }
 
 export function stats() {

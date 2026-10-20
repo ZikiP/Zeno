@@ -33,20 +33,44 @@ export function installedPlugins() {
  * 白名单和"该用哪个插件声明的请求头"都必须用同一份归属判断，
  * 否则会出现「这个域名被放行了，但它的 UA 没生效」这种分裂。
  */
+/**
+ * 公共后缀不是「一个 CDN 的后缀」，把它放进白名单等于放行整个 TLD/托管域。
+ * 不引完整 PSL（那是几百 KB 的数据），只挡住最常见且真会造成大范围放行的那些；
+ * 没有点的后缀一律拒绝 —— `imageHosts: ["com"]` 是最容易写错、后果最大的一种。
+ */
+const PUBLIC_SUFFIXES = new Set([
+  'co.uk', 'org.uk', 'ac.uk', 'gov.uk',
+  'com.cn', 'net.cn', 'org.cn', 'gov.cn',
+  'com.au', 'net.au', 'org.au',
+  'co.jp', 'co.kr', 'com.tw', 'com.hk', 'com.sg',
+  'com.br', 'co.in', 'co.nz', 'co.za',
+  'github.io', 'pages.dev', 'workers.dev', 'vercel.app',
+  'netlify.app', 'herokuapp.com', 'blogspot.com',
+]);
+
+/** 只接受像域名的后缀；IP 字面量也走这条（点分四段能通过） */
+function plausibleSuffix(raw) {
+  const s = String(raw ?? '').toLowerCase().replace(/^\./, '').replace(/\.$/, '');
+  if (!s || s.includes('*') || s.includes('/') || s.includes(':') || !s.includes('.')) return null;
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(s)) return null;
+  if (PUBLIC_SUFFIXES.has(s)) return null;
+  return s;
+}
+
 export function pluginHostsOf(plugin) {
   const hosts = new Set();
   for (const raw of [plugin.entry, plugin.chapterHost]) {
     if (!raw) continue;
     try {
-      hosts.add(new URL(raw).hostname.toLowerCase());
+      const host = plausibleSuffix(new URL(raw).hostname);
+      if (host) hosts.add(host);
     } catch {
       /* 插件里写了非法地址就跳过，不阻塞 */
     }
   }
   for (const suffix of plugin.imageHosts ?? []) {
-    if (!suffix) continue;
-    const s = String(suffix).toLowerCase().replace(/^\./, '');
-    if (s) hosts.add(s);
+    const host = plausibleSuffix(suffix);
+    if (host) hosts.add(host);
   }
   return [...hosts];
 }

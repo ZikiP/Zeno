@@ -13,7 +13,14 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { isBlockedV4, isBlockedV6, isBlockedIp, isBlockedHostname } from '../server/ssrf.mjs';
+import {
+  isBlockedV4,
+  isBlockedV6,
+  isBlockedIp,
+  isBlockedHostname,
+  isHardBlockedIp,
+} from '../server/ssrf.mjs';
+import { pluginHostsOf } from '../server/plugins.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.TEST_PORT || 8877);
@@ -41,11 +48,25 @@ for (const ip of ['::1', '::', 'fe80::1', 'fc00::1', 'fd12::34', 'ff02::1', '::f
 check(!isBlockedV6('2606:4700:4700::1111'), '放行公网 IPv6');
 check(isBlockedIp('127.0.0.1') && !isBlockedIp('8.8.8.8'), 'isBlockedIp 双栈分派正确');
 
+console.log('\n=== 2b. 嵌入 IPv4 的 IPv6（mapped / NAT64 / 6to4）===');
+for (const ip of ['::ffff:169.254.169.254', '::ffff:127.0.0.1', '2002:7f00:1::', '64:ff9b::a9fe:a9fe']) {
+  check(isHardBlockedIp(ip), `域名档也拒绝 ${ip}`);
+}
+check(!isHardBlockedIp('2400:cb00::1'), '放行公网 IPv6（域名档）');
+
 console.log('\n=== 3. 可疑主机名 ===');
 for (const h of ['localhost', 'foo.localhost', 'x.internal', 'api.local', 'metadata', 'metadata.google.internal', 'nvme0']) {
   check(isBlockedHostname(h), `拒绝 ${h}`);
 }
 check(!isBlockedHostname('example.com'), '放行 example.com');
+
+console.log('\n=== 3b. 插件声明的域名后缀 ===');
+check(!pluginHostsOf({ imageHosts: ['com'] }).includes('com'), '拒绝单标签后缀 com');
+check(!pluginHostsOf({ imageHosts: ['co.uk'] }).includes('co.uk'), '拒绝公共后缀 co.uk');
+check(
+  pluginHostsOf({ imageHosts: ['mangafunb.fun'] }).includes('mangafunb.fun'),
+  '保留正常的 CDN 后缀 mangafunb.fun',
+);
 
 /* ── 集成：走真实代理 ───────────────────────────── */
 const dbPath = join(tmpdir(), `zeno-ssrf-${Date.now()}.db`);

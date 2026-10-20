@@ -20,6 +20,7 @@ import { dbPath } from './db.mjs';
 import { captureScript, readCaptures } from './capture.mjs';
 import { cacheGet, cachePut, keyFor } from './render-cache.mjs';
 import { isChallengeHtml, waitOutChallenge, waitUntilSettled } from './render-wait.mjs';
+import { assertPublicTarget, isBlockedIp } from './ssrf.mjs';
 
 export { renderCacheStats } from './render-cache.mjs';
 
@@ -34,6 +35,11 @@ const MAX_PAGES = Number(process.env.BROWSER_MAX_PAGES || 3);
 const RENDER_DEBUG = process.env.ZENO_RENDER_DEBUG === '1';
 /** 等浏览器质询页走完的预算。真解不开的站也不该一直占着渲染槽 */
 const CHALLENGE_MAX_MS = Number(process.env.BROWSER_CHALLENGE_MS || 10_000);
+/** 本地测试的假源站跑在 127.0.0.1；和代理同一个开关 */
+const ALLOW_PRIVATE_HOSTS = process.env.ALLOW_PRIVATE_HOSTS === '1';
+const SERVER_PORT = Number(process.env.PORT || 8788);
+/** 返回给客户端的 HTML 上限；正常页面几十 KB */
+const MAX_RENDER_HTML_BYTES = Number(process.env.PAGE_MAX_BYTES || 8 * 1024 * 1024);
 
 const DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -89,6 +95,44 @@ let browser = null;
 let launching = null;
 let openPages = 0;
 let idleTimer = null;
+
+/*
+ * 渲染槽满时等一会儿，而不是立刻 429。
+ *
+ * 前端跨源搜索是一次性并发所有源；三个源以上必然有一个撞满。以前它直接
+ * 回 BUSY，用户看到的是「某个源搜索失败」。现在交互请求排队（有上限），
+ * 后台任务（追更/追漫）仍然不排队，优先让读者先拿到槽。
+ */
+const RENDER_WAIT_MS = Math.max(0, Number(process.env.RENDER_WAIT_MS || 8_000));
+const RENDER_QUEUE_MAX = Math.max(1, Number(process.env.RENDER_QUEUE_MAX || 20));
+const pageWaiters = [];
+
+function acquirePageSlot(waitMs) {
+  if (openPages < MAX_PAGES) {
+    openPages++;
+    return Promise.resolve(true);
+  }
+  if (!waitMs || pageWaiters.length >= RENDER_QUEUE_MAX) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const entry = { resolve, timer: 0 };
+    entry.timer = setTimeout(() => {
+      const i = pageWaiters.indexOf(entry);
+      if (i >= 0) pageWaiters.splice(i, 1);
+      resolve(false);
+    }, waitMs);
+    entry.timer.unref?.();
+    pageWaiters.push(entry);
+  });
+}
+
+function releasePageSlot() {
+  openPages--;
+  const next = pageWaiters.shift();
+  if (!next) return;
+  clearTimeout(next.timer);
+  openPages++;
+  next.resolve(true);
+}
 
 function scheduleIdleClose() {
   if (idleTimer) clearTimeout(idleTimer);
@@ -209,6 +253,73 @@ async function getBrowser() {
  */
 const contexts = new Map();
 
+/**
+ * 渲染浏览器的网络边界。
+ *
+ * 浏览器跑在服务端，页面的子资源/重定向可以指向 127.0.0.1、局域网或本机
+ * 8788 的同步 API。代理入口的 assertPublicTarget 只校验了初始 URL，管不到
+ * Playwright 自己发起的后续请求；这里在 context 层拦一遍：
+ *   - 只放行 http(s) + data/blob/about
+ *   - 字面量回环/私网/链路本地一律拒绝
+ *   - 域名按代理同一套 hard-block（透明代理 fake-ip 下 RFC1918 仍可能被解析，
+ *     这是已知缺口；至少把本机端口 8788 全部挡掉，避免渲染页直接读同步数据）
+ */
+function installNetworkGuard(ctx) {
+  if (ALLOW_PRIVATE_HOSTS) return;
+  const cache = new Map();
+  const allowed = async (raw, resourceType) => {
+    let u;
+    try {
+      u = new URL(raw);
+    } catch {
+      return false;
+    }
+    if (u.protocol === 'data:' || u.protocol === 'blob:' || u.protocol === 'about:') return true;
+    const isHttp = u.protocol === 'http:' || u.protocol === 'https:';
+    const isWs = u.protocol === 'ws:' || u.protocol === 'wss:';
+    if (!isHttp && !isWs) return false;
+    if (u.port && Number(u.port) === SERVER_PORT) return false;
+
+    const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    if (
+      !host ||
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal')
+    ) {
+      return false;
+    }
+    /* 字面量地址先判：不花 DNS，回环/私网立即拒 */
+    if (host.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(host)) return !isBlockedIp(host);
+
+    /* WebSocket 只做同样的主机检查，不跑文档级 DNS；否则有些页面会卡在 hydration */
+    if (isWs) return true;
+
+    /*
+     * 子资源不做 DNS。一页几十张图/字体，每个都查一次解析会把渲染从 1s 拖到
+     * 10s（实测 4 并发时第 4 个直接等到队列超时）。域名解析到私网的缺口
+     * 与代理的域名档一致，由初始 URL/主文档那一层兜；这里只挡字面量和本机端口。
+     */
+    if (resourceType !== 'document') return true;
+
+    const hit = cache.get(host);
+    if (hit && Date.now() - hit.at < 5 * 60_000) return hit.ok;
+    const guard = await assertPublicTarget(u);
+    cache.set(host, { ok: guard.ok, at: Date.now() });
+    return guard.ok;
+  };
+
+  void ctx.route('**/*', async (route) => {
+    try {
+      if (await allowed(route.request().url(), route.request().resourceType())) await route.continue();
+      else await route.abort();
+    } catch {
+      await route.abort().catch(() => {});
+    }
+  });
+}
+
 async function getContext(userAgent) {
   const b = await getBrowser();
   const ua = userAgent || DESKTOP_UA;
@@ -230,6 +341,7 @@ async function getContext(userAgent) {
     }
   }
   ctx ??= await b.newContext(opts);
+  installNetworkGuard(ctx);
   contexts.set(ua, ctx);
   ctx.on('close', () => contexts.delete(ua));
   return ctx;
@@ -266,21 +378,21 @@ export async function renderHtml(url, opts = {}) {
   const timeoutMs = Math.min(Math.max(opts.timeoutMs ?? 20_000, 5_000), 120_000);
   scheduleIdleClose();
 
-  if (openPages >= MAX_PAGES) {
+  /*
+   * 交互请求排队；后台任务（opts.background）不排队，槽满就立刻让位。
+   * 拿到槽之后先自己兜一次：getContext / newPage 任一抛错都必须把槽还回去。
+   */
+  const waitMs = opts.background
+    ? 0
+    : Math.min(RENDER_WAIT_MS, Math.max(0, Number(opts.waitMs ?? RENDER_WAIT_MS)));
+  if (!(await acquirePageSlot(waitMs))) {
     throw Object.assign(new Error(`渲染并发已满（${MAX_PAGES}）`), { code: 'BUSY' });
   }
-  openPages++;
-  /*
-   * 拿到槽之后先自己兜一次：getContext / newPage 任一抛错（浏览器刚好被空闲
-   * 关掉、context 建不出来）都必须把槽还回去。之前这两行落在下面的 try 外面，
-   * 于是漏满 MAX_PAGES 次之后，所有 browser 模式的请求都在几十毫秒内回 429
-   * 且根本不出网 —— 日志一行痕迹都没有，只有重启进程才恢复。
-   */
   let page;
   try {
     page = await (await getContext(opts.userAgent)).newPage();
   } catch (e) {
-    openPages--;
+    releasePageSlot();
     throw e;
   }
   /*
@@ -362,6 +474,9 @@ export async function renderHtml(url, opts = {}) {
      * 只有没抓到才回落取 HTML，让解析层还能按老路（parse.imageAttr）再试一次。
      */
     const html = captured.length ? '' : await page.content();
+    if (html.length > MAX_RENDER_HTML_BYTES) {
+      throw Object.assign(new Error(`渲染页面过大（${html.length} 字节）`), { code: 'PAGE_TOO_LARGE' });
+    }
 
     /*
      * 抓空时把"发出去却永远没回来"的请求列出来。
@@ -416,7 +531,7 @@ export async function renderHtml(url, opts = {}) {
 
     return out;
   } finally {
-    openPages--;
+    releasePageSlot();
     // 只关标签页，不关 context —— context 是全站共享的会话，关掉就等于
     // 把质询成果丢了，下一次请求又得从零再解一遍。
     await page.close().catch(() => {});
@@ -430,7 +545,7 @@ export async function renderHtml(url, opts = {}) {
  * 挂到 /api/health 上，出问题时一眼分得开。
  */
 export function renderLoad() {
-  return { openPages, max: MAX_PAGES };
+  return { openPages, waiting: pageWaiters.length, max: MAX_PAGES };
 }
 
 export async function shutdownBrowser() {  if (idleTimer) clearTimeout(idleTimer);

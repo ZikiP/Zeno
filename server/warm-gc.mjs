@@ -20,8 +20,8 @@ const READ_GRACE_MS = Number(process.env.ZENO_WARM_READ_GRACE_MS || 24 * 3600_00
 const UNFOLLOW_GRACE_MS = Number(process.env.ZENO_WARM_UNFOLLOW_GRACE_MS || 24 * 3600_000);
 /** 客户端在这时间内报过进度的章，字节不动刀 */
 const RECENT_MS = Number(process.env.ZENO_WARM_RECENT_MS || 24 * 3600_000);
-/** 铺失败（error）的章过了这么久重新排队：多半只是上游那一刻抽风 */
-const RETRY_MS = Number(process.env.ZENO_WARM_RETRY_MS || 24 * 3600_000);
+/** 铺失败（error）的章过了这么久重新排队：多半只是上游那一刻抽风，别等一天 */
+const RETRY_MS = Number(process.env.ZENO_WARM_RETRY_MS || 3600_000);
 
 /**
  * 这本书还在用的章，按客户端给的序号排；没序号的排在后面，照进台账的先后。
