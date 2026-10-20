@@ -13,7 +13,7 @@ import {
 
 export interface ReaderBarProps {
   visible: boolean;
-  /** 进度描述，如 "12 / 25" 或 "离线 · 12 / 25" */
+  /** 进度描述，如 "12/25" 或 "离线 · 12/25" */
   title: string;
   /** 右起模式下在标题后显示 */
   rtl?: boolean;

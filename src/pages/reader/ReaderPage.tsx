@@ -252,8 +252,8 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         visible={bar.visible}
         title={`${fromCache ? '离线 · ' : ''}${
           mode === 'paged'
-            ? `${paging.page + 1} / ${paging.totalPages}`
-            : `${paging.page + 1} / ${imageCount || '?'}`
+            ? `${paging.page + 1}/${paging.totalPages}`
+            : `${paging.page + 1}/${imageCount || '?'}`
         }`}
         rtl={isRTL}
         mode={mode}
