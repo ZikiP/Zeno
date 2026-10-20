@@ -61,8 +61,13 @@ const cap = () => Math.max(10, Number(globalThis.localStorage?.getItem('enhanceD
  * 一次腾到九成，平均下来每二十来张才数一次（见 COUNT_EVERY）。
  */
 const TRIM_KEEP = 0.9;
-/** 每落这么多次盘才数一次条目数 */
-const COUNT_EVERY = 24;
+/**
+ * 每落这么多次盘才数一次条目数。
+ *
+ * 数全桶是 O(条目)，挂在每张的落盘上就成了每写一张翻一遍五百条；但也不能数得太稀
+ * —— 静止时桶里可能压在限额上方这么多张。8 这一档实测把超出压在个位数。
+ */
+const COUNT_EVERY = 8;
 
 /**
  * 该删哪几条：桶里现在是 keys（**按写入顺序**排的，头是最老的），返回要删的那段。
@@ -93,7 +98,39 @@ export function persistDiskBlob(key: string, blob: Blob): Promise<unknown> {
     .catch(() => {});
 }
 
-/** 想要就持久一点：这些全可再生成，被系统清掉也能活着，但能少清就少清 */
-if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
-  void navigator.storage.persist().catch(() => {});
+/**
+ * 要不要持久存储。拿不拿到都由浏览器判（Chrome 看参与度，无痕里恒为 false），
+ * 但**不开口一定没有**，所以起应用时先悄悄要一次。
+ *
+ * 用户在设置里亲手打开画面增强那一刻再要一次也算这条：Firefox 那条路是有弹窗的，
+ * 而弹窗只认用户手势；没有手势的那次调用在那儿等于白调。
+ */
+let persisted: boolean | null = null;
+
+export async function requestPersist(): Promise<boolean | null> {
+  if (typeof navigator === 'undefined' || !navigator.storage?.persist) return null;
+  try {
+    persisted = await navigator.storage.persist();
+  } catch {
+    /* 拿不到就当没拿到：这一层全可再生成，不该因为存储的事把阅读挡住 */
+  }
+  return persisted;
 }
+
+/**
+ * 设置那一栏要说的两句实话：桶里现在存了几张（上限多少）、这台浏览器给没给持久存储。
+ *
+ * 只报张数不报字节：`navigator.storage.estimate()` 是整个源的（还含 Service Worker
+ * 那两份图和 IndexedDB），拿它说"增强图占了多少盘"是假数字；而逐张问 blob 大小
+ * 等于把 500 张 PNG 全读一遍，为了显示一行说明不值得。
+ */
+export async function diskStatus(): Promise<{ entries: number; max: number; persisted: boolean | null } | null> {
+  const c = await bucket();
+  if (!c) return null;
+  if (persisted === null && typeof navigator !== 'undefined' && navigator.storage?.persisted) {
+    persisted = await navigator.storage.persisted().catch(() => null);
+  }
+  return { entries: (await c.keys().catch(() => [])).length, max: cap(), persisted };
+}
+
+void requestPersist();

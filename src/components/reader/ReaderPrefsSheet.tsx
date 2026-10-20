@@ -22,6 +22,7 @@ import {
   IconChevronLeft,
 } from '@/components/Icons';
 import { Sheet } from '@/components/UI';
+import { requestPersist } from '@/reader/enhanceDisk';
 import { Row, Section } from './PrefRows';
 
 export type ReaderMode = 'scroll' | 'paged';
@@ -223,7 +224,11 @@ export default function ReaderPrefsSheet({
           label="画面增强"
           hint="页面图比屏幕窄时（手机上看最常见），改由本机按显示尺寸重采样并补一档高频，线条和小字更利落。每张晚半秒出图，费一点电。"
           control={<div className={`switch${prefs.enhanceScreen ? ' on' : ''}`} />}
-          onClick={() => onChange({ enhanceScreen: !prefs.enhanceScreen })}
+          onClick={() => {
+            /* 跟设置页那一栏同一件事：用户亲手开这一档的那一刻才要持久存储 */
+            if (!prefs.enhanceScreen) void requestPersist();
+            onChange({ enhanceScreen: !prefs.enhanceScreen });
+          }}
         />
       </Section>
 
