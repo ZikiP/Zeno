@@ -13,7 +13,18 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const BASE_PORT = Number(process.env.TEST_PORT_BASE || 8899);
+/**
+ * 端口基线：每个套件拿 BASE+i（16 套 → 45000~45015，个别套件还占一个 +1 的假源站）。
+ *
+ * 为什么是 45000 而不是原来那个 8899：这台 Windows 的动态端口段量出来是
+ * `netsh int ipv4 show dynamicport tcp` → 启动端口 1024、端口数 13977，也就是
+ * **1024~15000 整段都是系统临时端口**，测试端口全在里面。被某个应用的出站连接
+ * 临时占掉时，跑器起的 server bind 不上，报的是「起不来：服务端提前退出（code 1）」，
+ * 看着像刚改的代码弄坏了启动 —— 2026-10-19 和 2026-10-20 各误判过一次。
+ * 撞的时候 `netstat -ano | grep :8899` 往往已经空了（那是瞬时占用），所以"没人用"
+ * 不能用来排除这个原因。要换就换到 15000 以上。
+ */
+const BASE_PORT = Number(process.env.TEST_PORT_BASE || 45000);
 
 const ALL_SUITES = [
   'test-sync.mjs',
