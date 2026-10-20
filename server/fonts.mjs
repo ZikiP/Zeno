@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { unzipSync } from 'fflate';
 
 import { dbPath, openDb } from './db.mjs';
@@ -255,6 +256,18 @@ function readFace(id) {
   }
 }
 
+/** 字体端点的 gzip 缓存。字体是 immutable 的，按 id 存一份就够 */
+const gzipFaces = new Map();
+
+function gzipFont(id, bytes) {
+  const hit = gzipFaces.get(id);
+  if (hit && hit.size === bytes.length) return hit.bytes;
+  const out = gzipSync(bytes, { level: 6 });
+  if (gzipFaces.size >= 8) gzipFaces.delete(gzipFaces.keys().next().value);
+  gzipFaces.set(id, { size: bytes.length, bytes: out });
+  return out;
+}
+
 /* ── HTTP ─────────────────────────────────────────── */
 
 /**
@@ -298,13 +311,24 @@ export async function handleFontsApi(req, res, url, auth) {
         return true;
       }
       const ext = cache.files.get(id).ext;
-      res.writeHead(200, {
+      /*
+       * 中文字体包动辄十几 MB，而这个端点直连 HTTP、前面没有 nginx 代压。
+       * ttf/otf/ttc 是裸二进制，gzip 能砍掉近一半；woff/woff2 自带压缩，跳过。
+       * id 里掺了源文件 mtime，换字体包 id 就变，所以按 id 缓存压好的字节是安全的。
+       */
+      const compressible = ext === '.ttf' || ext === '.otf' || ext === '.ttc';
+      const wantGzip = compressible && /\bgzip\b/i.test(req.headers['accept-encoding'] ?? '');
+      const body = wantGzip ? gzipFont(id, bytes) : bytes;
+      const headers = {
         'Content-Type': FONT_FILE_EXT[ext] || 'application/octet-stream',
-        'Content-Length': bytes.length,
+        'Content-Length': body.length,
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'public, max-age=31536000, immutable',
-      });
-      res.end(req.method === 'HEAD' ? undefined : bytes);
+      };
+      if (compressible) headers.Vary = 'Accept-Encoding';
+      if (wantGzip) headers['Content-Encoding'] = 'gzip';
+      res.writeHead(200, headers);
+      res.end(req.method === 'HEAD' ? undefined : body);
       return true;
     }
     json(res, 404, { error: 'not found' });

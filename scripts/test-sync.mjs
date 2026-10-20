@@ -230,6 +230,30 @@ check(asset.status === 404, `未知 .js 返回 404 而不是 HTML（HTTP ${asset
 const assetType = asset.headers.get('content-type') ?? '';
 check(!assetType.includes('text/html'), `错误响应不是 HTML（${assetType}）`);
 
+/*
+ * 这个服务是直接写 HTTP 的，没有 nginx 代压；文本资源不压的话
+ * 主包会原样发 400 KB。断一次，免得以后又把这条优化弄丢。
+ */
+const entryHtml = await (await fetch(BASE + '/')).text();
+const entryJs = entryHtml.match(/assets\/index-[^"']+\.js/)?.[0];
+check(!!entryJs, 'index.html 里能找到构建后的主包');
+if (entryJs) {
+  const gz = await fetch(BASE + '/' + entryJs, { headers: { 'Accept-Encoding': 'gzip' } });
+  check(gz.headers.get('content-encoding') === 'gzip', `文本资源按 gzip 传输（${gz.headers.get('content-encoding')}）`);
+  check(
+    (gz.headers.get('vary') ?? '').includes('Accept-Encoding'),
+    `压缩资源带 Vary: Accept-Encoding（${gz.headers.get('vary')}）`,
+  );
+  const plain = await fetch(BASE + '/' + entryJs, { headers: { 'Accept-Encoding': 'identity' } });
+  check(!plain.headers.get('content-encoding'), '客户端不接收 gzip 时不压');
+  const head = await fetch(BASE + '/' + entryJs, {
+    method: 'HEAD',
+    headers: { 'Accept-Encoding': 'gzip' },
+  });
+  check(head.headers.get('content-encoding') === 'gzip', 'HEAD 也返回压缩头');
+  check((await head.arrayBuffer()).byteLength === 0, 'HEAD 不返回响应体');
+}
+
 console.log('\n=== 6b. 请求体过大回 413 ===');
 const huge = await fetch(BASE + '/api/sync/push', {
   method: 'POST',

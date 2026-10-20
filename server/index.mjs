@@ -93,7 +93,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' || req.method === 'HEAD') {
       const file = resolveStatic(DIST_DIR, path);
       if (file) {
-        sendFile(res, file, { immutable: isHashedAsset(path) });
+        sendFile(req, res, file, { immutable: isHashedAsset(path) });
         return;
       }
       /*
@@ -108,7 +108,7 @@ const server = createServer(async (req, res) => {
       if (!looksLikeAsset) {
         const index = resolveStatic(DIST_DIR, '/index.html');
         if (index) {
-          sendFile(res, index);
+          sendFile(req, res, index);
           return;
         }
       }

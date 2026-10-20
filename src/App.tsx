@@ -1,34 +1,25 @@
-﻿import { useEffect, useState, type ReactNode } from 'react';
+﻿import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import ShelfPage from '@/pages/ShelfPage';
-import ExplorePage from '@/pages/ExplorePage';
-import GlobalSearchPage from '@/pages/GlobalSearchPage';
-import ComicPage from '@/pages/ComicPage';
-import ReaderPage from '@/pages/reader/ReaderPage';
-import SettingsPage from '@/pages/settings/SettingsPage';
+/*
+ * 书架是入口，留在首包里；其余路由各自一个 chunk。
+ * 以前所有页面静态引入，构建出来是一个 400 KB 的主包 —— 只想看书架的人
+ * 也要先解析阅读器、插件编辑器和增强逻辑。
+ */
+const ExplorePage = lazy(() => import('@/pages/ExplorePage'));
+const GlobalSearchPage = lazy(() => import('@/pages/GlobalSearchPage'));
+const ComicPage = lazy(() => import('@/pages/ComicPage'));
+const ReaderPage = lazy(() => import('@/pages/reader/ReaderPage'));
+const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage'));
 import { PluginProvider, usePlugin } from '@/store/PluginContext';
 import { useTheme } from '@/hooks/useTheme';
+import { useOnline } from '@/hooks/useOnline';
 import { useUiFont } from '@/fonts/useUiFont';
 import { Loading, OfflineBar } from '@/components/UI';
 import { IconEmpty } from '@/components/Icons';
 import SyncPill from '@/sync/SyncPill';
 import BottomNav from '@/components/BottomNav';
 import { sync } from '@/sync/client';
-
-function useOnline() {
-  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
-  useEffect(() => {
-    const on = () => setOnline(true);
-    const off = () => setOnline(false);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
-    return () => {
-      window.removeEventListener('online', on);
-      window.removeEventListener('offline', off);
-    };
-  }, []);
-  return online;
-}
 
 /**
  * 首轮同步有没有出结果（最多等 4 秒）。
@@ -137,44 +128,47 @@ function Shell() {
   return (
     <div className="app">
       <OfflineBar online={online} />
-      <Routes>
-        <Route path="/" element={<Navigate to="/shelf" replace />} />
-        <Route path="/shelf" element={<ShelfPage />} />
-        <Route
-          path="/explore"
-          element={
-            <RequirePlugin>
-              <ExplorePage />
-            </RequirePlugin>
-          }
-        />
-        <Route
-          path="/search"
-          element={
-            <RequirePlugin>
-              <GlobalSearchPage />
-            </RequirePlugin>
-          }
-        />
-        <Route
-          path="/comic/:pluginId/:slug"
-          element={
-            <RequirePlugin>
-              <ComicPage />
-            </RequirePlugin>
-          }
-        />
-        <Route
-          path="/read/:pluginId/:slug/:chapterId"
-          element={
-            <RequirePlugin>
-              <ReaderRoute />
-            </RequirePlugin>
-          }
-        />
-        <Route path="/settings" element={<SettingsRoute />} />
-        <Route path="*" element={<Navigate to="/shelf" replace />} />
-      </Routes>
+      {/* 懒加载的路由第一次进来时给一个和 RequirePlugin 相同的占位，别白屏 */}
+      <Suspense fallback={<Loading />}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/shelf" replace />} />
+          <Route path="/shelf" element={<ShelfPage />} />
+          <Route
+            path="/explore"
+            element={
+              <RequirePlugin>
+                <ExplorePage />
+              </RequirePlugin>
+            }
+          />
+          <Route
+            path="/search"
+            element={
+              <RequirePlugin>
+                <GlobalSearchPage />
+              </RequirePlugin>
+            }
+          />
+          <Route
+            path="/comic/:pluginId/:slug"
+            element={
+              <RequirePlugin>
+                <ComicPage />
+              </RequirePlugin>
+            }
+          />
+          <Route
+            path="/read/:pluginId/:slug/:chapterId"
+            element={
+              <RequirePlugin>
+                <ReaderRoute />
+              </RequirePlugin>
+            }
+          />
+          <Route path="/settings" element={<SettingsRoute />} />
+          <Route path="*" element={<Navigate to="/shelf" replace />} />
+        </Routes>
+      </Suspense>
       {/* 顶栏右端那颗同步泡，逻辑见 SyncPill：它自己找到当前这一页的顶栏挂进去 */}
       <SyncPill />
       {NAV_ROUTES.has(pathname) && <BottomNav />}
