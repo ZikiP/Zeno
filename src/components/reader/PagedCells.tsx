@@ -38,6 +38,7 @@ export function PagedCells({
                * 浏览器可能推迟一帧才开始解码，而翻页动画正跑到一半。
                */
               eager
+              fetchPriority="high"
               onDoubleClick={() => onZoom(src, abs)}
               onContextMenu={(e) => {
                 e.preventDefault();

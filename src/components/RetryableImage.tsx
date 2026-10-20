@@ -21,6 +21,8 @@ export interface RetryableImageProps {
   className?: string;
   /** 加载优先级 */
   eager?: boolean;
+  /** 浏览器请求优先级：当前屏 high，预热/下一章 low */
+  fetchPriority?: 'high' | 'low' | 'auto';
   /** 要拿到那个 <img> 元素本身的调用方用（画面增强要量它的显示宽度、要盯它进不进视野） */
   imgRef?: RefObject<HTMLImageElement>;
   onClick?: () => void;
@@ -118,6 +120,7 @@ export function RetryableImage({
   alt,
   className,
   eager,
+  fetchPriority,
   imgRef,
   onClick,
   onDoubleClick,
@@ -212,6 +215,7 @@ export function RetryableImage({
       src={src}
       alt={alt}
       loading={eager ? 'eager' : 'lazy'}
+      fetchPriority={fetchPriority}
       decoding="async"
       onClick={onClick}
       onDoubleClick={onDoubleClick}

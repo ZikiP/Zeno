@@ -74,7 +74,7 @@ const server = createServer(async (req, res) => {
         res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
         res.setHeader(
           'Access-Control-Allow-Headers',
-          'Authorization, Content-Type, X-Device-Id, X-Device-Label, X-Client-Host',
+          'Authorization, Content-Type, X-Device-Id, X-Device-Label, X-Client-Host, X-Zeno-Page',
         );
         res.setHeader('Access-Control-Max-Age', '86400');
       }

@@ -149,6 +149,17 @@ try {
   const st2 = await status();
   check(st2.files === 1, '缓存里还是只有那一张图', `${st2.files} 张`);
 
+  console.log('\n=== 2b. 章节 HTML 短缓存 ===');
+  const ch1 = await fetch(proxyUrl('/page.html'), { headers: { 'X-Zeno-Page': 'chapter' } });
+  const ch1buf = Buffer.from(await ch1.arrayBuffer());
+  const ch2 = await fetch(proxyUrl('/page.html'), { headers: { 'X-Zeno-Page': 'chapter' } });
+  const ch2buf = Buffer.from(await ch2.arrayBuffer());
+  check(hits['/page.html'] === 3, '章节页第一次回上游', `hits=${hits['/page.html']}`);
+  check(ch2.headers.get('x-zeno-html-cache') === 'HIT', '第二次章节页命中内存缓存');
+  check(ch1buf.equals(ch2buf), '缓存回来的章节 HTML 逐字节相同');
+  await get('/page.html');
+  check(hits['/page.html'] === 4, '不带章节标记的列表页仍旧每次回上游');
+
   console.log('\n=== 3. 超过 8MB 的图只转发不存 ===');
   const big = await get('/big');
   check(big.status === 200 && big.buf.length === 9 * 1024 * 1024 + 4, '客户端照样拿到完整 9MB', `${big.buf.length}B`);

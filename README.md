@@ -367,6 +367,9 @@ node --import tsx scripts/pull-plugins.mjs
 | `RENDER_QUEUE_MAX` | 20 | 渲染排队上限，超过直接 429 |
 | `PARSE_TIMEOUT_MS` | 3000 | 章节解析 worker 上限；插件正则写坏时只丢这一次，不卡主线程 |
 | `PAGE_MAX_BYTES` | 8388608 | 后台抓取/渲染返回的 HTML 上限 |
+| `HTML_CACHE_MS` | 600000 | 章节 HTML 的进程内缓存时长；只缓存客户端标记为 chapter 的页面，列表/详情不缓存 |
+| `HTML_CACHE_MAX` | 120 | 章节 HTML 缓存条数上限 |
+| `HTML_CACHE_MAX_BYTES` | 33554432 | 章节 HTML 缓存总字节上限 |
 | `ZENO_FONT_GZIP_MAX_MB` | 24 | 字体 gzip 缓存的总字节上限 |
 | `RENDER_TTL_MS` | 90000 | 渲染结果缓存时长。设 0 等于关掉缓存 |
 | `ZENO_CACHE_DIR` | 数据库同级 `cache/` | 图片磁盘缓存目录。绝对路径；也可以装完后在「设置 → 图片缓存」里改 |

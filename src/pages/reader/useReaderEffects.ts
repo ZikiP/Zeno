@@ -186,6 +186,8 @@ export function useImagePreload(
       if (!src || cache.current.has(src)) continue;
       const img = new Image();
       img.decoding = 'async';
+      /* 预热图不该和当前屏抢上行；同一条闸里让当前页先走 */
+      img.fetchPriority = 'low';
       img.onload = () => {
         /* load 不等于 decode 完；标记 ready 也放到解码之后，第一帧才有东西可画 */
         void img

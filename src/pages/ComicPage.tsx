@@ -3,13 +3,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useBackToHome } from '@/hooks/useBackToHome';
 import { getComic, chapterUrl, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import { displayComicTitle } from '@/site/title';
-import { cacheChapterList, getChapterList } from '@/store/chapters';
+import { loadChapterShared } from '@/site/chapterFetch';
+import { cacheChapterList, getCachedChapter, getChapterList, saveChapterTable } from '@/store/chapters';
 import { reportSeen } from '@/store/updates';
 import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf } from '@/store/shelf';
 import type { ShelfEntry } from '@/store/types';
 import { formatBytes } from '@/store/utils';
 import { useOfflineCache } from '@/store/useOfflineCache';
-import { useWarmFollow } from '@/store/useWarmFollow';
+import { fetchWarmChapterImages, useWarmFollow } from '@/store/useWarmFollow';
 import { usePlugin } from '@/store/PluginContext';
 import { onDataChange } from '@/store/dataEvents';
 import ChapterList from '@/components/ChapterList';
@@ -58,6 +59,47 @@ export default function ComicPage() {
   /* 追漫：开关与"哪几章已经缓存好"的标记。铺字节是服务端的事，这一层只切开关 */
   const follow = useWarmFollow({ plugin, slug, title: comic?.title });
   const warmCached = Object.values(follow.marks).filter((m) => m.cached).length;
+
+  /**
+   * 提前把「继续阅读」那一章的地址表拿回来。
+   *
+   * 阅读器真正的大头等待不是图片，而是这一章的两三次上游请求（实测 2–3 秒）。
+   * 详情页本来就要停留一会儿；在 idle/悬停/按下时先解析，阅读器打开时
+   * useChapterLoader 直接命中 IndexedDB。阅读器那边用 loadChapterShared，
+   * 用户点得太快时也只会复用同一个 Promise，不会重复请求。
+   */
+  const prefetchedChapter = useRef(new Set<string>());
+  const prefetchLastChapter = useCallback(() => {
+    const id = entry?.lastChapterId;
+    if (!plugin || !id || document.visibilityState !== 'visible') return;
+    const key = `${plugin.meta.id}/${slug}/${id}`;
+    if (prefetchedChapter.current.has(key)) return;
+    prefetchedChapter.current.add(key);
+    void (async () => {
+      try {
+        const cached = await getCachedChapter(plugin.meta.id, slug, id);
+        if (cached?.images?.length) return;
+
+        const warm = await fetchWarmChapterImages(plugin.meta.id, slug, id);
+        if (warm?.length) {
+          await saveChapterTable(plugin.meta.id, slug, id, warm);
+          return;
+        }
+
+        const result = await loadChapterShared(plugin, slug, id);
+        if (result.truncated || !result.images.length) return;
+        await saveChapterTable(plugin.meta.id, slug, id, result.images);
+      } catch {
+        /* 预热失败不打扰详情页；阅读器打开时自己还会再试一次 */
+      }
+    })();
+  }, [plugin, slug, entry?.lastChapterId]);
+
+  useEffect(() => {
+    if (!entry?.lastChapterId) return;
+    const timer = window.setTimeout(prefetchLastChapter, 900);
+    return () => window.clearTimeout(timer);
+  }, [entry?.lastChapterId, prefetchLastChapter]);
 
   /*
    * 抓的是"哪个源的哪本书"，不是插件对象的那个身份。
@@ -277,6 +319,8 @@ export default function ComicPage() {
                 {entry?.lastChapterId && (
                   <button
                     className="btn"
+                    onPointerEnter={prefetchLastChapter}
+                    onPointerDown={prefetchLastChapter}
                     onClick={() => nav(`/read/${plugin.meta.id}/${slug}/${entry.lastChapterId}`)}
                   >
                     <IconPlay size={16} />

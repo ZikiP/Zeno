@@ -167,6 +167,7 @@ export default function ScrollView({
             src={src}
             alt={`第 ${i + 1} 页`}
             eager={i < 3}
+            fetchPriority={i < 3 ? 'high' : 'auto'}
             enhance={enhance}
             onClick={onTap}
             onDoubleClick={() => onZoom(src, i)}

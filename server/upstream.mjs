@@ -15,6 +15,7 @@ import { assertPublicTarget } from './ssrf.mjs';
 import { hostAllowed } from './allowlist.mjs';
 import { json } from './respond.mjs';
 import { cacheableAsImage, collector } from './cache-store.mjs';
+import { htmlCollector } from './html-cache.mjs';
 import { IMG_CACHE_CONTROL } from './cache.mjs';
 
 const MOBILE_UA =
@@ -37,7 +38,7 @@ const MAX_HOPS = 5;
  *   release: () => void,
  * }} args
  */
-export async function pipeUpstream({ req, res, target, pluginHeaders = {}, cacheKey, cors, release }) {
+export async function pipeUpstream({ req, res, target, pluginHeaders = {}, cacheKey, htmlKey = null, cors, release }) {
   /**
    * 站点声明的头优先。这不是可有可无的装饰：实测拷貝漫畫只给桌面
    * UA 返回服务端渲染的列表，手机 UA 一律 302 到 JS 壳 —— 固定发 MOBILE_UA
@@ -153,9 +154,16 @@ export async function pipeUpstream({ req, res, target, pluginHeaders = {}, cache
    * 客户端中途断开时 'end' 不会触发，于是半张图不会被存进去。
    */
   const sink = upstream.ok && cacheableAsImage(ct, cacheKey) ? collector(cacheKey, ct) : null;
-  if (sink) {
-    src.on('data', (c) => sink.push(c));
-    src.on('end', () => void sink.commit());
+  const htmlSink = upstream.ok && htmlKey ? htmlCollector(htmlKey, ct) : null;
+  if (sink || htmlSink) {
+    src.on('data', (c) => {
+      sink?.push(c);
+      htmlSink?.push(c);
+    });
+    src.on('end', () => {
+      void sink?.commit();
+      htmlSink?.commit();
+    });
   }
   src.on('error', (err) => {
     console.warn(`[zeno] upstream aborted: ${err.message}`);

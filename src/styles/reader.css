@@ -699,3 +699,41 @@
     animation: none;
   }
 }
+
+/*
+ * 换章加载：把上一帧原图压暗垫底，别让整屏只剩加载文字。
+ * 真实等待不变，但用户看到的是"下一页还在原来的阅读流里"。
+ */
+.reader__loading-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #000;
+}
+.reader__loading-frame img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.28;
+  filter: blur(6px);
+  transform: scale(1.03);
+}
+.reader__loading-hint {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 13px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.58);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}

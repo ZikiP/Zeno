@@ -78,6 +78,8 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   const [toast, setToast] = useState<string | null>(null);
   /** 这一章有没有真出过增强图（顶栏那颗「画面+」的依据） */
   const [enhanceLive, setEnhanceLive] = useState(false);
+  /** 上一帧看到的原图：换章加载时垫在下面，别让用户对着一块纯黑/纯白 */
+  const [lastFrame, setLastFrame] = useState<string | null>(null);
 
   const isRTL = prefs.value.direction === 'rtl';
 
@@ -181,7 +183,22 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   /* ── 副作用 ── */
   useKeepAwake(prefs.value.keepAwake, !!images);
   const fs = useImmersiveFullscreen(prefs.value.immersive);
-  useImagePreload(images, paging.startIndex, paging.perPage, mode === 'paged');
+  /*
+   * 滚动模式也要预热：分页有 ±2 的窗口，滚动下滑快时同样会追不上。
+   * 滚动模式下 page 就是当前图片序号；只保留"当前 + 往后 2 张"，不囤整章。
+   */
+  useImagePreload(
+    images,
+    mode === 'paged' ? paging.startIndex : paging.currentImageIndex,
+    mode === 'paged' ? paging.perPage : 1,
+    !!images,
+  );
+  useEffect(() => {
+    if (!images?.length) return;
+    const i = Math.max(0, Math.min(images.length - 1, paging.currentImageIndex));
+    setLastFrame(images[i] ?? null);
+  }, [images, paging.currentImageIndex]);
+
   usePrefetchNextChapter({
     plugin,
     slug,
@@ -286,7 +303,18 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
          */
         <ErrorBox message={error} onRetry={reload} />
       ) : loading || !images ? (
-        <Loading text="加载章节" />
+        lastFrame ? (
+          <div className="reader__loading-frame" role="status" aria-live="polite">
+            {/* 上一帧只当背景，不能参与翻页/进度；新章到手后整块被替换 */}
+            <img src={lastFrame} alt="" aria-hidden="true" />
+            <div className="reader__loading-hint">
+              <span className="spinner" />
+              <span>加载章节…</span>
+            </div>
+          </div>
+        ) : (
+          <Loading text="加载章节" />
+        )
       ) : mode === 'scroll' ? (
         <ScrollView
           images={images}

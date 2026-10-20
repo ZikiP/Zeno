@@ -220,6 +220,11 @@ export async function fetchText(
           'User-Agent': plugin.headers?.['User-Agent'] ?? DEFAULT_UA,
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': plugin.headers?.['Accept-Language'] ?? 'zh-TW,zh;q=0.9,zh-CN;q=0.8',
+          /*
+           * 只有章节页允许服务端做短缓存。列表/详情页不标记，
+           * 新章信息因此不会被十分钟缓存挡住。
+           */
+          ...(kind === 'chapter' ? { 'X-Zeno-Page': 'chapter' } : {}),
         },
         signal: ctrl.signal,
         redirect: 'follow',

@@ -18,6 +18,7 @@ import { hostAllowed, headersFor } from './allowlist.mjs';
 import { json } from './respond.mjs';
 import { lookup } from './cache-store.mjs';
 import { serveCached } from './cache.mjs';
+import { getHtml } from './html-cache.mjs';
 import { pipeUpstream } from './upstream.mjs';
 
 /** 放行解析到内网/回环的目标。只给本地测试用，生产不该开 */
@@ -109,6 +110,35 @@ export async function handleProxy(req, res, url) {
   }
 
   /*
+   * 章节 HTML 的短缓存。key 必须带渲染相关的请求头（UA/语言/Referer），
+   * 否则给桌面 UA 的页面会被端给手机。列表/详情页不缓存：新章信息不能被
+   * 十分钟的缓存挡住，客户端用 X-Zeno-Page: chapter 明确标记章节页。
+   */
+  const effectiveUa = ph['user-agent'] ?? req.headers['user-agent'] ?? '';
+  const effectiveLang = ph['accept-language'] ?? req.headers['accept-language'] ?? '';
+  const effectiveAccept = ph.accept ?? req.headers.accept ?? '';
+  const htmlKey =
+    mode === 'fetch' &&
+    req.method === 'GET' &&
+    String(req.headers['x-zeno-page'] ?? '').toLowerCase() === 'chapter'
+      ? `${cacheKey}\n${effectiveUa}\n${effectiveLang}\n${effectiveAccept}\n${ph.referer ?? ''}`
+      : null;
+  if (htmlKey) {
+    const hit = getHtml(htmlKey);
+    if (hit) {
+      res.writeHead(200, {
+        ...CORS,
+        'Content-Type': hit.contentType,
+        'Content-Length': hit.body.length,
+        'Cache-Control': 'public, max-age=600',
+        'X-Zeno-Html-Cache': 'HIT',
+      });
+      res.end(req.method === 'HEAD' ? undefined : hit.body);
+      return;
+    }
+  }
+
+  /*
    * 并发闸只给 fetch 模式用。
    * browser 模式自己已经有 MAX_PAGES 限流，而且一次渲染要好几秒 ——
    * 让它占住 MAX_CONCURRENT 六个槽之一，阅读器同时发的几十张图片就会
@@ -172,6 +202,7 @@ export async function handleProxy(req, res, url) {
       target: parsed,
       pluginHeaders: ph,
       cacheKey,
+      htmlKey,
       cors: CORS,
       release: done,
     });

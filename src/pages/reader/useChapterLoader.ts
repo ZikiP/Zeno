@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getChapter } from '@/site/engine';
+import { loadChapterShared } from '@/site/chapterFetch';
 import type { Plugin } from '@/site/types';
 import { getCachedChapter, saveChapterTable } from '@/store/chapters';
 import { fetchWarmChapterImages } from '@/store/useWarmFollow';
@@ -93,7 +93,7 @@ export function useChapterLoader(
           return;
         }
 
-        const result = await getChapter(plugin, slug, chapterId);
+        const result = await loadChapterShared(plugin, slug, chapterId);
         if (cancelled) return;
 
         if (result.images.length === 0) {

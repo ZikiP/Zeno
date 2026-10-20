@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { getChapter } from '@/site/engine';
+import { loadChapterShared } from '@/site/chapterFetch';
 import type { Plugin } from '@/site/types';
 import { getCachedChapter, saveChapterTable } from '@/store/chapters';
+import { fetchWarmChapterImages } from '@/store/useWarmFollow';
 import { isImageReady, markImageReady } from '@/components/RetryableImage';
 import { enhanceSource } from '@/reader/enhance';
 import { loadEnhanceScreen } from '@/reader/prefs';
@@ -9,7 +10,12 @@ import { warmTargetWidth } from './usePaging';
 
 /** 预热下一话时顺手铺几张图 —— 只要头几张，翻过去有的看就行，不多占带宽 */
 const WARM_IMAGES = 2;
-/** 当前章到手后隔多久再去取下一话：那段时间是留给本屏图片的 */
+/**
+ * 地址表提前取：它只是一个小 HTML，不占图片带宽，没必要跟着图片一起等 800ms。
+ * 当前屏图片开始解码后大约 250ms 就可以发。
+ */
+const TABLE_DELAY_MS = 250;
+/** 当前章到手后隔多久再去铺下一话的图片：那段时间是留给本屏图片的 */
 const SETTLE_MS = 800;
 
 /**
@@ -51,28 +57,51 @@ export function usePrefetchNextChapter(args: {
     if (!plugin || !nextId || !ready) return;
     if (document.visibilityState !== 'visible') return;
 
-    const ctrl = new AbortController();
     let dropped = false;
+    let imageFailed = false;
 
-    const timer = setTimeout(() => {
+    /*
+     * 地址表只做一次，两个计时器共用：
+     *   - 250ms：只取表，小 HTML，不抢图片带宽
+     *   - 800ms：再铺头两张图
+     * 两个都走到同一个 Promise，谁先触发都只发一次上游请求。
+     */
+    let tablePromise: Promise<string[] | null> | null = null;
+    const table = () => {
+      tablePromise ??= (async () => {
+        const pluginId = plugin.meta.id;
+        const cached = await getCachedChapter(pluginId, slug, nextId);
+        if (cached?.images?.length) return cached.images;
+
+        const warm = await fetchWarmChapterImages(pluginId, slug, nextId);
+        if (warm?.length) {
+          await saveChapterTable(pluginId, slug, nextId, warm);
+          return warm;
+        }
+
+        const result = await loadChapterShared(plugin, slug, nextId);
+        if (result.truncated || !result.images.length) return null;
+        // 只存地址表：把整章几十张图偷偷下完是「离线下载」的事，不是预热的
+        await saveChapterTable(pluginId, slug, nextId, result.images);
+        return result.images;
+      })();
+      return tablePromise;
+    };
+
+    const tableTimer = setTimeout(() => {
+      void table().catch(() => null);
+    }, TABLE_DELAY_MS);
+
+    const imageTimer = setTimeout(() => {
       void (async () => {
         try {
-          const pluginId = plugin.meta.id;
-          const cached = await getCachedChapter(pluginId, slug, nextId);
-          if (dropped) return;
-
-          const images = cached
-            ? cached.images
-            : (await getChapter(plugin, slug, nextId, { signal: ctrl.signal })).images;
+          const images = await table().catch(() => null);
           if (dropped || !images?.length) return;
-
-          // 只存地址表：把整章几十张图偷偷下完是「离线下载」的事，不是预热的
-          await saveChapterTable(pluginId, slug, nextId, images);
 
           const targetW = loadEnhanceScreen() ? warmTargetWidth(perPage, window) : 0;
 
           for (const src of images.slice(0, WARM_IMAGES)) {
-            if (dropped) continue;
+            if (dropped || imageFailed) break;
             /*
              * 增强版排在原图前面：算它要先 fetch 到字节，先发起就先把那趟网络
              * 摊进这段空闲里；而这一屏的原图地址此刻多半已经躺在浏览器缓存里了
@@ -81,8 +110,11 @@ export function usePrefetchNextChapter(args: {
             if (targetW) void enhanceSource(src, targetW, WARM_PRIO).catch(() => {});
             if (isImageReady(src)) continue;
             const img = new Image();
+            img.fetchPriority = 'low';
             img.onload = () => markImageReady(src);
-            img.onerror = () => ctrl.abort(); // 头一张就取不到，别再往下试
+            img.onerror = () => {
+              imageFailed = true; // 头一张就取不到，别再往下试
+            };
             img.src = src;
           }
         } catch {
@@ -93,8 +125,8 @@ export function usePrefetchNextChapter(args: {
 
     return () => {
       dropped = true;
-      clearTimeout(timer);
-      ctrl.abort();
+      clearTimeout(tableTimer);
+      clearTimeout(imageTimer);
     };
   }, [plugin, slug, nextId, ready, perPage]);
 }
