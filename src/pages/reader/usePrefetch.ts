@@ -28,6 +28,19 @@ const SETTLE_MS = 800;
 const WARM_PRIO = 1_000_000_000;
 
 /**
+ * 下一章增强版的目标宽度。
+ *
+ * 能量到已经挂上的页就量它，别拿视口推：滚动容器有滚动条、fit 档位也会改实际
+ * 显示宽，推出来的值差十几像素，缓存键（src@targetW）就一张都命中不了 ——
+ * 预热等于白做，而界面上只会表现成"下一章还是黑一下"。
+ */
+function targetWidth(perPage: number): number {
+  const el = document.querySelector<HTMLElement>('.reader__page, .reader__cell img');
+  const w = el?.offsetWidth ?? 0;
+  return w >= 2 ? Math.round(w * (window.devicePixelRatio || 1)) : warmTargetWidth(perPage, window);
+}
+
+/**
  * 下一话预热
  *
  * 为什么需要它：需要渲染的站点每开一章都要服务端跑一次浏览器（实测 2–3s），
@@ -98,7 +111,7 @@ export function usePrefetchNextChapter(args: {
           const images = await table().catch(() => null);
           if (dropped || !images?.length) return;
 
-          const targetW = loadEnhanceScreen() ? warmTargetWidth(perPage, window) : 0;
+          const targetW = loadEnhanceScreen() ? targetWidth(perPage) : 0;
 
           for (const src of images.slice(0, WARM_IMAGES)) {
             if (dropped || imageFailed) break;

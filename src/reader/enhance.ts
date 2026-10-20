@@ -14,6 +14,7 @@ import { bad, cache, keyOf, remember, seenKeys } from './enhanceCache';
 import { persistDiskBlob, readDiskBlob } from './enhanceDisk';
 import type { EnhanceRequest, EnhanceResponse } from './enhance.worker';
 import EnhanceWorker from './enhance.worker?worker';
+import EnhanceGpuWorker from './enhanceGpu.worker?worker';
 
 /** 排队中（等字节到手）和正在跑（占了槽位）都记在这，两份共用一个形状 */
 type Job = { id: number; key: string; src: string; targetW: number; cbs: ((url: string | null) => void)[]; prio?: number; buf?: ArrayBuffer };
@@ -30,17 +31,81 @@ const waiting = new Map<number, Job>();
 const pool: (Job & { buf: ArrayBuffer; timer: number } | undefined)[] = [];
 const queue: Job[] = [];
 const byKey = new Map<string, number>();
+/**
+ * 当前这一章的页地址。
+ *
+ * 换章之后，上一章还排在队里的活不该继续挡着新章的第一页；反过来，用户退回
+ * 上一章时那些活又是脚下最近的东西。所以不取消，只按"属不属于当前章"分层：
+ * 当前章的活永远先于别的章，同一层里再按 prio 排。
+ */
+let currentSrcs: ReadonlySet<string> | null = null;
+/** 当前章的第一页地址。只用来判"换没换章"，不参与排序 */
+let currentHead: string | null = null;
+/** 跨章惩罚。比任何 prio 都大：章内顺序只在同一章里比较（prio 里还有 WARM_PRIO 这种 1e9） */
+const OTHER_CHAPTER = 1e12;
+
+export function setChapterSources(srcs: readonly string[] | null) {
+  if (!srcs?.length) return;
+  const changed = currentHead !== null && currentHead !== srcs[0];
+  currentHead = srcs[0];
+  currentSrcs = new Set(srcs);
+  if (changed) dropOtherChapterJobs();
+}
+
+function rankOf(job: Job): number {
+  return (currentSrcs?.has(job.src) ? 0 : OTHER_CHAPTER) + (job.prio ?? 0);
+}
 /** 发出去之后一直没回话的任务（Worker 挂了、消息丢了）到点自己收场 */
 const TASK_TIMEOUT_MS = 20_000;
 
+/**
+ * GPU 档：有 WebGL2 就只开一台 WebGL2 Worker（5ms/页，一台就够）。
+ * 不能开 WebGL2（老浏览器、驱动黑名单、Worker 里没有 OffscreenCanvas WebGL）时
+ * 退回原来的 CPU 池；运行中 GPU Worker 报 gpuBroken / 崩掉也会当场降级。
+ */
+const gpuSupported =
+  typeof document !== 'undefined' &&
+  (() => {
+    try {
+      const gl = document.createElement('canvas').getContext('webgl2');
+      /* 探测用的上下文立刻还掉，别占着浏览器那十几个 WebGL 名额 */
+      gl?.getExtension('WEBGL_lose_context')?.loseContext();
+      return !!gl;
+    } catch {
+      return false;
+    }
+  })();
+let gpuMode: 'on' | 'off' = gpuSupported ? 'on' : 'off';
+const slotCount = () => (gpuMode === 'on' ? 1 : POOL);
+
 const newWorker = (slot: number): Worker => {
-  const w = new EnhanceWorker();
+  const w = gpuMode === 'on' ? new EnhanceGpuWorker() : new EnhanceWorker();
   w.onmessage = (e: MessageEvent<EnhanceResponse>) => {
+    const data = e.data;
+    if (!data.ok && 'gpuBroken' in data && data.gpuBroken) {
+      /*
+       * 初始化阶段就失败（没有 WebGL2 / shader 编译不过）：这一页退回原图，
+       * 后面的任务改用 CPU 池。GPU Worker 不能继续留着，否则下一张还会派给它。
+       */
+      gpuMode = 'off';
+      try {
+        w.terminate();
+      } catch {
+        /* 已经没了 */
+      }
+      if (workers[slot] === w) workers[slot] = undefined;
+      const r = pool[slot];
+      if (r && r.id === data.id) finish(slot, null);
+      else pump();
+      return;
+    }
     const r = pool[slot];
-    if (!r || r.id !== e.data.id) return;
-    finish(slot, e.data.ok ? e.data.blob : null);
+    if (!r || r.id !== data.id) return;
+    finish(slot, data.ok ? data.blob : null);
   };
   w.onerror = () => {
+    /* GPU 崩了：降级到 CPU，别让之后每一张都跟着失败 */
+    if (gpuMode === 'on') gpuMode = 'off';
     /* 只收这台自己的账：整池一起杀会把跟它无关的任务全判失败（上一版就是这么干的） */
     const r = pool[slot];
     if (r) finish(slot, null);
@@ -101,7 +166,7 @@ function finish(slot: number, blob: Blob | null) {
 function takeNext(): Job | undefined {
   if (!queue.length) return undefined;
   let best = 0;
-  for (let i = 1; i < queue.length; i++) if ((queue[i].prio ?? 0) < (queue[best].prio ?? 0)) best = i;
+  for (let i = 1; i < queue.length; i++) if (rankOf(queue[i]) < rankOf(queue[best])) best = i;
   const [job] = queue.splice(best, 1);
   return job;
 }
@@ -118,7 +183,7 @@ function dispatch(job: Job, slot: number) {
 }
 
 function freeSlot(): number {
-  for (let i = 0; i < POOL; i++) if (!pool[i]) return i;
+  for (let i = 0; i < slotCount(); i++) if (!pool[i]) return i;
   return -1;
 }
 
@@ -133,6 +198,53 @@ function pump() {
     byKey.set(job.key, job.id);
     dispatch(job, slot);
   }
+}
+
+/**
+ * 换章时把还占着 Worker 的上一章任务掐掉。
+ *
+ * 排队的那些靠 rankOf 降层就够了（用户退回上一章时它们还在），但**已经在算的**
+ * 没法中途改优先级：它们要占满一个计算周期才会腾槽，而新章的第一页正等着槽。
+ * 终止 Worker 丢掉的只是半张图的活，换回来的是换章时少等一整轮。
+ */
+function dropOtherChapterJobs() {
+  const keep = currentSrcs;
+  if (!keep) return;
+  /* 还没开始的、以及正在取字节的：直接放弃（取字节那趟收不回来，回来时会被下面的守卫丢掉） */
+  for (const job of [...waiting.values()]) if (!keep.has(job.src)) abandon(job);
+  for (let i = queue.length - 1; i >= 0; i--) if (!keep.has(queue[i].src)) queue.splice(i, 1);
+  for (let i = prep.length - 1; i >= 0; i--) if (!keep.has(prep[i].src)) prep.splice(i, 1);
+
+  /*
+   * 已经在算的没法改优先级，只能终止。放弃的键要从 seenKeys 里删掉 ——
+   * 用户退回上一章时 queueAhead 才会重新排它，否则会以为"已经交过活了"。
+   */
+  /*
+   * GPU 那一台别杀：它的任务只剩几毫秒到一次 PNG 编码，杀掉还得重建 WebGL 上下文。
+   * 让它把手头这张做完，pump 自然会接新章的活；旧章排队的那些上面已经清掉了。
+   */
+  if (gpuMode === 'on') return;
+  for (let i = 0; i < slotCount(); i++) {
+    const job = pool[i];
+    if (!job || keep.has(job.src)) continue;
+    seenKeys.delete(job.key);
+    try {
+      workers[i]?.terminate();
+    } catch {
+      /* 已经没了 */
+    }
+    workers[i] = undefined;
+    finish(i, null);
+  }
+}
+
+/** 放弃一张还没开算的活：回调收场、账本清掉、允许下一章再排 */
+function abandon(job: Job) {
+  waiting.delete(job.id);
+  if (byKey.get(job.key) === job.id) byKey.delete(job.key);
+  seenKeys.delete(job.key);
+  for (const cb of job.cbs) cb(null);
+  job.cbs.length = 0;
 }
 
 /**
@@ -157,6 +269,8 @@ async function prepare(job: Job) {
     /* 取字节走主线程的 fetch：离线缓存是 Service Worker 拦文档请求做的，Worker 自己发请求会绕过它 */
     const res = await fetch(job.src);
     const buf = res.ok ? await res.arrayBuffer() : null;
+    /* 取字节期间换章了：这张已经不算数，别再塞回队列 */
+    if (!waiting.has(job.id)) return;
     if (!buf) return settle(job, null);
     job.buf = buf;
     queue.push(job);
@@ -169,7 +283,7 @@ async function prepare(job: Job) {
 function pumpPrep() {
   while (fetching < FETCH_MAX && prep.length) {
     let best = 0;
-    for (let i = 1; i < prep.length; i++) if ((prep[i].prio ?? 0) < (prep[best].prio ?? 0)) best = i;
+    for (let i = 1; i < prep.length; i++) if (rankOf(prep[i]) < rankOf(prep[best])) best = i;
     const [job] = prep.splice(best, 1);
     fetching++;
     void prepare(job).finally(() => {

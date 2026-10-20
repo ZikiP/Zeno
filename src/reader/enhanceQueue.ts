@@ -11,7 +11,7 @@
  * 实测对照（40 页合成章、冷开 1 秒后一下跳到章末）：不预取时 20 秒后仍空着 36 张，
  * 预取到章尾时同一时刻 40 张全已就绪。
  */
-import { enhanceSource, raisePriority } from './enhance';
+import { enhanceSource, raisePriority, setChapterSources } from './enhance';
 import { bad, cache, keyOf, seenKeys } from './enhanceCache';
 
 /**
@@ -25,6 +25,8 @@ import { bad, cache, keyOf, seenKeys } from './enhanceCache';
  */
 export function queueAhead(srcs: readonly string[], targetW: number, fromIndex = 0): void {
   if (!srcs.length || targetW < 2) return;
+  /* 这一章才是"当前章"：排在它前面的旧章活会被降到下一层（见 enhance.ts 的 rankOf） */
+  setChapterSources(srcs);
   for (let i = 0; i < srcs.length; i++) {
     const src = srcs[(fromIndex + i) % srcs.length];
     const key = keyOf(src, targetW);

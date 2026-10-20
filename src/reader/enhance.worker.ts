@@ -29,7 +29,8 @@ export type EnhanceResponse =
   | { id: number; ok: true; blob: Blob; from: [number, number]; to: [number, number] }
   /** 源图本来就不比显示宽度小，重采样只会白丢信息 */
   | { id: number; ok: false; skip?: 'no-upscale' }
-  | { id: number; ok: false; error: string };
+  /** gpuBroken：这一档环境根本跑不了 GPU，后续任务该退回 CPU 池 */
+  | { id: number; ok: false; error: string; gpuBroken?: boolean };
 
 self.onmessage = async (e: MessageEvent<EnhanceRequest>) => {
   const { id, buf, targetW } = e.data;

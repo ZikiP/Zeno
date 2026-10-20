@@ -61,38 +61,77 @@ export function useEnhancedSource(src: string, enabled: boolean) {
 
     let cancelled = false;
     let started = false;
+    let io: IntersectionObserver | null = null;
+    let ro: ResizeObserver | null = null;
+
+    const stop = () => {
+      io?.disconnect();
+      ro?.disconnect();
+      io = null;
+      ro = null;
+    };
+
+    const start = (rect: DOMRect) => {
+      if (cancelled || started) return;
+      started = true;
+      stop();
+      /*
+       * 用 offsetWidth 而不是 getBoundingClientRect().width：
+       * 后者把翻页动画的 transform 也算进去，折页那一瞬间量到的宽度是错的。
+       */
+      const targetW = Math.round(el.offsetWidth * (window.devicePixelRatio || 1));
+      if (targetW < 2) {
+        setReveal(true);
+        return;
+      }
+      usedW.current = targetW;
+      /* 离视口越近越先算：一次进章有十几张在排队，先算脚下的那几张 */
+      const prio = Math.max(0, Math.round(rect.top - window.innerHeight / 2));
+      void enhanceSource(src, targetW, prio).then((u) => {
+        if (cancelled) return;
+        if (!u) return setReveal(true);
+        /* 先登记这个地址能直接画，换上去那一帧才不会是透明的（见 RetryableImage 的 readySrcs） */
+        markImageReady(u);
+        setUrl(u);
+        setReveal(true);
+      });
+    };
+
     /*
-     * 用 offsetWidth 而不是 getBoundingClientRect().width：
-     * 后者把翻页动画的 transform 也算进去，折页那一瞬间量到的宽度是错的。
+     * 还没排上版的页（lazy 图没有自然高度）**不能**在这里起活。
+     *
+     * 换章挂载那一帧整章都还没有高度，全部叠在 top:0 —— 每张图的观察器都会
+     * 判成"在屏幕上"，各自用 prio 0 去插队，章级预排（离章头多远）的顺序被
+     * 整章抹平。实测换下一章的第一页因此排到三十多页之后，黑 5 秒以上。
+     * 所以这里只给"已有尺寸且真在观察窗里"的页起活；其余交给 queueAhead，
+     * 等它滚到附近、图有了尺寸，观察器再按真实位置纠偏。
      */
-    const io = new IntersectionObserver(
+    const near = (rect: DOMRect) => {
+      const vh = window.innerHeight;
+      return rect.bottom > -2 * vh && rect.top < 3 * vh;
+    };
+    const check = () => {
+      if (cancelled || started) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width >= 2 && rect.height >= 2 && near(rect)) start(rect);
+    };
+
+    io = new IntersectionObserver(
       (entries) => {
-        if (!entries.some((e) => e.isIntersecting) || started) return;
-        started = true;
-        io.disconnect();
-        const targetW = Math.round(el.offsetWidth * (window.devicePixelRatio || 1));
-        if (targetW < 2) {
-          setReveal(true);
-          return;
-        }
-        usedW.current = targetW;
-        /* 离视口越近越先算：一次进章有十几张在排队，先算脚下的那几张 */
-        const prio = Math.max(0, Math.round(entries[0].boundingClientRect.top - window.innerHeight / 2));
-        void enhanceSource(src, targetW, prio).then((u) => {
-          if (cancelled) return;
-          if (!u) return setReveal(true);
-          /* 先登记这个地址能直接画，换上去那一帧才不会是透明的（见 RetryableImage 的 readySrcs） */
-          markImageReady(u);
-          setUrl(u);
-          setReveal(true);
-        });
+        if (entries.some((e) => e.isIntersecting)) check();
       },
       { rootMargin: OBSERVE_MARGIN },
     );
     io.observe(el);
+    /* IO 的 isIntersecting 在"零高度 → 有高度"时不一定再报一次，尺寸变化单独接一条 */
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(check);
+      ro.observe(el);
+    }
+
     return () => {
       cancelled = true;
-      io.disconnect();
+      stop();
     };
   }, [src, enabled]);
 
