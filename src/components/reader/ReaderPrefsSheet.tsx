@@ -237,7 +237,7 @@ export default function ReaderPrefsSheet({
         <Row
           icon={<IconZoom size={18} />}
           label="放大图片"
-          hint="鼠标双击或长按；触屏双指捏合。点击任意处关闭"
+          hint="鼠标双击；触屏双指捏合。点击任意处关闭"
         />
         <Row
           icon={<IconBack size={18} />}

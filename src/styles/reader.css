@@ -130,6 +130,8 @@
   width: 100%;
   height: auto;
   margin: 0 auto;
+  /* 长按一律不响应（放大走双指/双击）；iOS 的长按预览也一起关掉 */
+  -webkit-touch-callout: none;
 }
 
 /* 本章结束标记 */

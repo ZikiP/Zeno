@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageImage } from './PageImage';
+import PageStatus, { type PagePhase } from './PageStatus';
 import { IconBookmark } from '@/components/Icons';
 import ProgressRing from '@/components/ProgressRing';
 import { usePinchZoom, type PinchState } from './usePinchZoom';
@@ -119,6 +120,73 @@ export default function ScrollView({
   });
 
   /*
+   * 黑页提示。
+   *
+   * 只看**视口里**那几页：滚动模式整章都挂着，没进视野的页本来就还没开始拉，
+   * 拿它们的状态报「正在拉取」会一直挂在那儿。
+   * 提示挂在滚动容器这一层（fixed）而不是每一页里：图还没到时 <img> 高度是 0，
+   * 页内提示会跟着塌成 0 高、还被顶栏压住，正对着黑屏的人反而看不见。
+   */
+  const [phases, setPhases] = useState<PagePhase[]>([]);
+  const [inView, setInView] = useState<ReadonlySet<number>>(() => new Set());
+  /** src → 这张图自己的「重试」 */
+  const retries = useRef(new Map<string, () => void>());
+
+  const reportPhase = useCallback((i: number, p: PagePhase) => {
+    setPhases((prev) => {
+      if (prev[i] === p) return prev;
+      const next = prev.slice();
+      next[i] = p;
+      return next;
+    });
+  }, []);
+
+  const registerRetry = useCallback((src: string, retry: (() => void) | null) => {
+    if (retry) retries.current.set(src, retry);
+    else retries.current.delete(src);
+  }, []);
+
+  const retryVisible = useCallback(() => {
+    for (const i of inView) retries.current.get(images[i])?.();
+  }, [images, inView]);
+
+  useEffect(() => {
+    const root = box.current;
+    if (!root || typeof IntersectionObserver === 'undefined') return;
+    /* 换章后旧的可见集合不能沿用：先清空，等新条目回来 */
+    setInView(new Set());
+    const indexes = new Map<Element, number>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        setInView((prev) => {
+          const next = new Set(prev);
+          let changed = false;
+          for (const e of entries) {
+            const i = indexes.get(e.target);
+            if (i === undefined || e.isIntersecting === next.has(i)) continue;
+            if (e.isIntersecting) next.add(i);
+            else next.delete(i);
+            changed = true;
+          }
+          return changed ? next : prev;
+        });
+      },
+      { root },
+    );
+    root.querySelectorAll('.reader__item').forEach((el, i) => {
+      indexes.set(el, i);
+      io.observe(el);
+    });
+    return () => io.disconnect();
+  }, [box, images]);
+
+  const screenPhase: PagePhase = images.some((_, i) => inView.has(i) && phases[i] === 'enhance')
+    ? 'enhance'
+    : images.some((_, i) => inView.has(i) && phases[i] === 'load')
+      ? 'load'
+      : 'ok';
+
+  /*
    * 停在章末时的"还在拉"这件事，两种输入两种形状：
    *  - 手指：按下去算开始，抬起来算结束。中间就算一动不动也一直在拉
    *    （到底之后原地按着手指数得到秒，靠的是状态机那边按时间攒，不是 touchmove）。
@@ -166,6 +234,11 @@ export default function ScrollView({
       onPointerDownCapture={(e) => {
         lastPointer.current = e.pointerType || 'mouse';
       }}
+      /*
+       * 长按不再打开放大层（触屏有双指捏合）。但安卓长按图片会弹下载菜单、
+       * iOS 会弹预览，还是得在这里掐掉；事件从 <img> 冒泡上来，一处就够。
+       */
+      onContextMenu={(e) => e.preventDefault()}
       onScroll={(e) => onScroll(e.currentTarget)}
     >
       {images.map((src, i) => (
@@ -181,10 +254,8 @@ export default function ScrollView({
             onDoubleClick={() => {
               if (lastPointer.current === 'mouse') onZoom(src, i);
             }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              onZoom(src, i);
-            }}
+            onPhase={(p) => reportPhase(i, p)}
+            onRetryReady={registerRetry}
           />
           {markedPages.has(i) && (
             <span className="reader__bm-mark" title="已收藏">
@@ -193,6 +264,8 @@ export default function ScrollView({
           )}
         </div>
       ))}
+      {/* 视口里这一批页都还没画出来：说清楚在拉图还是在算增强，并给颗刷新 */}
+      <PageStatus phase={screenPhase} onRetry={retryVisible} />
       {/*
        * 章末那一行。平时是静态的「— 本章完 —」；停在章末且自动下一章开着时
        * 换成带环的一行 —— 环就是"还要拉多久"的那点余量，松手它会退回去。

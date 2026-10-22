@@ -26,6 +26,8 @@ const OBSERVE_MARGIN = '200% 0px';
 export function useEnhancedSource(src: string, enabled: boolean) {
   const ref = useRef<HTMLImageElement>(null);
   const usedW = useRef(0);
+  /** 用户手动点了刷新：这一张不再等增强，晚到的结果也不要再换上来 */
+  const abandoned = useRef(false);
   /** 这张已经可以画了：要么本来就不需要增强，要么增强版已就绪 */
   const [reveal, setReveal] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
@@ -36,6 +38,7 @@ export function useEnhancedSource(src: string, enabled: boolean) {
    * "空白一帧 → 增强版"，那是把闪换了个颜色，不是没闪。
    */
   useLayoutEffect(() => {
+    abandoned.current = false;
     const el = ref.current;
     if (!enabled || !el) {
       setReveal(true);
@@ -88,7 +91,7 @@ export function useEnhancedSource(src: string, enabled: boolean) {
       /* 离视口越近越先算：一次进章有十几张在排队，先算脚下的那几张 */
       const prio = Math.max(0, Math.round(rect.top - window.innerHeight / 2));
       void enhanceSource(src, targetW, prio).then((u) => {
-        if (cancelled) return;
+        if (cancelled || abandoned.current) return;
         if (!u) return setReveal(true);
         /* 先登记这个地址能直接画，换上去那一帧才不会是透明的（见 RetryableImage 的 readySrcs） */
         markImageReady(u);
@@ -152,5 +155,23 @@ export function useEnhancedSource(src: string, enabled: boolean) {
     setUrl(null);
   }, [url, src]);
 
-  return { ref, url, revert, reveal };
+  /**
+   * 用户等不下去了，点刷新：这一张不再等增强，直接画原图。
+   *
+   * 已经排上的活收不回来（取字节那趟也没有取消的口子），所以记一笔 abandoned，
+   * 结果晚到时不再换 src —— 否则点完刷新过一会儿又硬换一下，比黑着更难受。
+   * 同时 giveUp 这个键，免得观察器又触发、又排一张、又等一轮。
+   */
+  const forceOriginal = useCallback(() => {
+    if (!enabled) return;
+    abandoned.current = true;
+    const w =
+      usedW.current ||
+      Math.round((ref.current?.offsetWidth ?? 0) * (window.devicePixelRatio || 1));
+    if (w >= 2) giveUp(src, w);
+    setUrl(null);
+    setReveal(true);
+  }, [enabled, src]);
+
+  return { ref, url, revert, reveal, forceOriginal };
 }

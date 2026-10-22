@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PagedCells } from './PagedCells';
+import PageStatus, { type PagePhase } from './PageStatus';
 import { usePagedGesture } from './usePagedGesture';
 import { usePinchZoom } from './usePinchZoom';
 import { warmImages } from '@/reader/warmImages';
@@ -101,6 +102,13 @@ export default function PagedView({
   const [scrollHint, setScrollHint] = useState(false);
   /** 每章只提示一次；每翻一页都弹一次会变成噪音 */
   const hintedScrolling = useRef(false);
+  /** 台面上这一屏在等什么：黑页提示用 */
+  const [pagePhase, setPagePhase] = useState<PagePhase>('ok');
+  /** 台面上这一屏的「重试没画出来的页」，由提示条上的刷新调用 */
+  const activeRetry = useRef<(() => void) | null>(null);
+  const registerActiveRetry = useCallback((retry: (() => void) | null) => {
+    activeRetry.current = retry;
+  }, []);
   const stageRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
   const shown = useRef({ images, startIndex, turnKey });
@@ -142,7 +150,7 @@ export default function PagedView({
       : onTapZone,
   });
 
-  /* ── 双击 / 长按放大 ── */
+  /* ── 双击放大（鼠标）── */
 
   /*
    * 延迟执行的单击要拿「到点时最新」的那份手势。
@@ -308,12 +316,6 @@ export default function PagedView({
     lastTap.current = { x: e.clientX, y: e.clientY, at: now };
   };
 
-  /** 右击 / 安卓长按：和滚动模式一样直接开放大层，不走双击窗口 */
-  const handleZoneMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    zoomAtPoint(e.clientX, e.clientY);
-  };
-
   const notePointer = (e: React.PointerEvent) => {
     lastPointer.current = e.pointerType || 'mouse';
   };
@@ -470,6 +472,8 @@ export default function PagedView({
       style={{ filter, touchAction: zoomed ? 'none' : 'pan-y' }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
+      /* 长按不再开放大层（触屏有双指捏合）；浏览器自己的长按菜单照样掐掉 */
+      onContextMenu={(e) => e.preventDefault()}
       onScroll={() => scrollHint && setScrollHint(false)}
     >
       {/*
@@ -504,6 +508,8 @@ export default function PagedView({
                 markedPages={markedPages}
                 enhance={enhance}
                 onZoom={onZoom}
+                onScreenPhase={i === active ? setPagePhase : undefined}
+                onScreenRetry={i === active ? registerActiveRetry : undefined}
               />
               {/* 纸的暗面和投影只属于折页；平移是两张平面在走，套上去就成了脏影 */}
               {isOver && anim === 'flip' && <div className="reader__turn-shade" aria-hidden="true" />}
@@ -519,7 +525,7 @@ export default function PagedView({
         */}
         {/*
          * 单击统一走 handleZoneClick（鼠标压一个双击窗口，触摸立即执行）；
-         * 双击/右击/长按都在这里放开大层。role/aria 是给读屏用的：
+         * 鼠标双击在这里放开大层；长按不再触发（触屏有双指捏合）。role/aria 是给读屏用的：
          * 它们没有 tabIndex，键盘仍是既有的方向键，不会多出三个 Tab 停靠点。
          */}
         <div
@@ -529,7 +535,6 @@ export default function PagedView({
           aria-label={leftLabel}
           onPointerDown={notePointer}
           onClick={(e) => handleZoneClick('left', e)}
-          onContextMenu={handleZoneMenu}
         />
         <div
           className="paged-tap paged-tap--r"
@@ -538,7 +543,6 @@ export default function PagedView({
           aria-label={rightLabel}
           onPointerDown={notePointer}
           onClick={(e) => handleZoneClick('right', e)}
-          onContextMenu={handleZoneMenu}
         />
         <div
           className="paged-tap paged-tap--c"
@@ -547,9 +551,11 @@ export default function PagedView({
           aria-label="显示或隐藏工具栏"
           onPointerDown={notePointer}
           onClick={(e) => handleZoneClick('center', e)}
-          onContextMenu={handleZoneMenu}
         />
       </div>
+
+      {/* 台面上这一屏还没画出来：说清楚在拉图还是在算增强，并给颗刷新 */}
+      <PageStatus phase={pagePhase} onRetry={() => activeRetry.current?.()} />
 
       {scrollHint && (
         <div className="reader__scroll-hint" role="status">

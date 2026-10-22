@@ -40,6 +40,10 @@ export interface RetryableImageProps {
    * 看着和这一页还在加载一样），也不要先画原图再半秒后硬换成增强版。
    */
   hidden?: boolean;
+  /** 把当前状态报给调用方：阅读器要按「拉取 / 增强」分别提示 */
+  onStateChange?: (state: ImageState) => void;
+  /** 变一次从头再来一次（手动刷新用）。地址会带上绕缓存参数 */
+  reloadToken?: number;
 }
 
 const RETRY_DELAYS = [0, 600, 1800];
@@ -127,6 +131,8 @@ export function RetryableImage({
   onContextMenu,
   onSourceFailed,
   hidden,
+  onStateChange,
+  reloadToken = 0,
 }: RetryableImageProps) {
   const [state, setState] = useState<ImageState>(() =>
     readySrcs.has(src) ? 'ok' : 'loading',
@@ -135,6 +141,10 @@ export function RetryableImage({
   const [offline, setOffline] = useState(
     typeof navigator === 'undefined' ? false : !navigator.onLine,
   );
+
+  useEffect(() => {
+    onStateChange?.(state);
+  }, [state, onStateChange]);
 
   // 网络恢复时自动重试一次，用户不用手动点
   useEffect(() => {
@@ -180,14 +190,14 @@ export function RetryableImage({
           setState('error');
         }
       };
-      img.src = addCacheBuster(src, attempt);
+      img.src = addCacheBuster(src, attempt + reloadToken);
     }, delay);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [src, attempt]);
+  }, [src, attempt, reloadToken]);
 
   if (state === 'error') {
     return (
@@ -209,7 +219,7 @@ export function RetryableImage({
 
   return (
     <img
-      key={attempt}
+      key={`${attempt}:${reloadToken}`}
       ref={imgRef}
       className={className}
       src={src}

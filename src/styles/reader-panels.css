@@ -333,3 +333,59 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* ── 黑页上的状态提示 ───────────────────────────────
+   阅读器底色就是黑的。一页黑着的时候得让人看出是在拉图还是在算画面增强，
+   卡住了也得有颗手动刷新，而不是对着一块黑屏猜。
+   挂在整屏上（fixed）：分页有点击区盖着、滚动的页在这时候可能高度为 0，
+   塞在页里的按钮和字都会收不到/看不见。 */
+.page-status {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 9px 8px 13px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.62);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  animation: page-status-in 0.18s var(--e-out);
+}
+.page-status__spinner {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-width: 1.5px;
+  /* 通用 spinner 用的是浅底那两档颜色，黑底上换成半透明白 */
+  border-color: rgba(255, 255, 255, 0.24);
+  border-top-color: rgba(255, 255, 255, 0.86);
+}
+.page-status__retry {
+  pointer-events: auto;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.94);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.page-status__retry:active {
+  background: rgba(255, 255, 255, 0.26);
+}
+@keyframes page-status-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 6px));
+  }
+}
+
