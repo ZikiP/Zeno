@@ -6,6 +6,7 @@ import { usePlugin } from '@/store/PluginContext';
 import { BG_VALUES, buildFilter } from '@/reader/prefs';
 import { usePrefs } from './usePrefs';
 import { usePrefetchNextChapter } from './usePrefetch';
+import { useChapterPrefetch } from '@/hooks/useChapterPrefetch';
 import { prefetchChapterEnhancement } from '@/reader/enhanceQueue';
 import { onEnhanceActive, resetEnhanceActive } from '@/reader/enhanceCache';
 import { useChapterLoader } from './useChapterLoader';
@@ -104,6 +105,8 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
   );
 
   const bookmarks = useBookmarks(plugin, chapterId);
+  /* 目录里点名某一章时提前取地址表：冷章那 2~5 秒别全落在打开后的黑屏上 */
+  const chapterPrefetch = useChapterPrefetch(plugin, slug, chapterId);
 
   /* ── 提示条 ── */
   const flash = useCallback((text: string) => setToast(text), []);
@@ -428,6 +431,9 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
         positions={progress.positions}
         bookmarksByChapter={bookmarks.byChapter}
         onPickChapter={gotoChapter}
+        onPrefetchChapter={chapterPrefetch.prefetch}
+        onPrefetchHover={chapterPrefetch.prefetchHover}
+        onPrefetchNearest={chapterPrefetch.prefetchNearest}
         onJumpBookmark={(b) => {
           jumpToBookmark(b);
           panels.close();

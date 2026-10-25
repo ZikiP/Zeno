@@ -3,14 +3,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useBackToHome } from '@/hooks/useBackToHome';
 import { getComic, chapterUrl, coverUrl, type Chapter, type Comic } from '@/site/engine';
 import { displayComicTitle } from '@/site/title';
-import { loadChapterShared } from '@/site/chapterFetch';
-import { cacheChapterList, getCachedChapter, getChapterList, saveChapterTable } from '@/store/chapters';
+import { cacheChapterList, getChapterList } from '@/store/chapters';
+import { useChapterPrefetch } from '@/hooks/useChapterPrefetch';
 import { reportSeen } from '@/store/updates';
 import { addToShelf, bookProgress, getShelfEntry, markThrough, removeFromShelf } from '@/store/shelf';
 import type { ShelfEntry } from '@/store/types';
 import { formatBytes } from '@/store/utils';
 import { useOfflineCache } from '@/store/useOfflineCache';
-import { fetchWarmChapterImages, useWarmFollow } from '@/store/useWarmFollow';
+import { useWarmFollow } from '@/store/useWarmFollow';
 import { usePlugin } from '@/store/PluginContext';
 import { onDataChange } from '@/store/dataEvents';
 import ChapterList from '@/components/ChapterList';
@@ -61,45 +61,28 @@ export default function ComicPage() {
   const warmCached = Object.values(follow.marks).filter((m) => m.cached).length;
 
   /**
-   * 提前把「继续阅读」那一章的地址表拿回来。
+   * 提前把地址表拿回来。
    *
-   * 阅读器真正的大头等待不是图片，而是这一章的两三次上游请求（实测 2–3 秒）。
-   * 详情页本来就要停留一会儿；在 idle/悬停/按下时先解析，阅读器打开时
-   * useChapterLoader 直接命中 IndexedDB。阅读器那边用 loadChapterShared，
-   * 用户点得太快时也只会复用同一个 Promise，不会重复请求。
+   * 阅读器真正的大头等待不是图片，而是这一章的两三次上游请求（实测 2–5 秒）。
+   * 详情页本来就要停留一会儿：继续阅读按 idle/悬停/按下预热，目录里悬停或滚动
+   * 停稳时预热指针附近那一章，阅读器打开时 useChapterLoader 直接命中 IndexedDB。
+   * 共享的 prefetchChapterTable 会和阅读器的请求去重，点得太快也只会跑一趟。
    */
-  const prefetchedChapter = useRef(new Set<string>());
-  const prefetchLastChapter = useCallback(() => {
-    const id = entry?.lastChapterId;
-    if (!plugin || !id || document.visibilityState !== 'visible') return;
-    const key = `${plugin.meta.id}/${slug}/${id}`;
-    if (prefetchedChapter.current.has(key)) return;
-    prefetchedChapter.current.add(key);
-    void (async () => {
-      try {
-        const cached = await getCachedChapter(plugin.meta.id, slug, id);
-        if (cached?.images?.length) return;
-
-        const warm = await fetchWarmChapterImages(plugin.meta.id, slug, id);
-        if (warm?.length) {
-          await saveChapterTable(plugin.meta.id, slug, id, warm);
-          return;
-        }
-
-        const result = await loadChapterShared(plugin, slug, id);
-        if (result.truncated || !result.images.length) return;
-        await saveChapterTable(plugin.meta.id, slug, id, result.images);
-      } catch {
-        /* 预热失败不打扰详情页；阅读器打开时自己还会再试一次 */
-      }
-    })();
-  }, [plugin, slug, entry?.lastChapterId]);
+  const chapterPrefetch = useChapterPrefetch(plugin, slug, entry?.lastChapterId ?? null);
 
   useEffect(() => {
-    if (!entry?.lastChapterId) return;
-    const timer = window.setTimeout(prefetchLastChapter, 900);
+    const id = entry?.lastChapterId;
+    if (!id) return;
+    const timer = window.setTimeout(() => chapterPrefetch.prefetch(id), 900);
     return () => window.clearTimeout(timer);
-  }, [entry?.lastChapterId, prefetchLastChapter]);
+  }, [entry?.lastChapterId, chapterPrefetch.prefetch]);
+
+  /* 目录是整页滚动的：停稳后猜视口中央那一章，具体防抖在 hook 里 */
+  useEffect(() => {
+    const onScroll = () => chapterPrefetch.prefetchNearest(document);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [chapterPrefetch.prefetchNearest]);
 
   /*
    * 抓的是"哪个源的哪本书"，不是插件对象的那个身份。
@@ -319,8 +302,14 @@ export default function ComicPage() {
                 {entry?.lastChapterId && (
                   <button
                     className="btn"
-                    onPointerEnter={prefetchLastChapter}
-                    onPointerDown={prefetchLastChapter}
+                    onPointerEnter={() => {
+                      const id = entry?.lastChapterId;
+                      if (id) chapterPrefetch.prefetch(id);
+                    }}
+                    onPointerDown={() => {
+                      const id = entry?.lastChapterId;
+                      if (id) chapterPrefetch.prefetch(id);
+                    }}
                     onClick={() => nav(`/read/${plugin.meta.id}/${slug}/${entry.lastChapterId}`)}
                   >
                     <IconPlay size={16} />
@@ -383,6 +372,9 @@ export default function ComicPage() {
               cached={cached}
               warm={follow.marks}
               positions={entry?.positions}
+              /* 不悬停也不点的章节不动它；滚动停稳后的猜测由页面这层接 */
+              onPrefetchChapter={chapterPrefetch.prefetch}
+              onPrefetchHover={chapterPrefetch.prefetchHover}
               /* 不在书架上没有进度可记，那颗批量按钮也就没意义 */
               onMarkThrough={entry ? markThroughHere : undefined}
             />

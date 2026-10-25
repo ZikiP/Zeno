@@ -1,8 +1,6 @@
 import { useEffect } from 'react';
-import { loadChapterShared } from '@/site/chapterFetch';
 import type { Plugin } from '@/site/types';
-import { getCachedChapter, saveChapterTable } from '@/store/chapters';
-import { fetchWarmChapterImages } from '@/store/useWarmFollow';
+import { prefetchChapterTable } from '@/site/chapterPrefetch';
 import { isImageReady, markImageReady } from '@/components/RetryableImage';
 import { enhanceSource } from '@/reader/enhance';
 import { loadEnhanceScreen } from '@/reader/prefs';
@@ -81,23 +79,7 @@ export function usePrefetchNextChapter(args: {
      */
     let tablePromise: Promise<string[] | null> | null = null;
     const table = () => {
-      tablePromise ??= (async () => {
-        const pluginId = plugin.meta.id;
-        const cached = await getCachedChapter(pluginId, slug, nextId);
-        if (cached?.images?.length) return cached.images;
-
-        const warm = await fetchWarmChapterImages(pluginId, slug, nextId);
-        if (warm?.length) {
-          await saveChapterTable(pluginId, slug, nextId, warm);
-          return warm;
-        }
-
-        const result = await loadChapterShared(plugin, slug, nextId);
-        if (result.truncated || !result.images.length) return null;
-        // 只存地址表：把整章几十张图偷偷下完是「离线下载」的事，不是预热的
-        await saveChapterTable(pluginId, slug, nextId, result.images);
-        return result.images;
-      })();
+      tablePromise ??= prefetchChapterTable(plugin, slug, nextId);
       return tablePromise;
     };
 

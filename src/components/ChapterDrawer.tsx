@@ -30,6 +30,9 @@ export default function ChapterDrawer({
   bookmarks,
   onPick,
   onClose,
+  onPrefetchChapter,
+  onPrefetchHover,
+  onPrefetchNearest,
 }: {
   pluginId: string;
   slug: string;
@@ -40,6 +43,12 @@ export default function ChapterDrawer({
   bookmarks: Map<string, number[]>;
   onPick: (id: string) => void;
   onClose: () => void;
+  /** 指针按下某章：先把它的地址表取回来（阅读器打开时直接命中） */
+  onPrefetchChapter?: (id: string) => void;
+  /** 悬停：停稳 300ms 才算想看，防鼠标扫列表时一路解析 */
+  onPrefetchHover?: (id: string) => void;
+  /** 目录滚动停稳：猜视口中央那一章 */
+  onPrefetchNearest?: (list: HTMLElement | null) => void;
 }) {
   const [chapters, setChapters] = useState<ChapterRef[] | null>(null);
   const [comicTitle, setComicTitle] = useState('');
@@ -134,6 +143,18 @@ export default function ChapterDrawer({
     positionedFor.current = key;
   }, [loaded, chapters, currentPos, pluginId, slug, currentId, limit]);
 
+  /*
+   * 目录打开后先猜一次：定位到当前章以后，离它最近的那一行往往就是用户要去的
+   * 下一站。滚动停稳时再猜一次（onScroll），两次都走 450ms 防抖。
+   */
+  useEffect(() => {
+    if (!loaded) return;
+    onPrefetchNearest?.(listRef.current);
+  }, [loaded, onPrefetchNearest]);
+
+  /* 关目录时把还没到点的"猜下一章"取消掉，别在用户已经回到正文后再跑一趟 */
+  useEffect(() => () => onPrefetchNearest?.(null), [onPrefetchNearest]);
+
   return (
     <div className="drawer-mask" onClick={onClose}>
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
@@ -153,15 +174,23 @@ export default function ChapterDrawer({
             <div style={{ fontSize: 11.5 }}>从漫画详情页进入一次即可</div>
           </div>
         ) : (
-          <div className="drawer__list" ref={listRef}>
+          <div
+            className="drawer__list"
+            ref={listRef}
+            onScroll={() => onPrefetchNearest?.(listRef.current)}
+          >
             {visible.map((c, i) => {
               const marks = bookmarks.get(c.id);
               return (
                 <button
                   key={c.id}
+                  data-chapter-id={c.id}
                   className={`drawer__item${c.id === currentId ? ' on' : ''}${
                     isRead(positions[c.id]) ? ' drawer__item--read' : ''
                   }`}
+                  onPointerEnter={() => onPrefetchHover?.(c.id)}
+                  onPointerDown={() => onPrefetchChapter?.(c.id)}
+                  onFocus={() => onPrefetchChapter?.(c.id)}
                   onClick={() => {
                     onPick(c.id);
                     onClose();

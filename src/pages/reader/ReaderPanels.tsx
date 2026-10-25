@@ -38,6 +38,10 @@ export interface ReaderPanelProps {
   positions: Record<string, number>;
   bookmarksByChapter: Map<string, number[]>;
   onPickChapter: (id: string) => void;
+  /** 目录里提前取地址表：明确意图 / 悬停 / 滚动停稳后的猜测 */
+  onPrefetchChapter?: (id: string) => void;
+  onPrefetchHover?: (id: string) => void;
+  onPrefetchNearest?: (list: HTMLElement | null) => void;
   /** 仅书签面板需要 */
   onJumpBookmark: (b: Bookmark) => void;
 }
@@ -70,6 +74,9 @@ export default function ReaderPanel(p: ReaderPanelProps) {
           bookmarks={p.bookmarksByChapter}
           onPick={p.onPickChapter}
           onClose={panels.close}
+          onPrefetchChapter={p.onPrefetchChapter}
+          onPrefetchHover={p.onPrefetchHover}
+          onPrefetchNearest={p.onPrefetchNearest}
         />
       );
 

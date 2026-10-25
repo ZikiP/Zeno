@@ -26,6 +26,8 @@ export default function ChapterList({
   warm,
   positions,
   onMarkThrough,
+  onPrefetchChapter,
+  onPrefetchHover,
 }: {
   chapters: Chapter[];
   pluginId: string;
@@ -41,6 +43,10 @@ export default function ChapterList({
   positions?: Record<string, number>;
   /** 把某一章之前的章节整段标成已读 / 取消已读 */
   onMarkThrough?: (uptoId: string, read: boolean) => void;
+  /** 指针按下某章：提前取地址表（冷章那几秒别全落在打开后的黑屏上） */
+  onPrefetchChapter?: (id: string) => void;
+  /** 悬停：停稳 300ms 才算想看，防鼠标扫列表时一路解析 */
+  onPrefetchHover?: (id: string) => void;
 }) {
   /*
    * 顺序。默认倒序（最新在最前）—— 追更的人进来就是找最新那一章。
@@ -130,10 +136,17 @@ export default function ChapterList({
            * 整行是链接，那颗批量按钮必须放在链接外面 —— 塞在 <a> 里点它会先跳走。
            */
           return (
-            <div key={ch.id} className={`chapter-row${read ? ' chapter-row--read' : ''}`}>
+            <div
+              key={ch.id}
+              data-chapter-id={ch.id}
+              className={`chapter-row${read ? ' chapter-row--read' : ''}`}
+            >
               <Link
                 className="chapter-row__main"
                 to={`/read/${pluginId}/${slug}/${ch.id}${qs ? `?${qs}` : ''}`}
+                onPointerEnter={() => onPrefetchHover?.(ch.id)}
+                onPointerDown={() => onPrefetchChapter?.(ch.id)}
+                onFocus={() => onPrefetchChapter?.(ch.id)}
               >
                 <span className="chapter-row__name">{ch.title}</span>
                 {hit && (
