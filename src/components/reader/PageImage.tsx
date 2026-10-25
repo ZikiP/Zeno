@@ -38,12 +38,16 @@ export function PageImage({
   const [reloadToken, setReloadToken] = useState(0);
 
   /*
-   * 增强开着但这一页还没决定画什么，就是「画面增强中」——
-   * 包括正在取原图字节、在排队、在 Worker 里算这三段，用户没必要分那么细。
+   * 增强开着但这一页还没决定画什么。这里要再看一眼**原图到没到**：
+   *   - 原图还没到   → 真正等的是网络，报「正在拉取图片」；
+   *   - 原图已解码   → 才轮到增强排队/计算，报「画面增强中」。
+   * 以前一律报增强，结果网络慢的时候用户以为卡在增强这里，诊断方向全错了。
    */
   const phase: PagePhase =
     enhance && !reveal
-      ? 'enhance'
+      ? state === 'ok'
+        ? 'enhance'
+        : 'load'
       : state === 'error'
         ? 'error'
         : state === 'loading'

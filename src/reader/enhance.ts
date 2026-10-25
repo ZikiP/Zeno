@@ -171,12 +171,42 @@ function takeNext(): Job | undefined {
   return job;
 }
 
+/**
+ * 一页的字节最多等这么久。
+ *
+ * 没有超时的话，一趟挂住的请求（Service Worker 卡住、Wi-Fi 换网、上游连接
+ * 黑掉）会让这张的活永远不结算：门控一直不 reveal，页面就是一块黑，
+ * 而且它一直占着取字节的窗口。到点当这张没有增强版，退回原图。
+ */
+const FETCH_TIMEOUT_MS = 12_000;
+
 /** 把队首派给某个空闲槽位 */
 function dispatch(job: Job, slot: number) {
   const buf = job.buf;
   if (!buf) return;
   const w = workers[slot] ?? newWorker(slot);
-  pool[slot] = { ...job, buf, timer: window.setTimeout(() => finish(slot, null), TASK_TIMEOUT_MS) };
+  pool[slot] = {
+    ...job,
+    buf,
+    timer: window.setTimeout(() => {
+      /*
+       * 到点没回话 = 这台 Worker 已经不可信：不杀掉它的话，它还在那趟挂住的
+       * 计算里，下一张派过去照样不回，整个池子会一张接一张地黑。
+       * GPU 档只有一台，挂过一次就直接降到 CPU。
+       */
+      const stuck = workers[slot];
+      if (stuck) {
+        try {
+          stuck.terminate();
+        } catch {
+          /* 已经没了 */
+        }
+        workers[slot] = undefined;
+      }
+      if (gpuMode === 'on') gpuMode = 'off';
+      finish(slot, null);
+    }, TASK_TIMEOUT_MS),
+  };
   const req: EnhanceRequest = { id: job.id, buf, targetW: job.targetW };
   /* buf 是转移过去的，发出去就没了，所以失败也不能重发这一份 */
   w.postMessage(req, [buf]);
@@ -267,7 +297,7 @@ async function prepare(job: Job) {
   if (fromDisk) return settle(job, fromDisk, true);
   try {
     /* 取字节走主线程的 fetch：离线缓存是 Service Worker 拦文档请求做的，Worker 自己发请求会绕过它 */
-    const res = await fetch(job.src);
+    const res = await fetch(job.src, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     const buf = res.ok ? await res.arrayBuffer() : null;
     /* 取字节期间换章了：这张已经不算数，别再塞回队列 */
     if (!waiting.has(job.id)) return;
