@@ -19,16 +19,33 @@ export default function ReaderProgress({
   percent,
   markedPositions,
   hudVisible,
+  pullArmed,
   onSeek,
   onSeekEnd,
   onRequestOpen,
+  onPullStart,
+  onPullHold,
 }: {
   /** 0-100 */
   percent: number;
   /** 已收藏页在整章里的百分比位置 */
   markedPositions: number[];
-  /** 顶部菜单展开了：两个悬浮件不叠着摆 */
+  /**
+   * 顶部菜单展开了。
+   *
+   * 两个作用：一是把已经展开的条收回去（两个悬浮件不叠着摆）；二是这条热区此时
+   * 整个让位 —— 菜单一起来，「上一章 / 下一章」那颗胶囊就落在同一个位置，
+   * 再让底部按下冒出进度条，两个就叠在一起了。只有正常阅读（菜单收起）才唤起。
+   */
   hudVisible?: boolean;
+  /**
+   * 停在章末、正等着「上拉接下一章」。
+   *
+   * 那行提示就在离底 40px 的地方，而底部这条热区高 44px —— 手指按住提示行时
+   * 有一半概率先落在这条上。以前这里只认"开进度条"，蓄力一次都收不到，
+   * 表现就是「上拉满几秒没反应」。所以章末时按下去先算在拉，横向拖起来才切成调进度。
+   */
+  pullArmed?: boolean;
   /**
    * 跳到这一章的哪个位置，0-1。拖动过程中会连续调用。
    * 分页模式是"第几屏"，滚动模式是滚动比例（和存下来的进度同一个口径）。
@@ -44,10 +61,16 @@ export default function ReaderProgress({
    * 反过来顶部菜单被呼出时，下面那个 effect 会把这条收回去。
    */
   onRequestOpen?: () => void;
+  /** 章末蓄力的"开始 / 手还在不在"，接到 useAutoNextChapter */
+  onPullStart?: () => void;
+  onPullHold?: (on: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  /** 这一下按在底部时是不是先按「章末蓄力」算（章末且菜单收着） */
+  const pulling = useRef(false);
+  const startY = useRef(0);
   /**
    * 这一下是不是真的按着。
    * 少了它，鼠标只是**划过**热区就会走进 onPointerMove —— 而 startX 还没被
@@ -95,12 +118,31 @@ export default function ReaderProgress({
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!onSeek) return;
+    /*
+     * 菜单展开时这条热区什么都不做。
+     * 底下浮着「上一章 / 下一章」那颗胶囊，位置正好和大条重合 —— 这时候再冒出
+     * 一条进度来只会两个悬浮件叠在一起。正常阅读（菜单收起）才允许唤起。
+     */
+    if (hudVisible) return;
     /* 捕获住：手指拖出这条 44px 热区还得继续跟着走 */
     e.currentTarget.setPointerCapture?.(e.pointerId);
     pressed.current = true;
     startX.current = e.clientX;
+    startY.current = e.clientY;
     dragging.current = false;
     pressedWhileOpen.current = open;
+    /*
+     * 章末：按下去先报"在拉"，不开条。蓄力本来就是 hold 出来的，而这一条又压在
+     * 提示行上；等横向真拖起来再切成调进度（见 onPointerMove）。
+     * 条已经开着时例外 —— 用户已经在调进度，按住就是跳，不抢。
+     */
+    pulling.current = !!pullArmed && !open;
+    if (pulling.current) {
+      onPullStart?.();
+      onPullHold?.(true);
+      arm();
+      return;
+    }
     if (open) {
       /* 条已经开着，点它就是"跳到那儿"，要当下响应 */
       const r = ratioAt(e.clientX);
@@ -119,8 +161,22 @@ export default function ReaderProgress({
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!pressed.current || !onSeek) return;
-    if (!dragging.current) {
-      if (Math.abs(e.clientX - startX.current) <= DRAG_PX) return;
+    const dx = e.clientX - startX.current;
+    if (pulling.current) {
+      /*
+       * 竖着动、原地按住都继续蓄力；只有明确的横向位移才说明其实想调进度。
+       * 切过去时先把拉力放掉 —— 否则蓄力环还在后面涨，看着像两个手势打架。
+       */
+      if (Math.abs(dx) <= DRAG_PX || Math.abs(dx) <= Math.abs(e.clientY - startY.current)) {
+        arm();
+        return;
+      }
+      pulling.current = false;
+      onPullHold?.(false);
+      setOpen(true);
+      dragging.current = true;
+    } else if (!dragging.current) {
+      if (Math.abs(dx) <= DRAG_PX) return;
       /* 横着真拖起来了。从这一刻开始才动画面 */
       dragging.current = true;
     }
@@ -132,10 +188,25 @@ export default function ReaderProgress({
 
   const stop = (e: ReactPointerEvent<HTMLDivElement>, settled: boolean) => {
     if (!pressed.current) return;
+    const wasPulling = pulling.current;
     const wasDragging = dragging.current;
     const wasOpenPress = pressedWhileOpen.current;
+    pulling.current = false;
     pressed.current = false;
     dragging.current = false;
+    if (wasPulling) {
+      onPullHold?.(false);
+      /*
+       * 没横拖、也没有蓄满（蓄满已经换章，pullArmed 会变 false）：
+       * 这一下按在底部，本意还是「把进度条唤出来」。
+       */
+      if (settled && pullArmed) {
+        setOpen(true);
+        onRequestOpen?.();
+      }
+      arm();
+      return;
+    }
     if (settled && (wasDragging || wasOpenPress)) {
       const r = ratioAt(e.clientX);
       if (r !== null) onSeekEnd?.(r);
@@ -148,6 +219,13 @@ export default function ReaderProgress({
       className={`reader__progress${open ? ' is-open' : ''}`}
       aria-label="阅读进度"
       title="按住拖动跳进度"
+      /*
+       * 章末蓄力时这一条要独占竖向手势：默认的 pan-y 会让浏览器把"按住往上拉"
+       * 认成滚动（这层没有可滚的祖先，结果就是手势被吃掉）。横向拖动不受影响。
+       */
+      style={{
+        touchAction: pullArmed && !hudVisible && !open ? 'none' : 'pan-y',
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={(e) => stop(e, true)}

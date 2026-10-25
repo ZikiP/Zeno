@@ -393,6 +393,10 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           percent={paging.progressPercent}
           markedPositions={[...bookmarks.markedPages].map((p) => (p / images.length) * 100)}
           hudVisible={bar.visible}
+          /* 章末时底部那条热区也压在上拉提示行上：按下去要能算蓄力，不能只开进度条 */
+          pullArmed={autoNext.armed}
+          onPullStart={() => autoRef.current.pullStart()}
+          onPullHold={(on) => autoRef.current.pullHold(on)}
           /* 大条浮起来的位置就是章末胶囊那儿，展开时先把菜单收掉，同屏只留一个悬浮件 */
           onRequestOpen={() => bar.setVisible(false)}
           onSeek={mode === 'paged' ? paging.seek : seekScroll}
