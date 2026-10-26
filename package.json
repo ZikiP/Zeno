@@ -3,13 +3,27 @@
   "private": false,
   "version": "0.6.0",
   "type": "module",
-  "description": "干净的网页阅读器 — 跨端 PWA，内容源由用户自行配置",
+  "description": "A clean, self-hosted comic reader — cross-platform PWA with pluggable sources",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZikiP/Zeno.git"
+  },
+  "homepage": "https://github.com/ZikiP/Zeno#readme",
+  "bugs": {
+    "url": "https://github.com/ZikiP/Zeno/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "keywords": [
     "pwa",
     "reader",
     "comic",
-    "offline"
+    "comic-reader",
+    "self-hosted",
+    "offline",
+    "typescript"
   ],
   "scripts": {
     "start": "node server/index.mjs",
