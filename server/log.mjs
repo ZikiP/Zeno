@@ -25,6 +25,13 @@ import { format } from 'node:util';
 const FILE = process.env.ZENO_LOG_FILE ? resolve(process.env.ZENO_LOG_FILE) : '';
 const MAX_BYTES = Math.max(1024, Number(process.env.ZENO_LOG_MAX_BYTES) || 5 * 1024 * 1024);
 const KEEP = Math.max(1, Math.floor(Number(process.env.ZENO_LOG_KEEP) || 5));
+/**
+ * 默认不再回显 stdout：部署包装把 stdout 落到 zeno.boot.log，
+ * 回显的话等于同一个日志写两份，还让 boot 文件重新变成无限长。
+ * 启动早期（logger 装上之前）的错误仍会走 stdout 进 boot log。
+ * 测试/前台想看输出时设 ZENO_LOG_ECHO=1。
+ */
+const ECHO = process.env.ZENO_LOG_ECHO === '1';
 
 let bytes = 0;
 let installed = false;
@@ -94,7 +101,7 @@ export function installRotatingLog() {
   for (const level of ['log', 'info', 'warn', 'error']) {
     const original = console[level].bind(console);
     console[level] = (...args) => {
-      original(...args);
+      if (ECHO) original(...args);
       try {
         const line = `${new Date().toISOString()} ${level.toUpperCase()} ${format(...args)}\n`;
         const n = Buffer.byteLength(line);
@@ -102,7 +109,8 @@ export function installRotatingLog() {
         appendFileSync(FILE, line, 'utf8');
         bytes += n;
       } catch {
-        /* 日志写不进去也不能把请求带崩 */
+        /* 写不进去时退回 stdout，至少别把这条日志彻底吞掉 */
+        original(...args);
       }
     };
   }

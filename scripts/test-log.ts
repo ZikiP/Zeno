@@ -13,6 +13,7 @@ const file = join(dir, 'zeno.log');
 process.env.ZENO_LOG_FILE = file;
 process.env.ZENO_LOG_MAX_BYTES = '1024';
 process.env.ZENO_LOG_KEEP = '2';
+process.env.ZENO_LOG_ECHO = '1';
 
 const { installRotatingLog, logConfig } = await import('../server/log.mjs');
 
