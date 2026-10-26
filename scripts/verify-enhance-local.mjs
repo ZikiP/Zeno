@@ -388,7 +388,9 @@ await page.evaluate(() => document.querySelector('a[href^="/read/"]')?.click());
 await page.waitForSelector('.reader__cell img', { timeout: 60_000, state: 'attached' }).catch(() => dump('enter'));
 await page.evaluate(() => document.querySelector('button[aria-label="切换模式"]')?.click());
 await page.waitForTimeout(1500);
-const modeNow = await page.evaluate(() => localStorage.getItem('readerMode'));
+const modeNow = await page.evaluate(() =>
+  document.querySelector('.reader__paged') ? 'paged' : 'scroll',
+);
 console.log(`\n  当前档位：${JSON.stringify(modeNow)}`);
 
 await page.evaluate(() => {
@@ -475,7 +477,7 @@ await report('⑥ 滚动模式逐段下滑', 1, 20_000);
 
 if (PAGES > 12) {
   await page.evaluate(() => {
-    if (localStorage.getItem('readerMode') !== 'scroll') {
+    if (!document.querySelector('.reader__page')) {
       document.querySelector('button[aria-label="切换模式"]')?.click();
     }
   });

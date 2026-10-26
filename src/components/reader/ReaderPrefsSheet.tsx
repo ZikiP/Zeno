@@ -7,6 +7,7 @@ import {
   TURN_LABELS,
   type BgColor,
   type FitMode,
+  type ReaderMode,
   type ReaderPrefs,
   type TurnAnim,
 } from '@/reader/prefs';
@@ -24,8 +25,6 @@ import {
 import { Sheet } from '@/components/UI';
 import { requestPersist } from '@/reader/enhanceDisk';
 import { Row, Section } from './PrefRows';
-
-export type ReaderMode = 'scroll' | 'paged';
 
 /**
  * 阅读设置面板

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import type { Bookmark } from '@/store/db';
 import type { Plugin } from '@/site/types';
-import { setLocalPref } from '@/sync/localPrefs';
+import type { ReaderPrefs } from '@/reader/prefs';
 import type { Bookmarks } from './useBookmarks';
 import type { Paging, ReaderMode } from './usePaging';
 
@@ -24,7 +24,7 @@ interface Args {
   scrollRef: React.RefObject<HTMLDivElement>;
   nav: NavigateFunction;
   flash: (text: string) => void;
-  setMode: (m: ReaderMode) => void;
+  patchPrefs: (patch: Partial<ReaderPrefs>) => void | Promise<void>;
 }
 
 export function useReaderActions(a: Args) {
@@ -148,17 +148,16 @@ export function useReaderActions(a: Args) {
   /**
    * 切滚动 / 分页。
    *
-   * readerMode 是同步键（手机上切成分页，平板也跟着变），所以走 setLocalPref
-   * 把 `__at` 一起写上 —— 少了那个时间戳，本地这次切换在下次拉取时必输。
-   * 同时把页码归零，否则分页模式下会带着滚动模式的偏移插进一个不存在的屏。
+   * 写进这本书的偏好（bookPrefs 本来就是一本书一行、参与同步），
+   * 顺带更新全局默认值 —— 和图片适配、方向那些显示项走同一条路。
+   * 同时把页码归零，否则会带着另一套模式的偏移插进一个不存在的屏。
    */
   const switchMode = useCallback(
     (m: ReaderMode) => {
-      a.setMode(m);
-      setLocalPref('readerMode', m);
+      void a.patchPrefs({ mode: m });
       a.paging.setPage(0);
     },
-    [a.setMode, a.paging],
+    [a.patchPrefs, a.paging],
   );
 
   return { gotoChapter, scrollToPage, seekScroll, toggleMark, jumpToBookmark, switchMode };

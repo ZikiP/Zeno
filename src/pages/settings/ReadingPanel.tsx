@@ -7,6 +7,7 @@ import {
   TURN_LABELS,
   type BgColor,
   type FitMode,
+  type ReaderMode,
   type TurnAnim,
 } from '@/reader/prefs';
 import { usePrefs } from '@/pages/reader/usePrefs';
@@ -18,8 +19,6 @@ import {
 } from '@/pages/reader/pullCharge';
 import { Row, Section, Seg } from '@/components/reader/PrefRows';
 import { IconChevronLeft, IconDirection, IconDouble, IconExpand, IconMoon, IconSun, IconZoom } from '@/components/Icons';
-import { setLocalPref } from '@/sync/localPrefs';
-import { useEffect, useState } from 'react';
 
 /**
  * 设置 → 阅读：全局那一份阅读偏好
@@ -33,38 +32,11 @@ import { useEffect, useState } from 'react';
  * 亮度、常亮、自动下一章跟着 readerPrefs 同步。
  */
 
-/** 阅读方式的全局默认。和阅读器里同一把键，改这儿就等于改"新书怎么开" */
-const MODE_KEY = 'readerMode';
-type ReaderMode = 'scroll' | 'paged';
-
 export default function ReadingPanel() {
   const prefs = usePrefs(null);
-  const [mode, setMode] = useState<ReaderMode>(() =>
-    localStorage.getItem(MODE_KEY) === 'paged' ? 'paged' : 'scroll',
-  );
-
-  const pickMode = (m: ReaderMode) => {
-    setMode(m);
-    // 走 setLocalPref 而不是裸 localStorage：那是同步键，少了 __at 时间戳
-    // 下一次拉取就会被别处的旧值盖回来
-    setLocalPref(MODE_KEY, m);
-  };
-
-  /*
-   * 这栏是设置页的一个 tab，切走再切回来组件会重挂，重挂时从键里读一次；
-   * 但用户也可能在阅读器面板里改这一档，那不会让这栏重挂 ——
-   * 所以回到前台时再读一次。监听器必须是同一个引用，否则移除不掉，
-   * 每次进这栏都会多挂一个。
-   */
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        setMode(localStorage.getItem(MODE_KEY) === 'paged' ? 'paged' : 'scroll');
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, []);
+  /* 设置页只改全局默认；阅读器里改的是那一本书，同时也会更新这里 */
+  const mode = prefs.value.mode;
+  const pickMode = (m: ReaderMode) => void prefs.patch({ mode: m });
 
   const brightness = Math.round((prefs.value.brightness ?? 1) * 100);
   const fitLabels = Object.fromEntries(
@@ -75,7 +47,8 @@ export default function ReadingPanel() {
     <>
       <p className="settings-note">
         这一栏是<em>全局默认</em>：以后新打开的书按这儿走。
-        已经在阅读器的「阅读设置」里单独调过的书<em>各自记一份</em>，不会被这儿盖掉。
+        已经在阅读器的「阅读设置」里单独调过的书<em>各自记一份</em>，不会被这儿盖掉；
+        每本书的阅读方式也跟着多端同步。
         <br />
         亮度、常亮、自动下一章跟着多端同步；翻页动画、沉浸式和画面增强是这台设备自己的事，
         把手机上选的那档搬到显示器上多半没法看。

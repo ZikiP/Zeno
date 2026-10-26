@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ReaderPrefs } from '@/reader/prefs';
+import type { ReaderPrefs, ReaderMode } from '@/reader/prefs';
 
-export type ReaderMode = 'scroll' | 'paged';
+export type { ReaderMode } from '@/reader/prefs';
 
 /**
  * 一屏几张。

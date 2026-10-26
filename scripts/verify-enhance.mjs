@@ -163,9 +163,9 @@ function startOpacityWatch(page, sel) {
 /**
  * 把阅读器开在指定那一档（滚动 / 分页）。
  *
- * readerMode 是跟着同步走的键，不是本机键 —— 上一档选了分页，下一档全新 profile
- * 也会被服务端那份拉回去。所以别去裸写 localStorage（会被启动时的 pull 盖掉，
- * 踩过两回：一次污染成分页，一次钉了分页却被拉回滚动），
+ * 阅读方式按书记（bookPrefs）而且跟着同步 —— 上一档选了分页，下一档全新 profile
+ * 也可能从服务端拉回同一本书的选择。所以别去裸写 localStorage（会被启动时的 pull
+ * 盖掉，踩过两回：一次污染成分页，一次钉了分页却被拉回滚动），
  * 用应用自己的那颗切换按钮，走到目标档为止。
  */
 async function openInMode(page, want, label) {
@@ -182,7 +182,7 @@ async function openInMode(page, want, label) {
       .evaluate(() => ({
         page: document.querySelectorAll('.reader__page').length,
         cellImg: document.querySelectorAll('.reader__cell img').length,
-        mode: localStorage.getItem('readerMode'),
+        mode: document.querySelector('.reader__paged') ? 'paged' : 'scroll',
       }))
       .catch(() => null);
     throw new Error(`${label}：开不到要的那一档。页面上写着「${text}」 DOM 统计 ${JSON.stringify(counts)}`);
@@ -231,9 +231,9 @@ async function run(label, viewport, opts) {
   watch(page);
   await installPlugin(page);
   /*
-   * readerMode 是跟着同步走的键，不是本机键 —— 上一档选了分页，下一档全新 profile
-   * 也会被服务端那份拉回去。所以别去裸写 localStorage（会被启动时的 pull 盖掉，
-   * 踩过两回：一次污染成分页，一次钉了分页却被拉回滚动），
+   * 阅读方式按书记（bookPrefs）而且跟着同步 —— 上一档选了分页，下一档全新 profile
+   * 也可能从服务端拉回同一本书的选择。所以别去裸写 localStorage（会被启动时的 pull
+   * 盖掉，踩过两回：一次污染成分页，一次钉了分页却被拉回滚动），
    * 用应用自己的那颗切换按钮，走到目标档为止。
    */
   const want = paged ? '.reader__cell img' : '.reader__page';

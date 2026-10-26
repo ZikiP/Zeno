@@ -24,7 +24,7 @@ import { useReaderActions } from './useReaderActions';
 import { useAutoNextChapter } from './useAutoNextChapter';
 import { useImageHealthFlash } from './useImageHealth';
 import { useReaderHotkeys, nextBrightness } from './useReaderHotkeys';
-import { usePaging, useToolbarVisibility, type ReaderMode } from './usePaging';
+import { usePaging, useToolbarVisibility } from './usePaging';
 import ReaderPanel, { useReaderPanels } from './ReaderPanels';
 import ReaderBar from '@/components/reader/ReaderBar';
 import ScrollView from '@/components/reader/ScrollView';
@@ -61,9 +61,8 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
    * 插件还没同步到（plugin 为 null）时先只吃全局那份，别乱写记录。
    */
   const prefs = usePrefs(plugin ? `${plugin.meta.id}/${slug}` : null);
-  const [mode, setMode] = useState<ReaderMode>(
-    () => localStorage.getItem('readerMode') === 'paged' ? 'paged' : 'scroll',
-  );
+  /* 阅读方式按书记：全局那份只是还没单独记过的书的默认值 */
+  const mode = prefs.value.mode;
 
   const bar = useToolbarVisibility();
   const panels = useReaderPanels();
@@ -102,6 +101,18 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
     autoRef.current.atEnd(),
   );
 
+  /*
+   * 书自己的阅读方式是从 IndexedDB 异步读回来的，也可能由别的设备同步过来，
+   * 所以会晚于首帧。模式一变必须把页码归零，否则会带着另一套模式的偏移进去；
+   * 放在进度恢复之前，恢复仍然按当前进度落到该去的位置。
+   */
+  const shownMode = useRef(mode);
+  useEffect(() => {
+    if (shownMode.current === mode) return;
+    shownMode.current = mode;
+    paging.setPage(0);
+  }, [mode, paging.setPage]);
+
   const bookmarks = useBookmarks(plugin, chapterId);
   /* 目录里点名某一章时提前取地址表：冷章那 2~5 秒别全落在打开后的黑屏上 */
   const chapterPrefetch = useChapterPrefetch(plugin, slug, chapterId);
@@ -133,7 +144,7 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
 
     nav,
     flash,
-    setMode,
+    patchPrefs: prefs.patch,
   });
 
   /* ── 进度：读出来、恢复回去 ── */

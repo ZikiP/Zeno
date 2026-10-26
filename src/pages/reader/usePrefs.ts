@@ -16,7 +16,7 @@ import {
  * 三层合成，就近优先：
  *   DEFAULT_PREFS  ←  readerPrefs（全局默认 + 设备级）  ←  这本书的记录
  *
- * 改**显示类**（图片适配、方向、单双页、底色、灰度）时写两处：这本书的记录，
+ * 改**显示类**（阅读方式、图片适配、方向、单双页、底色、灰度）时写两处：这本书的记录，
  * 以及全局那份默认值 —— 于是"我刚把这本调成右起双页"以后新开的书会跟着，
  * 而已经单独调过的书不受牵连。改**设备级**（亮度、常亮）只写全局那份，
  * 它不该跟着书走：手机的亮度偏好被搬到 27 寸显示器上是灾难。
@@ -50,10 +50,12 @@ export function usePrefs(bookKey: string | null) {
       // 设备级按 DEVICE_KEYS 挑，不在这儿手写清单 —— 见 reader/prefs.ts 那段
       const devPart = pickDevice(delta);
 
-      if (bookKey && Object.keys(bookPart).length) {
-        await saveBookPrefs(bookKey, bookPart);
-        setBook((prev) => ({ ...prev, ...bookPart }));
-      }
+      /*
+       * 先更新内存里的值再落库。切阅读方式时视图会跟着 mode 一起换，
+       * 等 IndexedDB 写完再更新的话，会先在旧视图上闪一下归零。
+       */
+      const hasBookPart = !!bookKey && Object.keys(bookPart).length > 0;
+      if (hasBookPart) setBook((prev) => ({ ...prev, ...bookPart }));
       /*
        * 设备级只有在这本书没记过该项时才起作用 —— 但全局那份仍要写，
        * 它同时是"新书的默认值"。所以这里不判断"是否被覆盖"，一律更新。
@@ -63,6 +65,7 @@ export function usePrefs(bookKey: string | null) {
         savePrefs(next);
         return next;
       });
+      if (hasBookPart) await saveBookPrefs(bookKey, bookPart);
     },
     [bookKey],
   );

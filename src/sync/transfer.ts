@@ -36,7 +36,6 @@ export interface RemoteSnapshot {
 const SYNCED_KEYS = [
   'themeMode',
   'readerPrefs',
-  'readerMode',
   'enabledPluginIds',
   // 书架排法与格子数：换设备打开应该看到同一个架子（格子数按各设备自己的视口取用）
   'shelfSort',
