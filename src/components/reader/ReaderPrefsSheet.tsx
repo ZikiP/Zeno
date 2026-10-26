@@ -66,8 +66,8 @@ export default function ReaderPrefsSheet({
         </div>
         <div className="prefs-hint">
           {mode === 'scroll'
-            ? '像刷网页一样连续下滑。适合手机、长章节。'
-            : '一屏一页，点击左右区域翻页。适合平板、显示器。'}
+            ? '像刷网页一样连续下滑。适合手机、长章节。只改这本书。'
+            : '一屏一页，点击左右区域翻页。适合平板、显示器。只改这本书。'}
         </div>
 
         <Row

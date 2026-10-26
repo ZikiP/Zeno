@@ -3,9 +3,11 @@
  *
  * 分两层，因为这两类东西的"归属"不一样：
  *
- *   - **单书级（BookPrefs）**：阅读方式、图片适配、翻页方向、单/双页、背景色、灰度。
+ *   - **单书级（BookPrefs）**：图片适配、翻页方向、单/双页、背景色、灰度。
  *     日漫要右起、条漫要竖向、有的书横条图就是要压扁看 —— 这些是**这本书**的性质，
  *     不该被另一本书的选择覆盖。每本书一条记录，跟着同步走（见 store/bookPrefs.ts）。
+ *   - **阅读方式**也在单书这一层，但单独存一个同步键（见 sync/bookModes.ts）：
+ *     bookPrefs 是一行一本、整行 LWW，把它混在里面会和适配/方向互相覆盖。
  *   - **设备级（DevicePrefs）**：亮度、屏幕常亮、翻页动画、读到底自动接下一章、画面增强。
  *     这是"我现在这台机器、这个环境"的事，
  *     跟着同步走会把手机的亮度设置搬到显示器上。翻页动画顺不顺滑取决于这台机器的屏幕和性能，
@@ -16,8 +18,11 @@
  * 默认值也更新，于是以后新开的书继承你最新的习惯，而已经单独调过的书不受影响。
  * 翻页动画单独放在 `readerTurnAnim` 一个键里，正因为它是设备级的，而这份是要同步的。
  *
- * 阅读方式以前是一个全局同步键 `readerMode`，所有书共用一份；现在并进了
- * BookPrefs —— 同一本条漫和单行本混着看时，不该开一本就把另一本的翻法改掉。
+ * 阅读方式以前是一个全局同步键 `readerMode`，所有书共用一份；现在每本书一个键。
+ * `readerPrefs.mode` 只剩下"还没单独记过的书"的默认值。
+ *
+ * 旧的全局键 `readerMode` 在过渡期仍然写一份：只认它的旧客户端至少还能收到
+ * 全局默认的变更。新客户端优先用 `readerPrefs.mode`，只有那份没有时才回退。
  */
 import { setLocalPref } from '@/sync/localPrefs';
 
@@ -27,6 +32,11 @@ export type Direction = 'ltr' | 'rtl';
 export type PageMode = 'single' | 'double';
 /** 阅读方式：竖向滚动 / 左右翻页 */
 export type ReaderMode = 'scroll' | 'paged';
+
+/** 同步数据是不可信输入，落在 DOM/状态之前先收窄 */
+export function isReaderMode(v: unknown): v is ReaderMode {
+  return v === 'scroll' || v === 'paged';
+}
 /** 背景色（阅读器底色） */
 export type BgColor = 'black' | 'dark' | 'sepia' | 'gray';
 /**
@@ -42,11 +52,6 @@ export type TurnAnim = 'none' | 'slide' | 'flip';
 
 /** 每本书各自记的偏好 */
 export interface BookPrefs {
-  /**
-   * 阅读方式。条漫多用滚动、单行本多用翻页，所以它是**书**的性质而不是设备的。
-   * 没有记录的老书记的是全局默认值（见 loadPrefs 的兼容分支）。
-   */
-  mode: ReaderMode;
   fit: FitMode;
   direction: Direction;
   pageMode: PageMode;
@@ -113,12 +118,10 @@ export interface DevicePrefs {
   enhanceScreen: boolean;
 }
 
-/** 阅读器实际用的那份 = 单书 + 设备 */
-export type ReaderPrefs = BookPrefs & DevicePrefs;
+/** 阅读器实际用的那份 = 单书 + 设备 + 全局默认阅读方式 */
+export type ReaderPrefs = BookPrefs & DevicePrefs & { mode: ReaderMode };
 
 export const DEFAULT_BOOK: BookPrefs = {
-  /* 改动前竖向滚动就是默认值，别让升级顺手换掉老用户的习惯 */
-  mode: 'scroll',
   /*
    * 默认"适应屏幕"就是改动前的行为（object-fit: contain）。
    * 新加一档不该让老用户的阅读体验莫名变掉。
@@ -140,13 +143,18 @@ export const DEFAULT_DEVICE: DevicePrefs = {
   enhanceScreen: false,
 };
 
-export const DEFAULT_PREFS: ReaderPrefs = { ...DEFAULT_BOOK, ...DEFAULT_DEVICE };
+export const DEFAULT_PREFS: ReaderPrefs = {
+  ...DEFAULT_BOOK,
+  ...DEFAULT_DEVICE,
+  /* 改动前竖向滚动就是默认值，别让升级顺手换掉老用户的习惯 */
+  mode: 'scroll',
+};
 
 const KEY = 'readerPrefs';
 const TURN_KEY = 'readerTurnAnim';
 const IMMERSIVE_KEY = 'readerImmersive';
 const ENHANCE_KEY = 'readerEnhance';
-/** 旧版本单独存阅读方式的键。只读一次做迁移，不再写 */
+/** 旧版本单独存全局阅读方式的键。读作兜底，同时继续写一份给旧客户端 */
 const LEGACY_MODE_KEY = 'readerMode';
 
 /**
@@ -155,7 +163,7 @@ const LEGACY_MODE_KEY = 'readerMode';
  * BookPrefs.warm 不在这一列里，是故意的：它是"这本要不要让机器替我铺图"，
  * 由详情页自己写（saveBookPrefs 一个 patch），阅读器既不读也不该顺手盖掉。
  */
-export const BOOK_KEYS = ['mode', 'fit', 'direction', 'pageMode', 'bgColor', 'grayscale'] as const;
+export const BOOK_KEYS = ['fit', 'direction', 'pageMode', 'bgColor', 'grayscale'] as const;
 
 /**
  * 属于这台设备/这份全局的键。
@@ -215,15 +223,19 @@ export function loadPrefs(): ReaderPrefs {
     // 与默认值合并，新增字段在旧版本数据上也能正常生效
     const blob = raw ? (JSON.parse(raw) as Partial<ReaderPrefs>) : {};
     /*
-     * 旧版本把阅读方式单独存在 readerMode 里。第一次用新版时把它接过来，
-     * 否则升级会把已经选好的翻页方式重置成默认的竖向滚动。
-     * 放进 blob 之前，已经存过 mode 的 readerPrefs 仍然优先。
+     * 旧的全局键只在 readerPrefs 没带 mode 时兜底。
+     * 两处都是外部数据，收窄一次再落到状态里，坏值不让阅读器挑错视图。
      */
-    const legacyMode = localStorage.getItem(LEGACY_MODE_KEY);
+    const legacy = localStorage.getItem(LEGACY_MODE_KEY);
+    const mode: ReaderMode = isReaderMode(blob.mode)
+      ? blob.mode
+      : isReaderMode(legacy)
+        ? legacy
+        : DEFAULT_PREFS.mode;
     return {
       ...DEFAULT_PREFS,
-      ...(legacyMode === 'paged' ? { mode: 'paged' as const } : {}),
       ...blob,
+      mode,
       turnAnim: loadTurnAnim(),
       immersive: loadImmersive(),
       enhanceScreen: loadEnhanceScreen(),
@@ -249,6 +261,8 @@ export function savePrefs(p: ReaderPrefs) {
   try {
     const { turnAnim, immersive, enhanceScreen, ...synced } = p;
     setLocalPref(KEY, JSON.stringify(synced));
+    /* 旧客户端只认这个全局键，过渡期镜像一份；新客户端读 readerPrefs.mode */
+    setLocalPref(LEGACY_MODE_KEY, p.mode);
     localStorage.setItem(TURN_KEY, turnAnim);
     localStorage.setItem(IMMERSIVE_KEY, immersive ? '1' : '0');
     localStorage.setItem(ENHANCE_KEY, enhanceScreen ? '1' : '0');

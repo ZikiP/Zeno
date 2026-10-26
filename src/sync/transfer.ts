@@ -3,6 +3,7 @@ import { listBookPrefs } from '@/store/bookPrefs';
 import { getShelf } from '@/store/shelf';
 import { getBookmarks } from '@/store/bookmarks';
 import { listTombstones } from '@/store/tombstones';
+import { listBookModeSettings } from './bookModes';
 import { serverNow } from './clock';
 import type { ShelfEntry } from '@/store/types';
 
@@ -36,6 +37,11 @@ export interface RemoteSnapshot {
 const SYNCED_KEYS = [
   'themeMode',
   'readerPrefs',
+  /*
+   * 旧的全局阅读方式。新客户端读 readerPrefs.mode，写的时候仍镜像这一份，
+   * 让还没升级的客户端至少能继续收到全局默认值；都升级后可删。
+   */
+  'readerMode',
   'enabledPluginIds',
   // 书架排法与格子数：换设备打开应该看到同一个架子（格子数按各设备自己的视口取用）
   'shelfSort',
@@ -144,10 +150,14 @@ function collectLastChapter(shelf: ShelfEntry[]) {
 }
 
 function collectSettings() {
-  return SYNCED_KEYS.map((key) => ({
-    key,
-    value: localStorage.getItem(key),
-    // 单独记一个时间戳，避免每次同步都让所有设置都显得「更新过」
-    updatedAt: Number(localStorage.getItem(`${key}__at`) ?? serverNow()),
-  })).filter((s) => s.value !== null);
+  return [
+    ...SYNCED_KEYS.map((key) => ({
+      key,
+      value: localStorage.getItem(key),
+      // 单独记一个时间戳，避免每次同步都让所有设置都显得「更新过」
+      updatedAt: Number(localStorage.getItem(`${key}__at`) ?? serverNow()),
+    })),
+    /* 每本书的阅读方式是动态键，各自带 __at，和全局设置共用同一张表 */
+    ...listBookModeSettings(),
+  ].filter((s) => s.value !== null);
 }
