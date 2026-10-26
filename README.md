@@ -378,6 +378,21 @@ node --import tsx scripts/pull-plugins.mjs
 | `ZENO_UPDATE_BOOK_MS` | 21600000 | 同一本书最少隔多久再数一次（6 小时） |
 | `ZENO_UPDATE_GAP_MS` | 500 | 一轮里两本书之间的间隔。串着取 + 这个间隔就是全部的对源站礼貌 |
 | `ZENO_UPDATE_START_DELAY_MS` | 60000 | 服务起来后多久跑第一轮。别一开机就抢渲染槽 |
+| `ZENO_BACKUP_MS` | 86400000 | 自动备份间隔（24 小时）。0 = 关闭 |
+| `ZENO_BACKUP_KEEP` | 7 | 保留最近几份备份 |
+| `ZENO_BACKUP_DIR` | 数据库同级 `backups/` | 备份目录。备份是 `VACUUM INTO` 的一致性快照 |
+| `ZENO_LOG_FILE` | 空 | 设置后才写轮转日志；部署包装脚本会设为 `zeno.log`，测试/前台跑不落盘 |
+| `ZENO_LOG_MAX_BYTES` | 5242880 | 单个日志文件上限，超过就归档 |
+| `ZENO_LOG_KEEP` | 5 | 保留最近几份归档 |
+
+### 备份、日志与指标
+
+- 服务启动 15 秒后做第一份数据库备份，之后按 `ZENO_BACKUP_MS` 重复。备份在 `data/backups/`，
+  文件名带时间戳，按份数清理；直接拿它替换 `data/zeno.db` 就能回到那个时刻。
+- `ZENO_LOG_FILE` 设置后，服务会把每条 `console` 输出同时写进该文件，并按大小轮转。
+  部署脚本把 stdout/stderr 留在 `zeno.boot.log`，只用于捕捉 logger 装好之前的启动错误。
+- `GET /api/metrics` 返回进程内存、请求总数和按路由聚合的耗时/错误；和 health 一样，
+  设了 `SYNC_TOKEN` 就要带令牌。
 
 ### 图片缓存
 

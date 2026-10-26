@@ -268,16 +268,38 @@ export function currentSeq() {
 /**
  * 拉取同步快照
  *
- * 当前是**全量**：各表整份返回。`sinceSeq` 只为兼容旧客户端保留，不参与查询 ——
- * change_log 只记了实体类型，没有行键，靠它无法重建真正的增量。数据量小的时候
- * 全量更不容易出错；数据大了再改协议，别让注释假装它已经支持增量。
+ * 有变化时仍是**全量**：change_log 只记了实体类型、没有行键，靠它重建不了
+ * 真正的按行增量。但客户端带着上次的 seq 来、而服务端一条新变更都没有时，
+ * 返回一个 `unchanged: true` 的空快照就够了 —— 空闲轮询不该每次都搬整库。
+ *
+ * 客户端上次的 seq 比服务端还大（服务端换库/回滚）时照旧给全量，
+ * 让它按当前库重新对齐。
  */
 export function pull(sinceSeq = 0) {
   const d = openDb();
   const seq = currentSeq();
+  const since = Number.isFinite(sinceSeq) ? Math.trunc(sinceSeq) : 0;
+
+  if (since > 0 && since === seq) {
+    return {
+      seq,
+      sinceSeq: since,
+      unchanged: true,
+      plugins: [],
+      shelf: [],
+      positions: [],
+      lastChapter: [],
+      bookmarks: [],
+      bookPrefs: [],
+      settings: [],
+      deletes: [],
+    };
+  }
 
   return {
     seq,
+    sinceSeq: since,
+    unchanged: false,
     // 各表全量返回。数据量小（几十 KB），全量比增量更不容易出错
     plugins: d.prepare('SELECT * FROM plugins ORDER BY updated_at').all(),
     shelf: d.prepare('SELECT * FROM shelf ORDER BY added_at').all(),
@@ -287,7 +309,6 @@ export function pull(sinceSeq = 0) {
     bookPrefs: d.prepare('SELECT * FROM book_prefs').all(),
     settings: d.prepare('SELECT * FROM settings').all(),
     deletes: d.prepare('SELECT * FROM deletes ORDER BY updated_at').all(),
-    sinceSeq,
   };
 }
 

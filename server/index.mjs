@@ -27,6 +27,9 @@ import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 
 import { openDb, pruneHistory } from './db.mjs';
+import { startBackupLoop } from './backup.mjs';
+import { installRotatingLog, logConfig } from './log.mjs';
+import { recordRequest } from './metrics.mjs';
 import { allowedHosts, refreshAllowed } from './allowlist.mjs';
 import { handleSyncApi } from './sync-api.mjs';
 import { handleProxy } from './proxy.mjs';
@@ -39,6 +42,10 @@ import { handleUpdatesApi, startUpdateScheduler } from './updates.mjs';
 import { handleWarmApi, startWarmLoop, stopWarmLoop } from './warm.mjs';
 import { resolveStatic, sendFile, isHashedAsset } from './static.mjs';
 import { json, makeAuth } from './respond.mjs';
+
+/* 接管理论上最早——之后所有 console 都会同时进轮转文件 */
+const LOG_FILE = installRotatingLog();
+const logCfg = logConfig();
 
 const PORT = Number(process.env.PORT || 8788);
 const DIST_DIR = resolve(process.env.DIST_DIR || './dist');
@@ -56,6 +63,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS ?? '')
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   const path = url.pathname;
+  const startedAt = process.hrtime.bigint();
 
   try {
     /*
@@ -145,6 +153,8 @@ const server = createServer(async (req, res) => {
     console.error('[zeno] request failed:', e);
     if (!res.headersSent) json(res, e.status ?? 500, { error: e.message });
     else res.end();
+  } finally {
+    recordRequest(path, res.statusCode, Number(process.hrtime.bigint() - startedAt) / 1e6);
   }
 });
 
@@ -185,6 +195,7 @@ void reconcile().catch((e) => console.warn('[zeno] 缓存对账失败：', e.mes
 
 const token = process.env.SYNC_TOKEN || '';
 const updates = startUpdateScheduler();
+const backups = startBackupLoop();
 /* 预热走的是自己那条回环，所以要把真正在用的端口和令牌交给它 */
 const warm = startWarmLoop({ port: PORT, token });
 
@@ -201,6 +212,25 @@ server.listen(PORT, '0.0.0.0', () => {
     `  ├─ 图片缓存  ${cdir ? `${cdir}（上限 ${Math.round(cacheMaxBytes() / 1048576)}MB）` : '已关闭'}`,
   );
   console.log(`  ├─ 字体目录  ${fontsDir()}（放 zip 或 ttf/otf，设置页自动识别）`);
+  console.log(
+    `  ├─ 运行日志  ${
+      logCfg
+        ? `${LOG_FILE}（${Math.round(logCfg.maxBytes / 1048576)}MB × ${logCfg.keep} 份）`
+        : '仅 stdout（ZENO_LOG_FILE 未设置）'
+    }`,
+  );
+  const backupEvery = backups
+    ? backups.everyMs >= 3600000
+      ? `${Math.max(1, Math.round(backups.everyMs / 3600000))} 小时`
+      : `${Math.max(1, Math.round(backups.everyMs / 60000))} 分钟`
+    : '';
+  console.log(
+    `  ├─ 自动备份  ${
+      backups
+        ? `${backups.dir}（每 ${backupEvery}，保留 ${backups.keep} 份）`
+        : '已关闭（ZENO_BACKUP_MS=0）'
+    }`,
+  );
   console.log(
     `  ├─ 追更检查  ${
       updates
@@ -234,6 +264,7 @@ server.listen(PORT, '0.0.0.0', () => {
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     console.log(`\n[zeno] ${sig} 收到，退出`);
+    backups?.stop();
     stopWarmLoop(); // 别再在收尾的当口起新一轮预热；铺到一半的那章由启动时的 resumeWarmQueue 补
     server.close(() => process.exit(0));
     /*

@@ -56,7 +56,12 @@ export async function readBody(req, limitBytes = 8 * 1024 * 1024) {
   }
   if (size === 0) return {};
   if (!ct) throw Object.assign(new Error('只接受 application/json'), { status: 415 });
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    /* 坏 JSON 是调用方的问题，别让 index 的兜底把它报成 500 */
+    throw Object.assign(new Error('invalid json'), { status: 400 });
+  }
 }
 
 /**

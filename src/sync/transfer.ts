@@ -20,6 +20,8 @@ export type RemoteRow = Record<string, unknown>;
 
 export interface RemoteSnapshot {
   seq: number;
+  /** 服务端确认"从你上次的 seq 到现在没有变化"，各表都为空，可以跳过落库 */
+  unchanged?: boolean;
   /** 服务端盖响应那一刻的挂钟，客户端用它把自己的钟挪到同一条时间轴上（见 clock.ts） */
   serverTime?: number;
   plugins: RemoteRow[];

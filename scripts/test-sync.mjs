@@ -77,7 +77,14 @@ const again = await api('/api/sync/push', {
   body: JSON.stringify({
     deviceId: 'phone',
     seq: pull.body.seq,
-    plugins: [{ id: 'baozimanga', origin: 'imported', data: '{}', updatedAt: 1000 }],
+    plugins: [
+      {
+        id: 'baozimanga',
+        origin: 'imported',
+        data: JSON.stringify({ format: 'zeno-plugin@1', meta: { id: 'baozimanga', name: '包子漫画' } }),
+        updatedAt: 1000,
+      },
+    ],
     shelf: [{ pluginId: 'baozimanga', slug: 'abc', title: 'x', updatedAt: 1000 }],
     positions: [{ pluginId: 'baozimanga', slug: 'abc', chapterId: '0_1', percent: 42, updatedAt: 1000 }],
     bookmarks: [],
@@ -309,6 +316,53 @@ check(wellKnown.status === 403, `空白名单下合法域名也被拒（HTTP ${w
 console.log('\n=== 8. 客户端上报 ===');
 const clients = await api('/api/sync/clients');
 check(clients.body.clients.length >= 2, `已记录 ${clients.body.clients.length} 台设备`);
+
+console.log('\n=== 9. 无变化快路径 ===');
+const basePull = await api('/api/sync/pull?since=0&deviceId=idle-test');
+const idle = await api(`/api/sync/pull?since=${basePull.body.seq}&deviceId=idle-test`);
+check(idle.body.unchanged === true, 'seq 没变时明确回 unchanged');
+check(
+  idle.body.plugins.length === 0 && idle.body.shelf.length === 0 && idle.body.settings.length === 0,
+  '无变化时不再搬整库',
+);
+const bumped = await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({
+    deviceId: 'idle-test',
+    settings: [{ key: 'idleProbe', value: '"1"', updatedAt: Date.now() }],
+  }),
+});
+check(bumped.status === 200, '写入一条变更');
+const changed = await api(`/api/sync/pull?since=${basePull.body.seq}&deviceId=idle-test`);
+check(changed.body.unchanged === false, '有新变更时回全量');
+check(
+  changed.body.settings.some((s) => s.key === 'idleProbe'),
+  '新变更能拉到',
+);
+
+console.log('\n=== 10. 边界与指标 ===');
+const badJson = await fetch(BASE + '/api/sync/push', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: '{',
+});
+check(badJson.status === 400, `坏 JSON 回 400（HTTP ${badJson.status}）`);
+const badShape = await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({ deviceId: 'x', settings: 'not-an-array' }),
+});
+check(badShape.status === 400, `settings 不是数组回 400（HTTP ${badShape.status}）`);
+const badPlugin = await api('/api/sync/push', {
+  method: 'POST',
+  body: JSON.stringify({
+    deviceId: 'x',
+    plugins: [{ id: 'a', data: JSON.stringify({ meta: { id: 'b' } }) }],
+  }),
+});
+check(badPlugin.status === 400, `插件 meta.id 不一致回 400（HTTP ${badPlugin.status}）`);
+const metrics = await api('/api/metrics');
+check(metrics.status === 200 && metrics.body.requests > 0, 'metrics 可读');
+check(metrics.body.routes?.['/api/sync']?.count > 0, 'metrics 按路由聚合');
 
 console.log('\n' + '='.repeat(52));
 console.log(fails === 0 ? '  全部通过' : `  ${fails} 项失败`);

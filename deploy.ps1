@@ -57,6 +57,9 @@ $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # 放那里会静默失败（*>> 报错但 $ErrorActionPreference='Continue' 吞掉），
 # 结果就是"服务挂了却一行日志都没有"。
 $LogFile = Join-Path $InstallDir 'zeno.log'
+# 启动早期的错误（logger 还没装上、或者模块加载就炸了）落在 boot log；
+# 正常运行日志由 server/log.mjs 按大小轮转写进 zeno.log。
+$BootLogFile = Join-Path $InstallDir 'zeno.boot.log'
 
 function Step($msg) { Write-Host "> $msg" -ForegroundColor Cyan }
 function Ok($msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
@@ -200,8 +203,9 @@ Set-Location -LiteralPath '$InstallDir'
 `$env:PORT = $Port
 `$env:DIST_DIR = '$InstallDir\dist'
 `$env:DB_PATH = '$InstallDir\data\zeno.db'
+`$env:ZENO_LOG_FILE = '$LogFile'
 $debugLine
-& '$nodePath' '$InstallDir\server\index.mjs' 2>&1 | Out-File -FilePath '$LogFile' -Append -Encoding utf8
+& '$nodePath' '$InstallDir\server\index.mjs' 2>&1 | Out-File -FilePath '$BootLogFile' -Append -Encoding utf8
 "@
 Set-Content -Path $wrapper -Value $wrapperContent -Encoding UTF8
 if ($RenderDebug) {

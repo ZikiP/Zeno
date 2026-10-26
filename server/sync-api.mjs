@@ -5,6 +5,7 @@ import { removePlugin } from './deletes.mjs';
 import { allowedHosts, refreshAllowed } from './allowlist.mjs';
 import { renderLoad } from './render.mjs';
 import { json, readBody } from './respond.mjs';
+import { metricsSnapshot } from './metrics.mjs';
 
 /**
  * 同步与状态 API
@@ -38,6 +39,16 @@ export async function handleSyncApi(req, res, url, auth) {
     return true;
   }
 
+  /*
+   * 运行指标：只给带令牌的人看。里面有路由耗时、内存占用，
+   * 公开出去等于把服务端的负载情况告诉 tailnet 里的任何人。
+   */
+  if (path === '/api/metrics') {
+    if (!auth(req)) { json(res, 401, { error: 'unauthorized' }); return true; }
+    json(res, 200, { ...metricsSnapshot(), render: renderLoad() });
+    return true;
+  }
+
   if (path === '/api/sync/clients') {
     if (!auth(req)) { json(res, 401, { error: 'unauthorized' }); return true; }
     json(res, 200, { clients: listClients() });
@@ -61,6 +72,7 @@ export async function handleSyncApi(req, res, url, auth) {
   if (path === '/api/sync/push' && req.method === 'POST') {
     if (!auth(req)) { json(res, 401, { error: 'unauthorized' }); return true; }
     const body = await readBody(req);
+    validateSyncBody(body);
     const deviceId = body.deviceId ?? req.headers['x-device-id'] ?? 'unknown';
     dropFutureRows(body);
     const result = pushAll(body, deviceId);
@@ -112,6 +124,82 @@ const SYNC_ROWS = [
   'settings',
   'deletes',
 ];
+
+/** 单次推送的行数上限。正常多端合并远低于这个数，挡住的是畸形/恶意载荷 */
+const MAX_SYNC_ROWS = 20_000;
+/** 单个设置值上限。字体、插件数据另有自己的大小（readBody 总共 8MB） */
+const MAX_SETTING_BYTES = 256 * 1024;
+const MAX_PLUGIN_BYTES = 2 * 1024 * 1024;
+const MAX_BOOK_PREFS_BYTES = 512 * 1024;
+
+function bad(message) {
+  throw Object.assign(new Error(message), { status: 400 });
+}
+
+/**
+ * 同步载荷的结构校验。
+ *
+ * 服务端是最后一道路口：客户端可能有 bug、也可能是别人改过的页面在打这个端点。
+ * 这里只做"能不能安全交给 merge"的判断，不重复 merge 的冲突逻辑。
+ */
+function validateSyncBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) bad('同步体必须是对象');
+  if (body.deviceId !== undefined && (typeof body.deviceId !== 'string' || body.deviceId.length > 100)) {
+    bad('deviceId 非法');
+  }
+
+  for (const key of SYNC_ROWS) {
+    const rows = body[key];
+    if (rows === undefined) continue;
+    if (!Array.isArray(rows)) bad(`${key} 必须是数组`);
+    if (rows.length > MAX_SYNC_ROWS) bad(`${key} 行数过多`);
+    for (const r of rows) {
+      if (!r || typeof r !== 'object' || Array.isArray(r)) bad(`${key} 的行必须是对象`);
+    }
+  }
+
+  for (const r of body.settings ?? []) {
+    if (typeof r.key !== 'string' || !r.key || r.key.length > 256) bad('settings.key 非法');
+    if (typeof r.value !== 'string' || r.value.length > MAX_SETTING_BYTES) bad('settings.value 非法');
+  }
+
+  for (const r of body.plugins ?? []) {
+    if (typeof r.id !== 'string' || !r.id || r.id.length > 100) bad('plugins.id 非法');
+    if (typeof r.data !== 'string' || !r.data || r.data.length > MAX_PLUGIN_BYTES) bad('plugins.data 非法');
+    let plugin;
+    try {
+      plugin = JSON.parse(r.data);
+    } catch {
+      bad(`插件 ${r.id} 的 data 不是 JSON`);
+    }
+    if (!plugin || typeof plugin !== 'object' || plugin.meta?.id !== r.id) {
+      bad(`插件 ${r.id} 的 meta.id 与 id 不一致`);
+    }
+  }
+
+  for (const r of body.bookPrefs ?? []) {
+    if (typeof r.data !== 'string' || r.data.length > MAX_BOOK_PREFS_BYTES) bad('bookPrefs.data 非法');
+    try {
+      JSON.parse(r.data);
+    } catch {
+      bad('bookPrefs.data 不是 JSON');
+    }
+  }
+
+  const need = (key, fields) => {
+    for (const r of body[key] ?? []) {
+      for (const f of fields) {
+        if (typeof r[f] !== 'string' || !r[f]) bad(`${key}.${f} 非法`);
+      }
+    }
+  };
+  need('shelf', ['pluginId', 'slug']);
+  need('positions', ['pluginId', 'slug', 'chapterId']);
+  need('lastChapter', ['pluginId', 'slug', 'chapterId']);
+  need('bookPrefs', ['pluginId', 'slug']);
+  need('bookmarks', ['key', 'pluginId', 'slug', 'chapterId']);
+  need('deletes', ['kind', 'id']);
+}
 
 /**
  * 丢掉时间戳来自"未来"的同步行。

@@ -51,6 +51,11 @@ const SYNC_INTERVAL = 5 * 60 * 1000;
  * 而挂着的这一轮还挡着后面每 5 分钟一次的触发（inflight 复用同一个 Promise）。
  */
 const SYNC_FETCH_MS = 15_000;
+/**
+ * 上次成功拉取的 seq。只存在这台设备上：它描述的是"我本地已经追到哪"，
+ * 不是要同步的数据。没有它就只能每次 since=0 搬整库。
+ */
+const LAST_SEQ_KEY = 'syncLastSeq';
 
 class SyncManager {
   private state: SyncState = {
@@ -220,30 +225,54 @@ class SyncManager {
        */
       observeServerTime(pushBody.serverTime ?? 0);
 
-      // 2. 拉远端
+      // 2. 拉远端。带上次 seq：服务端确认没变化时只回一个空快照
+      /*
+       * 本地主数据全空但还留着 lastSeq（IndexedDB 被浏览器回收、用户清了站点数据
+       * 的一部分）时必须回 since=0，否则会以为自己已经追平，永远拉不回来。
+       */
+      const local = payload as {
+        plugins?: unknown[];
+        shelf?: unknown[];
+        bookmarks?: unknown[];
+        bookPrefs?: unknown[];
+      };
+      const localEmpty =
+        !local.plugins?.length &&
+        !local.shelf?.length &&
+        !local.bookmarks?.length &&
+        !local.bookPrefs?.length;
+      /*
+       * 这一轮真的推上去了东西时也拉全量：push 可能被服务端按 LWW 合并过，
+       * 只拉"增量"容易把自己刚推的旧值和别处的新值之间的关系看漏。
+       */
+      const applied = pushBody.applied?.total ?? 0;
+      const since = localEmpty || applied > 0
+        ? 0
+        : Number(localStorage.getItem(LAST_SEQ_KEY) ?? 0) || 0;
       const pullRes = await fetch(
-        `${ep}/api/sync/pull?since=0&deviceId=${encodeURIComponent(this.state.deviceId)}`,
+        `${ep}/api/sync/pull?since=${encodeURIComponent(since)}&deviceId=${encodeURIComponent(this.state.deviceId)}`,
         { headers: this.headers(), signal: AbortSignal.timeout(SYNC_FETCH_MS) },
       );
       if (!pullRes.ok) throw new Error(`拉取失败 HTTP ${pullRes.status}`);
       const remote = (await pullRes.json()) as RemoteSnapshot;
       observeServerTime(remote.serverTime ?? 0);
 
-      // 3. 落库
-      await applyRemote(remote);
-
-      /*
-       * 删除已经落到服务端了，本地墓碑剩下的作用只是"下次 push 别把它当还存在的数据传回去"。
-       * 超过 90 天的那些不可能还有设备没同步到，回收掉，避免墓碑表无限增长。
-       */
-      await pruneTombstones();
-
-      /*
-       * 通知 UI 重读。
-       * 不通知的话数据虽然写进去了，但书架、主题这些页面还停在旧状态 ——
-       * 「同步成功但界面没变」是最容易让人以为功能坏了的表现。
-       */
-      emitDataChange();
+      // 3. 落库。没变化就跳过整轮事务和 UI 重读
+      if (!remote.unchanged) {
+        await applyRemote(remote);
+        /*
+         * 删除已经落到服务端了，本地墓碑剩下的作用只是"下次 push 别把它当还存在的数据传回去"。
+         * 超过 90 天的那些不可能还有设备没同步到，回收掉，避免墓碑表无限增长。
+         */
+        await pruneTombstones();
+        /*
+         * 通知 UI 重读。
+         * 不通知的话数据虽然写进去了，但书架、主题这些页面还停在旧状态 ——
+         * 「同步成功但界面没变」是最容易让人以为功能坏了的表现。
+         */
+        emitDataChange();
+      }
+      localStorage.setItem(LAST_SEQ_KEY, String(remote.seq));
 
       this.update({
         online: true,

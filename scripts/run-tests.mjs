@@ -44,6 +44,8 @@ const ALL_SUITES = [
   'test-enhance.ts',
   'test-paging.ts',
   'test-prefs.ts',
+  'test-backup.ts',
+  'test-log.ts',
   'test-enabled.ts',
 ];
 const suites = process.argv.slice(2).length
@@ -59,7 +61,7 @@ async function startServer(port, dbPath, extraEnv = {}) {
   const child = spawn(process.execPath, ['server/index.mjs'], {
     cwd: ROOT,
     stdio: 'ignore',
-    env: { ...process.env, PORT: String(port), DB_PATH: dbPath, ALLOWED_HOSTS: '', ...extraEnv },
+    env: { ...process.env, PORT: String(port), DB_PATH: dbPath, ALLOWED_HOSTS: '', ZENO_BACKUP_MS: '0', ...extraEnv },
   });
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 60; i++) {
