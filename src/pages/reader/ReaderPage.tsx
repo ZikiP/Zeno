@@ -29,7 +29,6 @@ import ReaderPanel, { useReaderPanels } from './ReaderPanels';
 import ReaderBar from '@/components/reader/ReaderBar';
 import ScrollView from '@/components/reader/ScrollView';
 import PagedStage from '@/components/reader/PagedStage';
-import ZoomView from '@/components/reader/ZoomView';
 import ChapterNav from '@/components/reader/ChapterNav';
 import ZoomReset from '@/components/reader/ZoomReset';
 import ReaderProgress from '@/components/reader/ReaderProgress';
@@ -68,7 +67,6 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
 
   const bar = useToolbarVisibility();
   const panels = useReaderPanels();
-  const [zoom, setZoom] = useState<{ src: string; i: number } | null>(null);
   /*
    * 双指放大的状态由两种阅读视图各自持有（手势挂在自己的容器上），
    * 这里只留一份镜像用来决定右下角那颗还原按钮露不露。
@@ -244,13 +242,9 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
       openChapters: () => panels.open('chapters'),
       openBookmarks: () => panels.open('bookmarks'),
       adjustBrightness: (d) => prefs.patch({ brightness: nextBrightness(prefs.value.brightness, d) }),
-      escape: () => {
-        if (zoom) setZoom(null);
-        else back();
-      },
-      zoomOpen: !!zoom,
+      escape: back,
     },
-    [paging, bar, isRTL, prefs, toggleMark, panels, zoom, back],
+    [paging, bar, isRTL, prefs, toggleMark, panels, back],
   );
 
   /* ── 派生 ── */
@@ -262,11 +256,6 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
    * 这里的镜像会留下一个放大的假状态 —— 按钮白挂在右下角。
    */
   useEffect(() => setZoomed(false), [mode]);
-
-  /* ── 放大层独占整个界面 ── */
-  if (zoom) {
-    return <ZoomView src={zoom.src} index={zoom.i} background={bg} onClose={() => setZoom(null)} />;
-  }
 
   return (
     <div className="reader" data-fit={prefs.value.fit} style={{ background: bg }}>
@@ -349,7 +338,6 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
            */
           onEndTap={() => autoNext.tapEnd()}
           onTap={bar.toggle}
-          onZoom={(src, i) => setZoom({ src, i })}
           onZoomedChange={setZoomed}
         />
       ) : (
@@ -365,7 +353,6 @@ export default function ReaderPage({ slug, chapterId }: { slug: string; chapterI
           hudVisible={bar.visible}
           resetToken={zoomTick}
           onToggleHud={bar.toggle}
-          onZoom={(src, i) => setZoom({ src, i })}
           onZoomedChange={setZoomed}
           prevId={prevId}
           nextId={nextId}

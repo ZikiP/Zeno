@@ -21,7 +21,6 @@ export default function PagedStage({
   hudVisible,
   resetToken,
   onToggleHud,
-  onZoom,
   onZoomedChange,
   prevId,
   nextId,
@@ -43,7 +42,6 @@ export default function PagedStage({
   /** 变一次还原一次：右下角那颗按钮 */
   resetToken: number;
   onToggleHud: () => void;
-  onZoom: (src: string, i: number) => void;
   onZoomedChange: (zoomed: boolean) => void;
   prevId: string | null;
   nextId: string | null;
@@ -69,7 +67,6 @@ export default function PagedStage({
        */
       onTapZone={(side) => (side === 'center' ? onToggleHud() : paging.tap(side, rtl))}
       onSwipe={(dir) => (dir === 'forward' ? paging.goForward() : paging.goBack())}
-      onZoom={onZoom}
       onZoomedChange={onZoomedChange}
       edgeHint={
         <EdgeHint

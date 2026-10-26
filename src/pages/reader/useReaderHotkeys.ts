@@ -20,10 +20,8 @@ export interface HotkeyHandlers {
   openChapters: () => void;
   openBookmarks: () => void;
   adjustBrightness: (delta: number) => void;
-  /** Esc 分两级：先关放大层，再退出阅读 */
+  /** Esc 退出阅读 */
   escape: () => void;
-  /** 放大层开着时，其他快捷键都让给它 */
-  zoomOpen: boolean;
 }
 
 export function useReaderHotkeys(h: HotkeyHandlers, deps: unknown[] = []) {
@@ -38,7 +36,6 @@ export function useReaderHotkeys(h: HotkeyHandlers, deps: unknown[] = []) {
         h.escape();
         return;
       }
-      if (h.zoomOpen) return;
 
       switch (e.key) {
         case 'ArrowLeft':

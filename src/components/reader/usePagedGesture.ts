@@ -40,12 +40,7 @@ export function usePagedGesture(args: {
     onSwipe(rtl ? (dx > 0 ? 'forward' : 'back') : dx < 0 ? 'forward' : 'back');
   };
 
-  /**
-   * 这次 click 是不是滑动带出来的尾巴。
-   *
-   * 调用方要在「延迟单击」之前先问一次：滑动后的补点击如果被当成双击的
-   * 第一下，紧接着的一次点击就会被误判成双击放大。
-   */
+  /** 这次 click 是不是滑动带出来的尾巴 */
   const takeSwipe = () => {
     if (!swiped.current) return false;
     swiped.current = false;

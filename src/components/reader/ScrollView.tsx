@@ -16,7 +16,6 @@ export default function ScrollView({
   resetToken,
   onScroll,
   onTap,
-  onZoom,
   onZoomedChange,
   onPullStart,
   onPullHold,
@@ -41,7 +40,6 @@ export default function ScrollView({
   resetToken: number;
   onScroll: (el: HTMLDivElement) => void;
   onTap: () => void;
-  onZoom: (src: string, index: number) => void;
   onZoomedChange: (zoomed: boolean) => void;
   /**
    * 停在章末后又往下推 / 按住不放。这里只报意图，攒不攒、攒多快、
@@ -58,11 +56,6 @@ export default function ScrollView({
 }) {
   const ownRef = useRef<HTMLDivElement>(null);
   const box = containerRef ?? ownRef;
-  /**
-   * 触屏用双指捏合放大，双击放大只留给鼠标；
-   * 这里按最近一次 pointerdown 的输入类型判断，不能按设备猜。
-   */
-  const lastPointer = useRef<string>('mouse');
 
   /*
    * 双指放大落在图片自己的宽度上：量一次不放大时多宽，乘上倍率写成 px。
@@ -231,12 +224,9 @@ export default function ScrollView({
        * 双指交给我们自己。pan-x pan-y 只放开拖动滚动，不留 pinch-zoom。
        */
       style={{ filter, touchAction: 'pan-x pan-y' }}
-      onPointerDownCapture={(e) => {
-        lastPointer.current = e.pointerType || 'mouse';
-      }}
       /*
-       * 长按不再打开放大层（触屏有双指捏合）。但安卓长按图片会弹下载菜单、
-       * iOS 会弹预览，还是得在这里掐掉；事件从 <img> 冒泡上来，一处就够。
+       * 长按不响应。安卓长按图片会弹下载菜单、iOS 会弹预览，
+       * 还是得在这里掐掉；事件从 <img> 冒泡上来，一处就够。
        */
       onContextMenu={(e) => e.preventDefault()}
       onScroll={(e) => onScroll(e.currentTarget)}
@@ -251,9 +241,6 @@ export default function ScrollView({
             fetchPriority={i < 3 ? 'high' : 'auto'}
             enhance={enhance}
             onClick={onTap}
-            onDoubleClick={() => {
-              if (lastPointer.current === 'mouse') onZoom(src, i);
-            }}
             onPhase={(p) => reportPhase(i, p)}
             onRetryReady={registerRetry}
           />

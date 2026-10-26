@@ -14,7 +14,6 @@ export function PagedCells({
   base,
   markedPages,
   enhance,
-  onZoom,
   onScreenPhase,
   onScreenRetry,
 }: {
@@ -25,7 +24,6 @@ export function PagedCells({
   markedPages: Set<number>;
   /** 画面增强（实验） */
   enhance?: boolean;
-  onZoom: (src: string, index: number) => void;
   /**
    * 这一屏的汇总状态。提示画在整屏上而不是每张图里：
    * 分页的点击区盖在图片上面，图里的刷新按钮收不到点击。
@@ -94,7 +92,6 @@ export function PagedCells({
                */
               eager
               fetchPriority="high"
-              onDoubleClick={() => onZoom(src, abs)}
               onPhase={(p) => report(i, p)}
               onRetryReady={registerRetry}
             />

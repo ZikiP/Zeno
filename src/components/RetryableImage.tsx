@@ -26,7 +26,6 @@ export interface RetryableImageProps {
   /** 要拿到那个 <img> 元素本身的调用方用（画面增强要量它的显示宽度、要盯它进不进视野） */
   imgRef?: RefObject<HTMLImageElement>;
   onClick?: () => void;
-  onDoubleClick?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
   /**
    * 这个地址彻底拿不到时告诉调用方一声。
@@ -127,7 +126,6 @@ export function RetryableImage({
   fetchPriority,
   imgRef,
   onClick,
-  onDoubleClick,
   onContextMenu,
   onSourceFailed,
   hidden,
@@ -228,7 +226,6 @@ export function RetryableImage({
       fetchPriority={fetchPriority}
       decoding="async"
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       style={{ opacity: !hidden && state === 'ok' ? 1 : 0 }}
       onLoad={() => {

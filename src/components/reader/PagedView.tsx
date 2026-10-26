@@ -9,17 +9,6 @@ import type { TurnAnim } from '@/reader/prefs';
 /** 演翻页前最多等解码等多久。超了也照演，手势反馈不能拖 */
 const WARM_MS = 90;
 
-/**
- * 鼠标单击要等这么久才执行，用来分辨双击放大。
- *
- * 为什么不能不做：点击区盖在图片上面，双击放大挂在图片上永远收不到事件。
- * 唯一可靠的做法是把单击压后一个双击窗口；代价是鼠标点击翻页慢 220ms
- * （键盘、滑动、触摸都不受影响）。触摸设备靠双指捏合放大，单击直接翻页。
- */
-const TAP_DELAY_MS = 220;
-/** 两次点击落点差这么多以内才算双击 */
-const DOUBLE_TAP_SLOP = 28;
-
 /** 一个槽位里放的内容 */
 interface Screen {
   images: string[];
@@ -60,7 +49,6 @@ export default function PagedView({
   resetToken,
   onTapZone,
   onSwipe,
-  onZoom,
   onZoomedChange,
   edgeHint,
 }: {
@@ -85,7 +73,6 @@ export default function PagedView({
   resetToken: number;
   onTapZone: (side: 'left' | 'right' | 'center') => void;
   onSwipe: (dir: 'forward' | 'back') => void;
-  onZoom: (src: string, index: number) => void;
   /** 放大态变了要说给外面 —— 右下角那颗还原按钮跟着出现 */
   onZoomedChange: (zoomed: boolean) => void;
   edgeHint: React.ReactNode;
@@ -134,7 +121,7 @@ export default function PagedView({
     onZoomedChange,
   });
 
-  const { onTouchStart, onTouchEnd, tap, takeSwipe } = usePagedGesture({
+  const { onTouchStart, onTouchEnd, tap } = usePagedGesture({
     rtl,
     /* 放大后横向拖动是平移着看，不是翻页 */
     enabled: !zoomed,
@@ -149,39 +136,6 @@ export default function PagedView({
         }
       : onTapZone,
   });
-
-  /* ── 双击放大（鼠标）── */
-
-  /*
-   * 延迟执行的单击要拿「到点时最新」的那份手势。
-   * 直接捕获 render 时的 tap 的话，这 220ms 里若切了放大态/换了一屏，
-   * 触发时用的还是旧闭包（比如放大后仍然把侧边点击当成翻页）。
-   */
-  const tapRef = useRef(tap);
-  tapRef.current = tap;
-
-  /**
-   * 最近一次点击来自鼠标还是触摸/手写笔。
-   *
-   * 触屏本来就靠双指捏合放大；再叠一个双击放大只会让每次单击都等 220ms
-   * 去分辨双击。只有鼠标输入才走双击窗口，触摸单击立即翻页。
-   */
-  const lastPointer = useRef<string>('mouse');
-  /** 最近一次单击（还没执行的那一下），用来判断下一击是不是双击 */
-  const lastTap = useRef<{ x: number; y: number; at: number } | null>(null);
-  /** 最近一次单击的定时器；更早的那些也都要在卸载时清掉 */
-  const tapTimer = useRef<number | null>(null);
-  const tapTimers = useRef<Set<number>>(new Set());
-
-  useEffect(
-    () => () => {
-      for (const t of tapTimers.current) window.clearTimeout(t);
-      tapTimers.current.clear();
-      tapTimer.current = null;
-      lastTap.current = null;
-    },
-    [],
-  );
 
   /*
    * 适应宽度时一页通常比视口高。页码只说「第几页」，看不出上下还有内容；
@@ -224,101 +178,6 @@ export default function PagedView({
     const timer = window.setTimeout(() => setScrollHint(false), 3000);
     return () => window.clearTimeout(timer);
   }, [scrollHint]);
-
-  /**
-   * 在 (x,y) 底下那一页上打开放大层。
-   *
-   * 点击区盖在图片上，所以不能靠 event.target 找图：自己拿当前台面那层的
-   * 图片矩形去命中。双页时两张图都在 DOM 里，顺序就是 images 的顺序
-   * （右起只是 row-reverse，没有重排数组）。
-   */
-  const zoomAtPoint = useCallback(
-    (x: number, y: number) => {
-      if (zoomed) return;
-      const slot = slots[active];
-      const el = slotRefs.current[active];
-      if (!slot || !el) return;
-
-      const imgs = Array.from(el.querySelectorAll('img'));
-      let idx = -1;
-      for (let i = 0; i < imgs.length; i++) {
-        const r = imgs[i].getBoundingClientRect();
-        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-          idx = i;
-          break;
-        }
-      }
-      /* 点在图片外的留白上：取水平方向最近的那张，别让双击落空 */
-      if (idx < 0) {
-        let best = Infinity;
-        for (let i = 0; i < imgs.length; i++) {
-          const r = imgs[i].getBoundingClientRect();
-          const d = Math.abs((r.left + r.right) / 2 - x);
-          if (d < best) {
-            best = d;
-            idx = i;
-          }
-        }
-      }
-
-      const src = slot.images[idx];
-      if (src) onZoom(src, slot.startIndex + idx);
-    },
-    [active, onZoom, slots, zoomed],
-  );
-
-  /**
-   * 点区的单击：鼠标先压一个双击窗口，触摸/手写笔立即交给手势层。
-   *
-   * 滑动带出来的补点击要先被 takeSwipe 认领掉 —— 否则它会成为双击的第一下，
-   * 下一下正常点击就被误判成放大。
-   */
-  const handleZoneClick = (
-    side: 'left' | 'right' | 'center',
-    e: React.MouseEvent,
-  ) => {
-    if (takeSwipe()) return;
-
-    /* 触摸/手写笔：单击就是单击，不压双击窗口，也不做双击放大 */
-    if (lastPointer.current !== 'mouse') {
-      tapRef.current(side);
-      return;
-    }
-
-    const now = performance.now();
-    const prev = lastTap.current;
-    if (
-      prev &&
-      now - prev.at <= TAP_DELAY_MS &&
-      Math.hypot(e.clientX - prev.x, e.clientY - prev.y) <= DOUBLE_TAP_SLOP
-    ) {
-      if (tapTimer.current !== null) {
-        window.clearTimeout(tapTimer.current);
-        tapTimers.current.delete(tapTimer.current);
-        tapTimer.current = null;
-      }
-      lastTap.current = null;
-      zoomAtPoint(e.clientX, e.clientY);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      tapTimers.current.delete(timer);
-      if (tapTimer.current === timer) {
-        tapTimer.current = null;
-        lastTap.current = null;
-      }
-      tapRef.current(side);
-    }, TAP_DELAY_MS);
-
-    tapTimers.current.add(timer);
-    tapTimer.current = timer;
-    lastTap.current = { x: e.clientX, y: e.clientY, at: now };
-  };
-
-  const notePointer = (e: React.PointerEvent) => {
-    lastPointer.current = e.pointerType || 'mouse';
-  };
 
   const leftLabel = rtl ? '下一页' : '上一页';
   const rightLabel = rtl ? '上一页' : '下一页';
@@ -472,7 +331,7 @@ export default function PagedView({
       style={{ filter, touchAction: zoomed ? 'none' : 'pan-y' }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
-      /* 长按不再开放大层（触屏有双指捏合）；浏览器自己的长按菜单照样掐掉 */
+      /* 浏览器自己的长按菜单掐掉 */
       onContextMenu={(e) => e.preventDefault()}
       onScroll={() => scrollHint && setScrollHint(false)}
     >
@@ -507,7 +366,6 @@ export default function PagedView({
                 base={s.startIndex}
                 markedPages={markedPages}
                 enhance={enhance}
-                onZoom={onZoom}
                 onScreenPhase={i === active ? setPagePhase : undefined}
                 onScreenRetry={i === active ? registerActiveRetry : undefined}
               />
@@ -524,33 +382,30 @@ export default function PagedView({
           这是实测里最影响阅读体验的问题。
         */}
         {/*
-         * 单击统一走 handleZoneClick（鼠标压一个双击窗口，触摸立即执行）；
-         * 鼠标双击在这里放开大层；长按不再触发（触屏有双指捏合）。role/aria 是给读屏用的：
-         * 它们没有 tabIndex，键盘仍是既有的方向键，不会多出三个 Tab 停靠点。
+         * 单击直接交给手势层：滑动带出来的补点击由 tap 自己吞掉。
+         * role/aria 是给读屏用的：它们没有 tabIndex，键盘仍是既有的方向键，
+         * 不会多出三个 Tab 停靠点。
          */}
         <div
           className="paged-tap paged-tap--l"
           role="button"
           tabIndex={-1}
           aria-label={leftLabel}
-          onPointerDown={notePointer}
-          onClick={(e) => handleZoneClick('left', e)}
+          onClick={() => tap('left')}
         />
         <div
           className="paged-tap paged-tap--r"
           role="button"
           tabIndex={-1}
           aria-label={rightLabel}
-          onPointerDown={notePointer}
-          onClick={(e) => handleZoneClick('right', e)}
+          onClick={() => tap('right')}
         />
         <div
           className="paged-tap paged-tap--c"
           role="button"
           tabIndex={-1}
           aria-label="显示或隐藏工具栏"
-          onPointerDown={notePointer}
-          onClick={(e) => handleZoneClick('center', e)}
+          onClick={() => tap('center')}
         />
       </div>
 

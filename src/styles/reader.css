@@ -130,7 +130,7 @@
   width: 100%;
   height: auto;
   margin: 0 auto;
-  /* 长按一律不响应（放大走双指/双击）；iOS 的长按预览也一起关掉 */
+  /* 长按一律不响应（放大走双指）；iOS 的长按预览也一起关掉 */
   -webkit-touch-callout: none;
 }
 
@@ -561,30 +561,6 @@
   transform: scale(1);
 }
 
-
-/* 图片放大 */
-.zoom-view {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  overflow: auto;
-  padding: 20px;
-}
-.zoom-view img {
-  max-width: 100%;
-  height: auto;
-  cursor: zoom-out;
-}
-.zoom-view__hint {
-  margin-top: 14px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
-  flex-shrink: 0;
-}
 
 /* ── 图片适配四档 ───────────────────────────────────
    同一档在两种阅读方式下的含义不同，分开定义：滚动是"往下翻"，分页是"一屏一张"。
