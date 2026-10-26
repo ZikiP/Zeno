@@ -160,10 +160,17 @@ export function useAutoNextChapter(a: {
 
   const pullHold = useCallback(
     (on: boolean) => {
-      if (!armedRef.current || fired.current) return;
+      if (fired.current) return;
+      /*
+       * held 要**无条件**记下来，不能只在已经停在章末时才记。
+       * 手机上的自然手势是"一路往上拉，到章末手指不停、接着按着" ——
+       * touchstart 发生在还没到底的时候，那时 armed 还是 false；
+       * 如果这里跟着提前返回，等 onScroll 把 armed 打开时就没人告诉它
+       * "手还按着"，于是按多久都不涨。见 onScroll 里开闸时补的那一脚。
+       */
       held.current = on;
       if (on) wheelAt.current = performance.now();
-      kick();
+      if (armedRef.current) kick();
     },
     [kick],
   );
@@ -174,8 +181,17 @@ export function useAutoNextChapter(a: {
       // 一屏就放得下的章节没有"章末"可言，别让它在挂上那一刻就等着跳
       if (scrollable <= 0) return arm(false);
       const distance = el.scrollHeight - el.clientHeight - el.scrollTop;
-      if (distance <= BOTTOM_PX) arm(true);
-      else if (distance > RELEASE_PX) {
+      if (distance <= BOTTOM_PX) {
+        /*
+         * 正好在这一下里到底（手指没松）：开闸的同时补一脚帧循环。
+         * 不补的话，那只手要等下一次 touchstart 才算数 —— 而人正看着
+         * "上拉接下一章"那行字往上推，推多久都不会有反应。
+         */
+        if (!armedRef.current) {
+          arm(true);
+          if (held.current) kick();
+        }
+      } else if (distance > RELEASE_PX) {
         // 人往回滚了。蓄到一半的力立刻清空，不许"攒着"下一次用
         held.current = false;
         accMs.current = 0;
@@ -183,7 +199,7 @@ export function useAutoNextChapter(a: {
         arm(false);
       }
     },
-    [arm],
+    [arm, kick],
   );
 
   /** 章末那一行被点下去：明确意图，直接接 */
